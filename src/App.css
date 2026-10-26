@@ -1,4 +1,3 @@
-
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
@@ -10,22 +9,22 @@
   font-optical-sizing: auto;
   font-weight: 400;
 
-  --bg: #171A20;
-  --sidebar: #20252E;
-  --panel: #22262E;
-  --panel-hover: #2C333F;
-  --border: #383E49;
+  --bg: #14161A;
+  --sidebar: #0E1013;
+  --panel: #1C1F25;
+  --panel-hover: #262A32;
+  --border: #333844;
   --text: #F0F2F5;
-  --muted: #B6BEC9;
-  --primary: #A5B4D4;
-  --primary-hover: #BCC8E2;
+  --muted: #A9B0BC;
+  --primary: #5A7DB8;
+  --primary-hover: #7394CC;
   --cyan: var(--primary);
-  --blue: #8296BC;
-  --green: #65B995;
-  --red: #E87979;
-  --warning: #E4BD70;
-  --success-bg: rgba(101, 185, 149, 0.15);
-  --danger-bg: rgba(232, 121, 121, 0.12);
+  --blue: #3E5F96;
+  --green: #35B887;
+  --red: #FF7777;
+  --warning: #E8B65B;
+  --success-bg: rgba(53, 184, 135, 0.16);
+  --danger-bg: rgba(255, 119, 119, 0.12);
   --shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
 
   color: var(--text);
@@ -72,7 +71,9 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* THEME SETTINGS */
+/* =========================
+   THEME SETTINGS
+========================= */
 
 .app {
   min-height: 100vh;
@@ -80,7 +81,7 @@ button:disabled {
   background:
     radial-gradient(
       ellipse at 80% 0%,
-      rgba(130, 150, 188, 0.07),
+      rgba(90, 125, 184, 0.07),
       transparent 38%
     ),
     var(--bg);
@@ -90,50 +91,52 @@ button:disabled {
 .app.dark {
   color-scheme: dark;
 
-  --bg: #171A20;
-  --sidebar: #20252E;
-  --panel: #22262E;
-  --panel-hover: #2C333F;
-  --border: #383E49;
+  --bg: #14161A;
+  --sidebar: #0E1013;
+  --panel: #1C1F25;
+  --panel-hover: #262A32;
+  --border: #333844;
   --text: #F0F2F5;
-  --muted: #B6BEC9;
-  --primary: #A5B4D4;
-  --primary-hover: #BCC8E2;
+  --muted: #A9B0BC;
+  --primary: #5A7DB8;
+  --primary-hover: #7394CC;
   --cyan: var(--primary);
-  --blue: #8296BC;
-  --green: #65B995;
-  --red: #E87979;
-  --warning: #E4BD70;
-  --success-bg: rgba(101, 185, 149, 0.15);
-  --danger-bg: rgba(232, 121, 121, 0.12);
+  --blue: #3E5F96;
+  --green: #35B887;
+  --red: #FF7777;
+  --warning: #E8B65B;
+  --success-bg: rgba(53, 184, 135, 0.16);
+  --danger-bg: rgba(255, 119, 119, 0.12);
   --shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
 }
 
 .app.light {
   color-scheme: light;
 
-  --bg: #F4F5F7;
-  --sidebar: #FFFFFF;
+  --bg: #F2F4F7;
+  --sidebar: #1F2430;
   --panel: #FFFFFF;
-  --panel-hover: #EDF0F4;
-  --border: #E1E4E8;
-  --text: #30343B;
-  --muted: #626B78;
-  --primary: #526581;
-  --primary-hover: #40516B;
+  --panel-hover: #EBEEF3;
+  --border: #D8DDE5;
+  --text: #1B2028;
+  --muted: #555F6E;
+  --primary: #3E5F96;
+  --primary-hover: #2F4B7A;
   --cyan: var(--primary);
-  --blue: #526581;
-  --green: #267A59;
-  --red: #C44545;
-  --warning: #946A19;
-  --success-bg: #E1F2E9;
-  --danger-bg: #FBE9E9;
-  --shadow: 0 8px 25px rgba(25, 35, 50, 0.05);
+  --blue: #3E5F96;
+  --green: #167A55;
+  --red: #C0393B;
+  --warning: #996515;
+  --success-bg: #D9F3E8;
+  --danger-bg: #FDE8E8;
+  --shadow: 0 8px 25px rgba(25, 45, 70, 0.06);
 
   background: var(--bg);
 }
 
-/* MAIN LAYOUT */
+/* =========================
+   MAIN LAYOUT
+========================= */
 
 .main {
   width: min(100%, 1530px);
@@ -214,7 +217,9 @@ button:disabled {
   font-weight: 700;
 }
 
-/* SECTION HEADINGS */
+/* =========================
+   SECTION HEADINGS
+========================= */
 
 .balances-section {
   margin-bottom: 20px;
@@ -247,7 +252,9 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* BALANCE CARDS */
+/* =========================
+   BALANCE CARDS
+========================= */
 
 .balance-grid {
   display: grid;
@@ -271,10 +278,10 @@ button:disabled {
 .balance-card.airtime {
   background: linear-gradient(
     135deg,
-    rgba(130, 150, 188, 0.13),
+    rgba(90, 125, 184, 0.12),
     var(--panel) 75%
   );
-  border-color: rgba(130, 150, 188, 0.32);
+  border-color: rgba(90, 125, 184, 0.35);
 }
 
 .balance-card.used {
@@ -289,10 +296,10 @@ button:disabled {
 .balance-card.tokens {
   background: linear-gradient(
     135deg,
-    rgba(101, 185, 149, 0.12),
+    rgba(53, 184, 135, 0.12),
     var(--panel) 75%
   );
-  border-color: rgba(101, 185, 149, 0.3);
+  border-color: rgba(53, 184, 135, 0.32);
 }
 
 .card-symbol {
@@ -323,7 +330,9 @@ button:disabled {
   text-transform: uppercase;
 }
 
-/* PANELS AND STATISTICS */
+/* =========================
+   PANELS AND STATISTICS
+========================= */
 
 .panel {
   padding: 20px;
@@ -389,7 +398,9 @@ button:disabled {
   color: var(--muted);
 }
 
-/* CHARTS */
+/* =========================
+   CHARTS
+========================= */
 
 .chart-wrap {
   width: 100%;
@@ -409,7 +420,7 @@ button:disabled {
 }
 
 .chart-area {
-  fill: rgba(130, 150, 188, 0.14);
+  fill: rgba(90, 125, 184, 0.13);
 }
 
 .chart-line {
@@ -439,7 +450,9 @@ button:disabled {
   margin-top: 6px;
 }
 
-/* FILTERS */
+/* =========================
+   FILTERS
+========================= */
 
 .filters {
   display: flex;
@@ -471,7 +484,9 @@ button:disabled {
   color: #FFFFFF;
 }
 
-/* TRANSACTIONS */
+/* =========================
+   TRANSACTIONS
+========================= */
 
 .transactions {
   display: flex;
@@ -495,15 +510,15 @@ button:disabled {
   place-items: center;
   border: 1px solid var(--border);
   border-radius: 50%;
-  background: #E8ECF2;
-  color: #526581;
+  background: #E4EBF6;
+  color: #3E5F96;
   font-size: 11px;
   font-weight: 800;
 }
 
 .dark .avatar {
-  background: #30394A;
-  color: #C3CDE0;
+  background: #252E3F;
+  color: #C3D4F0;
 }
 
 .transaction-info {
@@ -545,7 +560,9 @@ button:disabled {
   font-size: 13px;
 }
 
-/* BUTTONS AND AUTOMATION */
+/* =========================
+   BUTTONS AND AUTOMATION
+========================= */
 
 .automation-actions {
   display: grid;
@@ -575,13 +592,12 @@ button:disabled {
 }
 
 .stop-button {
-  background: #C44545;
+  background: #C0393B;
 }
 
 .start-button,
 .primary-button {
   background: var(--primary);
-  color: #FFFFFF;
 }
 
 .start-button:hover:not(:disabled),
@@ -596,7 +612,9 @@ button:disabled {
   line-height: 1.6;
 }
 
-/* SIDEBAR */
+/* =========================
+   SIDEBAR
+========================= */
 
 .sidebar {
   position: fixed;
@@ -690,8 +708,8 @@ button:disabled {
 }
 
 .nav-item.active {
-  background: rgba(130, 150, 188, 0.14);
-  border-color: rgba(130, 150, 188, 0.28);
+  background: rgba(90, 125, 184, 0.13);
+  border-color: rgba(90, 125, 184, 0.3);
   color: var(--primary);
 }
 
@@ -725,7 +743,7 @@ button:disabled {
 
 .status-light.running {
   background: var(--green);
-  box-shadow: 0 0 10px rgba(101, 185, 149, 0.3);
+  box-shadow: 0 0 10px rgba(53, 184, 135, 0.3);
 }
 
 .sidebar-status div {
@@ -753,7 +771,9 @@ button:disabled {
   cursor: pointer;
 }
 
-/* PLACEHOLDER PAGES */
+/* =========================
+   PLACEHOLDER PAGES
+========================= */
 
 .placeholder-page {
   min-height: 360px;
@@ -790,7 +810,9 @@ button:disabled {
   margin-top: 10px;
 }
 
-/* OFFERS PAGE */
+/* =========================
+   OFFERS PAGE
+========================= */
 
 .offers-list,
 .offer-list {
@@ -1028,7 +1050,7 @@ button:disabled {
   color: var(--red);
 }
 
-/* AVAILABILITY AND SIGNATURE ROWS */
+/* Availability and signature rows */
 
 .offer-control-row,
 .offer-setting-row {
@@ -1109,7 +1131,7 @@ button:disabled {
   background: var(--panel-hover);
 }
 
-/* OFFER FORM CONTROLS */
+/* Offer form controls */
 
 .offer-form,
 .offer-form-grid {
@@ -1175,7 +1197,7 @@ button:disabled {
   font-size: 11px;
 }
 
-/* GENERAL INPUTS */
+/* General inputs */
 
 input,
 select,
@@ -1194,7 +1216,9 @@ textarea::placeholder {
   color: var(--muted);
 }
 
-/* RESPONSIVE DESIGN */
+/* =========================
+   RESPONSIVE DESIGN
+========================= */
 
 @media (min-width: 1100px) {
   .sidebar {
@@ -1400,3 +1424,130 @@ textarea::placeholder {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== AUTOBINGWA THEME: Electric Blue (keep at the very bottom) ===== */
+
+.app.light {
+  --bg: #F4F7FF;
+  --card: #FFFFFF;
+  --text: #101828;
+  --soft: #4A5568;
+  --primary: #1F5EFF;
+  --on-primary: #FFFFFF;
+  --border: #D5DDF0;
+  --hover: #E6EDFF;
+  --success: #0A7D4B;
+  --warning: #B45309;
+  --danger: #D32F2F;
+
+  --accent-color: #1F5EFF;
+  --border-color: #D5DDF0;
+  --card-bg: #FFFFFF;
+  --muted-bg: #E6EDFF;
+  --muted-text: #4A5568;
+}
+
+.app.dark {
+  --bg: #0D1117;
+  --card: #161B26;
+  --text: #F2F5FA;
+  --soft: #A9B4C6;
+  --primary: #5B8CFF;
+  --on-primary: #0B1020;
+  --border: #2A3345;
+  --hover: #1F2840;
+  --success: #2DD47F;
+  --warning: #FBBF24;
+  --danger: #FF6B6B;
+
+  --accent-color: #5B8CFF;
+  --border-color: #2A3345;
+  --card-bg: #161B26;
+  --muted-bg: #1F2840;
+  --muted-text: #A9B4C6;
+}
+
+.app { background: var(--bg) !important; color: var(--text) !important; }
+.app h1, .app h2, .app h3, .app strong, .app label, .app p, .app code { color: var(--text) !important; }
+.app small, .app .muted, .app .page-description, .app .page-note,
+.app .demo-note, .app .empty-state, .app .detail-label, .app .offer-price-caption { color: var(--soft) !important; }
+
+.app .sidebar { background: var(--card) !important; border-color: var(--border) !important; }
+.app .brand-mark { background: var(--primary) !important; color: var(--on-primary) !important; }
+.app .nav-item { background: transparent !important; color: var(--text) !important; }
+.app .nav-item:hover { background: var(--hover) !important; }
+.app .nav-item.active { background: var(--primary) !important; color: var(--on-primary) !important; }
+.app .nav-item.active span { color: var(--on-primary) !important; }
+.app .sidebar-status { background: var(--hover) !important; color: var(--text) !important; }
+.app .close-menu { color: var(--text) !important; background: transparent !important; }
+
+.app .topbar { background: var(--card) !important; border-color: var(--border) !important; color: var(--text) !important; }
+.app .menu-button, .app .profile-icon { color: var(--text) !important; background: transparent !important; }
+.app .theme-toggle { background: var(--hover) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+
+.app .panel, .app .stat-card, .app .transaction, .app .offer-card, .app .offer-form-wrap {
+  background: var(--card) !important; border-color: var(--border) !important; color: var(--text) !important;
+}
+.app .stat { background: var(--card) !important; border: 1px solid var(--border) !important; }
+.app .stat span { color: var(--soft) !important; }
+.app .stat.completed strong { color: var(--success) !important; }
+.app .stat.pending strong { color: var(--warning) !important; }
+.app .stat.scheduled strong { color: var(--primary) !important; }
+.app .stat.failed strong { color: var(--danger) !important; }
+
+.app .balance-card { color: var(--on-primary) !important; border: 0 !important; }
+.app .balance-card strong, .app .balance-card span { color: var(--on-primary) !important; }
+.app .balance-card.airtime { background: var(--primary) !important; }
+.app .balance-card.used { background: var(--warning) !important; }
+.app .balance-card.tokens { background: var(--success) !important; }
+
+.app .primary-button { background: var(--primary) !important; color: var(--on-primary) !important; border: 0 !important; }
+.app .primary-button:disabled, .app .start-button:disabled, .app .stop-button:disabled { opacity: 0.5; }
+.app .text-button { background: transparent !important; color: var(--primary) !important; }
+.app .start-button { background: var(--success) !important; color: var(--on-primary) !important; border: 0 !important; }
+.app .stop-button { background: var(--danger) !important; color: var(--on-primary) !important; border: 0 !important; }
+
+.app .filter-chip { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.app .filter-chip.selected { background: var(--primary) !important; color: var(--on-primary) !important; border-color: var(--primary) !important; }
+
+.app .status-badge.completed { background: var(--success) !important; color: var(--on-primary) !important; border: 0 !important; }
+.app .status-badge.pending { background: var(--warning) !important; color: var(--on-primary) !important; border: 0 !important; }
+.app .completed-text { color: var(--success) !important; }
+.app .avatar { background: var(--primary) !important; color: var(--on-primary) !important; }
+
+.app .offer-category { background: var(--hover) !important; color: var(--primary) !important; }
+.app .offer-price, .app .detail-icon { color: var(--primary) !important; }
+.app .offer-signature-strip, .app .offer-alternative { background: var(--hover) !important; }
+.app .offer-dropdown { background: var(--card) !important; border-color: var(--border) !important; }
+.app .offer-dropdown button, .app .offer-detail-action, .app .offer-icon-button { color: var(--text) !important; }
+.app .offer-dropdown .delete-menu-item { color: var(--danger) !important; }
+.app .offer-meta-chip { color: var(--text) !important; border-color: var(--border) !important; }
+
+.app input, .app select, .app textarea {
+  background: var(--card) !important; color: var(--text) !important; border-color: var(--border) !important;
+}
+.app input::placeholder { color: var(--soft) !important; }
+.app option { background: var(--card); color: var(--text); }
+
+.app .chart-grid { stroke: var(--border) !important; }
+.app .chart-line { stroke: var(--primary) !important; }
+.app .chart-area { fill: var(--primary) !important; fill-opacity: 0.15 !important; }
+.app .chart-dot { fill: var(--primary) !important; }
+.app .chart-label { fill: var(--soft) !important; }
+/* ===== END THEME ===== */
+
+/* ===== Home top bar: profile photo and processing mode ===== */
+.app .mode-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.app .mode-chip {
+  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+  background: var(--hover); color: var(--primary) !important; border: 1px solid var(--border);
+}
+.app .profile-photo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.app .profile-icon { overflow: hidden; }
+
+/* ===== Mode button, plus colour fixes for headings and error messages ===== */
+.app button.mode-chip { cursor: pointer; font-family: inherit; }
+.app button.mode-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.app .st-section { color: var(--primary) !important; }
+.app .rp-ph strong { color: var(--primary) !important; }
+.app .tk-err, .app .cl-err, .app .ct-err, .app .rp-err, .app .fb-err, .app .st-err { color: var(--danger) !important; }

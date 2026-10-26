@@ -1,7 +1,18 @@
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
-
+import QuickDialPage from './features/quickdial/QuickDialPage.jsx'
+import AutoRenewalPage from './features/autorenewal/AutoRenewalPage.jsx'
+import TokensPage from './features/tokens/TokensPage.jsx'
+import ClientsPage from './features/clients/ClientsPage.jsx'
+import ContactsPage from './features/contacts/ContactsPage.jsx'
+import AutoRepliesPage from './features/autoreplies/AutoRepliesPage.jsx'
+import ConnectPage from './features/connect/ConnectPage.jsx'
+import FallbackPage from './features/fallback/FallbackPage.jsx'
+import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from './features/settings/SettingsPage.jsx'
+import HomePage from './features/home/HomePage.jsx'
+import ModeDialog from './features/home/ModeDialog.jsx'
+import { saveMode } from './features/home/dataStore.js'
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
   { id: 2, name: 'FAITH KHASOA SIMIYU', phone: '070 459 0730', status: 'Completed', time: '7m ago', initials: 'FS' },
@@ -1269,6 +1280,21 @@ function App() {
   const [filter, setFilter] = useState('All')
   const [showBalances, setShowBalances] = useState(true)
   const [offers, setOffers] = useState(startingOffers)
+    const [profile, setProfile] = useState(loadProfile)
+  const [mode, setMode] = useState(loadMode)
+  const [clock, setClock] = useState(new Date())
+    const [modeOpen, setModeOpen] = useState(false)
+
+  function changeMode(id) {
+    setMode(id)
+    saveMode(id)
+    setModeOpen(false)
+  }
+
+  useEffect(() => {
+    const timer = setInterval(() => setClock(new Date()), 60000)
+    return () => clearInterval(timer)
+  }, [])
 
   const transactions = initialTransactions.filter(transaction =>
     filter === 'All' || transaction.status === filter
@@ -1330,19 +1356,50 @@ function App() {
           </button>
 
           <div className="greeting">
-            <span>Hello,</span>
-            <strong>User</strong>
+            <span>{greetingFor(clock)},</span>
+            <strong>{firstNameOf(profile.fullName) || 'User'}</strong>
           </div>
 
           <div className="topbar-actions">
-            <span className="profile-icon">♙</span>
-            <button className="theme-toggle" onClick={() => setLight(!light)}>
-              {light ? '☾ Dark' : '☼ Light'}
-            </button>
+            <span className="profile-icon">
+              {profile.photo ? <img className="profile-photo" src={profile.photo} alt="" /> : '♙'}
+            </span>
+            <div className="mode-stack">
+              <button className="theme-toggle" onClick={() => setLight(!light)}>
+                {light ? '☾ Dark' : '☼ Light'}
+              </button>
+              <button className="mode-chip" onClick={() => setModeOpen(true)} aria-label="Change processing mode">
+                {mode} Mode ▾
+              </button>
+            </div>
           </div>
         </header>
 
         {activePage === 'Home' ? (
+          <>
+            <HomePage
+              offers={offers}
+              onOpenTokens={() => setActivePage('Tokens')}
+            />
+
+            <div className="automation-actions">
+              <button
+                className="stop-button"
+                onClick={() => setAutomationRunning(false)}
+                disabled={!automationRunning}
+              >
+                ■ Stop automation
+              </button>
+              <button
+                className="start-button"
+                onClick={() => setAutomationRunning(true)}
+                disabled={automationRunning}
+              >
+                ▶ Start automation
+              </button>
+            </div>
+          </>
+        ) : activePage === 'OldHome' ? (
           <>
             <section className="balances-section">
               <div className="section-heading">
@@ -1446,7 +1503,7 @@ function App() {
               Prototype only: these controls do not dial USSD or process real M-Pesa messages.
             </p>
           </>
-        ) : activePage === 'Offers' ? (
+           ) : activePage === 'Offers' ? (
           <section className="panel placeholder-page">
             <OffersPage
               offers={offers}
@@ -1454,8 +1511,62 @@ function App() {
               setActivePage={setActivePage}
             />
           </section>
-        ) : (
+                ) : activePage === 'Offers' ? (
           <section className="panel placeholder-page">
+            <OffersPage
+              offers={offers}
+              setOffers={setOffers}
+              setActivePage={setActivePage}
+            />
+          </section>
+        ) : activePage === 'QuickDial' ? (
+          <section className="panel">
+            <QuickDialPage
+              offers={offers}
+              onBack={() => setActivePage('Home')}
+              onOpenOffers={() => setActivePage('Offers')}
+            />
+          </section>
+        ) : activePage === 'Autorenewal' ? (
+          <section className="panel">
+            <AutoRenewalPage
+              offers={offers.filter(offer => offer.enabled)}
+              onBack={() => setActivePage('Home')}
+            />
+          </section>
+        ) : activePage === 'Tokens' ? (
+          <section className="panel">
+            <TokensPage onBack={() => setActivePage('Home')} />
+          </section>
+                ) : activePage === 'Client Management' ? (
+          <section className="panel">
+            <ClientsPage onBack={() => setActivePage('Home')} />
+          </section>
+        ) : activePage === 'Contacts' ? (
+          <section className="panel">
+            <ContactsPage onBack={() => setActivePage('Home')} />
+          </section>
+        ) : activePage === 'Auto Replies' ? (
+          <section className="panel">
+            <AutoRepliesPage onBack={() => setActivePage('Home')} />
+          </section>
+        ) : activePage === 'Autobingwa Connect' ? (
+          <section className="panel">
+            <ConnectPage onBack={() => setActivePage('Home')} />
+          </section>
+        ) : activePage === 'Fallback Plans' ? (
+          <section className="panel">
+            <FallbackPage offers={offers} onBack={() => setActivePage('Home')} />
+          </section>
+        ) : activePage === 'Settings' ? (
+          <section className="panel">
+            <SettingsPage
+              onBack={() => setActivePage('Home')}
+              onProfileChange={setProfile}
+              onModeChange={setMode}
+            />
+          </section>
+        ) : (    <section className="panel placeholder-page">
             <div className="placeholder-icon">◇</div>
             <h1>{activePage}</h1>
             <p>This dashboard section will be built in a later stage.</p>
@@ -1465,6 +1576,10 @@ function App() {
           </section>
         )}
       </main>
+
+      {modeOpen && (
+        <ModeDialog mode={mode} onSelect={changeMode} onClose={() => setModeOpen(false)} />
+      )}
     </div>
   )
 }
