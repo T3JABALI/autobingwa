@@ -1,4 +1,5 @@
-
+import Signature from './Signature.jsx'
+import Offers from './Offers.jsx'
 import { useEffect, useState } from 'react'
 import './App.css'
 import QuickDialPage from './features/quickdial/QuickDialPage.jsx'
@@ -12,6 +13,7 @@ import FallbackPage from './features/fallback/FallbackPage.jsx'
 import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from './features/settings/SettingsPage.jsx'
 import HomePage from './features/home/HomePage.jsx'
 import ModeDialog from './features/home/ModeDialog.jsx'
+import Toaster from './features/notify/Toaster.jsx'
 import { saveMode } from './features/home/dataStore.js'
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
@@ -1273,6 +1275,11 @@ function OffersPage({ offers, setOffers, setActivePage }) {
 }
 
 function App() {
+    const [myOffers, setMyOffers] = useState(() => {
+  try { return JSON.parse(localStorage.getItem('myOffers')) || [] } catch { return [] }
+})
+useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
+const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
   const [light, setLight] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
@@ -1413,19 +1420,19 @@ function App() {
                 <article className="balance-card airtime">
                   <span className="card-symbol">▯</span>
                   <strong>{showBalances ? 'KES 11,274.24' : 'KES ••••••'}</strong>
-                  <span>Airtime balance</span>
+                  <span>Balance</span>
                 </article>
 
                 <article className="balance-card used">
                   <span className="card-symbol">◷</span>
                   <strong>{showBalances ? 'KES 286.00' : 'KES ••••••'}</strong>
-                  <span>Airtime used</span>
+                  <span>Used</span>
                 </article>
 
                 <article className="balance-card tokens">
                   <span className="card-symbol">▤</span>
                   <strong>2w 6d</strong>
-                  <span>Tokens / Subscription</span>
+                  <span>Tokens</span>
                 </article>
               </div>
             </section>
@@ -1449,7 +1456,10 @@ function App() {
             </section>
 
             <section className="panel recent">
-              <div className="section-heading"><h2>Recent transactions</h2></div>
+<div className="section-heading">
+  <h2>Recent transactions</h2>
+  <button className="text-button" onClick={() => setActivePage('Transactions')}>View all</button>
+</div>
 
               <div className="filters">
                 {['All', 'Completed', 'Pending', 'Failed', 'Scheduled', 'Unmatched', 'Sitelink'].map(item => (
@@ -1464,7 +1474,7 @@ function App() {
               </div>
 
               <div className="transactions">
-                {transactions.length ? transactions.map(transaction => (
+                {transactions.length ? transactions.slice(0, 3).map(transaction => (
                   <article className="transaction" key={transaction.id}>
                     <div className="avatar">{transaction.initials}</div>
                     <div className="transaction-info">
@@ -1503,14 +1513,10 @@ function App() {
               Prototype only: these controls do not dial USSD or process real M-Pesa messages.
             </p>
           </>
-           ) : activePage === 'Offers' ? (
-          <section className="panel placeholder-page">
-            <OffersPage
-              offers={offers}
-              setOffers={setOffers}
-              setActivePage={setActivePage}
-            />
-          </section>
+          ) : activePage === 'Signature' ? (
+  <Signature owned={myOffers} onDownload={saveOffer} />
+) : activePage === 'Offers' ? (
+          <Offers offers={myOffers} onSave={saveOffer} />
                 ) : activePage === 'Offers' ? (
           <section className="panel placeholder-page">
             <OffersPage
@@ -1576,7 +1582,7 @@ function App() {
           </section>
         )}
       </main>
-
+      <Toaster />
       {modeOpen && (
         <ModeDialog mode={mode} onSelect={changeMode} onClose={() => setModeOpen(false)} />
       )}

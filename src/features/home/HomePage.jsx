@@ -123,7 +123,7 @@ export default function HomePage({ offers = [], onOpenTokens }) {
   const recent = txs
     .filter((t) => filter === 'All' || t.status === filter)
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 10)
+    .slice(0, 5)
 
   const tx = view.id ? txs.find((t) => t.id === view.id) : null
   const screen = tx ? view.name : 'home'

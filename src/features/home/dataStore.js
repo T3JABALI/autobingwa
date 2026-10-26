@@ -1,3 +1,5 @@
+import { notify } from '../notify/notify.js'
+
 const TX_KEY = 'transactions:list'
 const AIRTIME_KEY = 'airtime:balance'
 const WALLET_KEY = 'tokens:wallet'
@@ -59,6 +61,16 @@ export function saveMode(mode) {
   write(CONFIG_KEY, { ...read(CONFIG_KEY, {}), mode })
 }
 
+function announce(tx) {
+  const what = tx.offerName || 'Transaction'
+  const who = tx.name || tx.phone
+  const to = who ? ` for ${who}` : ''
+  if (tx.status === 'Pending') notify(`Processing ${what}${to}...`, 'processing', 'Processing')
+  else if (tx.status === 'Completed') notify(`${what} completed${to}`, 'success', 'Successful')
+  else if (tx.status === 'Failed') notify(`${what} failed${to}`, 'error', 'Failed')
+  else if (tx.status === 'Scheduled') notify(`${what} scheduled${to}`, 'info', 'Scheduled')
+}
+
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
 // Airtime and tokens go down when a transaction completes.
@@ -85,6 +97,7 @@ export function addTransaction(data) {
     tx.completedAt = tx.completedAt || now
     applyCompletion(tx)
   }
+  announce(tx)
   write(TX_KEY, [tx, ...loadTransactions()])
   return tx
 }
@@ -98,6 +111,7 @@ export function updateTransaction(id, patch) {
     next.completedAt = Date.now()
     applyCompletion(next)
   }
+  if (patch.status && patch.status !== old.status) announce(next)
   write(TX_KEY, list.map((t) => (t.id === id ? next : t)))
 }
 
