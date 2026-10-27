@@ -1,3 +1,4 @@
+import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
 import Offers from './Offers.jsx'
 import { useEffect, useState } from 'react'
@@ -24,13 +25,13 @@ const initialTransactions = [
 ]
 
 const navigation = [
-  'Home', 'Offers', 'QuickDial', 'Autorenewal', 'Sitelink',
+  'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
   'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
   'Auto Replies', 'Autobingwa Connect', 'Fallback Plans',
   'Settings', 'Updates',
 ]
 
-const navIcons = ['⌂', '◇', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷']
+const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷']
 
 const chartValues = [120, 190, 290, 280, 460, 490, 820]
 
@@ -1274,19 +1275,45 @@ function OffersPage({ offers, setOffers, setActivePage }) {
   )
 }
 
+// Converts an offer from the new Offers page into the shape older pages expect
+const toOldShape = (o) => ({
+  id: o.id,
+  enabled: o.enabled,
+  category: o.category,
+  name: o.name,
+  ussd: o.ussd,
+  sellingPrice: o.price,
+  safaricomPrice: o.safPrice,
+  paymentMode: o.payment,
+  executionSim: o.execSim,
+  notificationSim: o.notifSim,
+  ussdType: o.type,
+  autoRetry: o.autoRetry ? 'Failed or pending' : 'Off',
+  retryCount: o.retryCount || 0,
+  signatureApproved: Boolean(o.signature),
+  verified: Boolean(o.signature),
+  updatedAt: o.updated || 'Not recorded',
+  alternativeId: '',
+  useWindow: false,
+  availableFrom: '08:00',
+  availableUntil: '18:00',
+  notifyCustomer: true,
+})
+
 function App() {
     const [myOffers, setMyOffers] = useState(() => {
   try { return JSON.parse(localStorage.getItem('myOffers')) || [] } catch { return [] }
 })
 useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
 const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
+const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
   const [light, setLight] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
   const [automationRunning, setAutomationRunning] = useState(true)
   const [filter, setFilter] = useState('All')
   const [showBalances, setShowBalances] = useState(true)
-  const [offers, setOffers] = useState(startingOffers)
+  const offers = myOffers.map(toOldShape)
     const [profile, setProfile] = useState(loadProfile)
   const [mode, setMode] = useState(loadMode)
   const [clock, setClock] = useState(new Date())
@@ -1385,26 +1412,14 @@ const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => 
         {activePage === 'Home' ? (
           <>
             <HomePage
+            automationRunning={automationRunning}
+onToggleAutomation={() => setAutomationRunning(!automationRunning)}
               offers={offers}
               onOpenTokens={() => setActivePage('Tokens')}
             />
 
-            <div className="automation-actions">
-              <button
-                className="stop-button"
-                onClick={() => setAutomationRunning(false)}
-                disabled={!automationRunning}
-              >
-                ■ Stop automation
-              </button>
-              <button
-                className="start-button"
-                onClick={() => setAutomationRunning(true)}
-                disabled={automationRunning}
-              >
-                ▶ Start automation
-              </button>
-            </div>
+            
+        
           </>
         ) : activePage === 'OldHome' ? (
           <>
@@ -1513,18 +1528,12 @@ const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => 
               Prototype only: these controls do not dial USSD or process real M-Pesa messages.
             </p>
           </>
-          ) : activePage === 'Signature' ? (
-  <Signature owned={myOffers} onDownload={saveOffer} />
-) : activePage === 'Offers' ? (
-          <Offers offers={myOffers} onSave={saveOffer} />
-                ) : activePage === 'Offers' ? (
-          <section className="panel placeholder-page">
-            <OffersPage
-              offers={offers}
-              setOffers={setOffers}
-              setActivePage={setActivePage}
-            />
-          </section>
+        ) : activePage === 'Smart Data Plans' ? (
+          <SmartPlans owned={myOffers} onDownload={saveOffer} />
+        ) : activePage === 'Signature' ? (
+          <Signature owned={myOffers} onDownload={saveOffer} />
+        ) : activePage === 'Offers' ? (
+<Offers offers={myOffers} onSave={saveOffer} onDelete={deleteOffer} />
         ) : activePage === 'QuickDial' ? (
           <section className="panel">
             <QuickDialPage

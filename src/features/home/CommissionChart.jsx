@@ -1,103 +1,124 @@
+import { useEffect, useRef, useState } from 'react'
+
 export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const money = (n) =>
-  Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-function niceStep(x) {
-  const pow = Math.pow(10, Math.floor(Math.log10(x)))
-  const n = x / pow
-  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * pow
+function scale(max) {
+  if (!(max > 0)) return { top: 40, step: 10 }
+  const rough = max / 4
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)))
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rough)
+  return { top: step * Math.ceil(max / step), step }
 }
 
-function axisMax(peak) {
-  if (peak <= 0) return 100
-  return niceStep(peak / 4) * 4
-}
+const short = (v) => (v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(Math.round(v)))
 
-// Smooth monotone curve, so it never overshoots or shows sharp corners.
-function smoothPath(pts) {
-  const n = pts.length
-  if (n === 0) return ''
-  if (n === 1) return `M${pts[0].x},${pts[0].y}`
-  const dx = []
-  const m = []
-  for (let i = 0; i < n - 1; i++) {
-    dx[i] = pts[i + 1].x - pts[i].x
-    m[i] = (pts[i + 1].y - pts[i].y) / dx[i]
-  }
-  const t = new Array(n)
-  t[0] = m[0]
-  t[n - 1] = m[n - 2]
-  for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2
-  for (let i = 0; i < n - 1; i++) {
-    if (m[i] === 0) {
-      t[i] = 0
-      t[i + 1] = 0
-    } else {
-      const a = t[i] / m[i]
-      const b = t[i + 1] / m[i]
-      const s = a * a + b * b
-      if (s > 9) {
-        const tau = 3 / Math.sqrt(s)
-        t[i] = tau * a * m[i]
-        t[i + 1] = tau * b * m[i]
-      }
+export default function CommissionChart({ values = [], todayIndex = -1 }) {
+  const box = useRef(null)
+  const [size, setSize] = useState({ w: 320, h: 110 })
+
+  useEffect(() => {
+    const el = box.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect
+      if (r.width > 0 && r.height > 0) setSize({ w: Math.floor(r.width), h: Math.floor(r.height) })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const { w, h } = size
+  const max = Math.max(0, ...values)
+  const { top, step } = scale(max)
+  const ticks = []
+  for (let v = 0; v <= top + 1e-9; v += step) ticks.push(v)
+
+  const padL = 30
+  const padR = 14
+  const padT = 16
+  const padB = 18
+  const cw = Math.max(10, w - padL - padR)
+  const ch = Math.max(10, h - padT - padB)
+  const x = (i) => padL + (cw * i) / 6
+  const y = (v) => padT + ch - (v / top) * ch
+
+  const last = todayIndex >= 0 ? Math.min(todayIndex, values.length - 1) : values.length - 1
+  const pts = []
+  for (let i = 0; i <= last; i++) pts.push([x(i), y(values[i] || 0)])
+
+  let line = ''
+  pts.forEach(([px, py], i) => {
+    if (i === 0) {
+      line = `M${px},${py}`
+      return
     }
-  }
-  let d = `M${pts[0].x},${pts[0].y}`
-  for (let i = 0; i < n - 1; i++) {
-    const h = dx[i] / 3
-    d += ` C${pts[i].x + h},${pts[i].y + t[i] * h} ${pts[i + 1].x - h},${pts[i + 1].y - t[i + 1] * h} ${pts[i + 1].x},${pts[i + 1].y}`
-  }
-  return d
-}
-
-export default function CommissionChart({ values, todayIndex, total }) {
-  const W = 400
-  const H = 230
-  const left = 52
-  const right = 14
-  const top = 26
-  const bottom = 34
-  const plotW = W - left - right
-  const plotH = H - top - bottom
-  const shown = values.slice(0, todayIndex + 1)
-  const max = axisMax(Math.max(0, ...shown))
-  const y = (v) => top + plotH - (v / max) * plotH
-  const x = (i) => left + (plotW / 6) * i
-  const ticks = [0, 1, 2, 3, 4].map((k) => (max / 4) * k)
-  const pts = shown.map((v, i) => ({ x: x(i), y: y(v) }))
-  const line = smoothPath(pts)
+    const [qx, qy] = pts[i - 1]
+    const mx = (qx + px) / 2
+    line += ` C${mx},${qy} ${mx},${py} ${px},${py}`
+  })
   const area =
-    pts.length > 1 ? `${line} L${pts[pts.length - 1].x},${y(0)} L${pts[0].x},${y(0)} Z` : ''
+    pts.length > 1
+      ? `${line} L${pts[pts.length - 1][0]},${y(0)} L${pts[0][0]},${y(0)} Z`
+      : ''
+
+  const txt = { fontFamily: 'inherit', fontSize: 9 }
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Daily commission this week, total KES ${money(total)}`}>
-      <text className="hm-axis" x={left - 8} y={12} textAnchor="end">KES</text>
-      {ticks.map((tick) => (
-        <g key={tick}>
-          <line className="hm-grid" x1={left} x2={W - right} y1={y(tick)} y2={y(tick)} />
-          <text className="hm-axis" x={left - 8} y={y(tick) + 4} textAnchor="end">
-            {Number(tick.toFixed(2))}
+    <div ref={box} style={{ position: 'relative', flex: '1 1 0', width: '100%', minWidth: 0, minHeight: 0 }}>
+      <svg
+        width={w}
+        height={h}
+        viewBox={`0 0 ${w} ${h}`}
+        style={{ position: 'absolute', inset: 0, display: 'block' }}
+        role="img"
+        aria-label="Daily commissions this week"
+      >
+        <defs>
+          <linearGradient id="hm-cg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: 'var(--primary)', stopOpacity: 0.32 }} />
+            <stop offset="1" style={{ stopColor: 'var(--primary)', stopOpacity: 0.02 }} />
+          </linearGradient>
+        </defs>
+
+        <text x="2" y="9" style={{ ...txt, fill: 'var(--soft)', fontSize: 8 }}>KES</text>
+
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={padL} x2={w - padR} y1={y(t)} y2={y(t)} style={{ stroke: 'var(--border)', strokeWidth: 1 }} />
+            <text x={padL - 5} y={y(t) + 3} textAnchor="end" style={{ ...txt, fill: 'var(--soft)' }}>
+              {short(t)}
+            </text>
+          </g>
+        ))}
+
+        {area && <path d={area} style={{ fill: 'url(#hm-cg)' }} />}
+        {line && (
+          <path d={line} style={{ fill: 'none', stroke: 'var(--primary)', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }} />
+        )}
+
+        {pts.map(([px, py], i) => (
+          <g key={i}>
+            <circle cx={px} cy={py} r="3" style={{ fill: 'var(--bg)', stroke: 'var(--primary)', strokeWidth: 1.6 }} />
+            {(values[i] || 0) > 0 && (
+              <text x={px} y={Math.max(9, py - 6)} textAnchor="middle" style={{ ...txt, fill: 'var(--text)', fontWeight: 700 }}>
+                {short(values[i])}
+              </text>
+            )}
+          </g>
+        ))}
+
+        {WEEKDAYS.map((d, i) => (
+          <text
+            key={d}
+            x={x(i)}
+            y={h - 4}
+            textAnchor="middle"
+            style={{ ...txt, fill: i === todayIndex ? 'var(--primary)' : 'var(--soft)', fontWeight: i === todayIndex ? 700 : 400 }}
+          >
+            {d}
           </text>
-        </g>
-      ))}
-      {area && <path className="hm-area" d={area} />}
-      {line && <path className="hm-line" d={line} />}
-      {pts.map((p, i) => (
-        <circle key={i} className="hm-dot" cx={p.x} cy={p.y} r="4" />
-      ))}
-      {WEEKDAYS.map((day, i) => (
-        <text
-          key={day}
-          className={`hm-axis ${i === todayIndex ? 'today' : ''}`}
-          x={x(i)}
-          y={H - 10}
-          textAnchor="middle"
-        >
-          {day}
-        </text>
-      ))}
-    </svg>
+        ))}
+      </svg>
+    </div>
   )
 }

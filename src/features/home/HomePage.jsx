@@ -36,6 +36,13 @@ const toTimeValue = (ts) => {
   const d = new Date(ts)
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+// The time shown beside the status on the detail screen
+const execAt = (t) =>
+  t.status === 'Completed' && t.completedAt
+    ? t.completedAt
+    : t.status === 'Scheduled' && t.scheduledFor
+      ? t.scheduledFor
+      : t.createdAt
 
 function ago(ts, now) {
   const mins = Math.max(0, Math.floor((now - ts) / 60000))
@@ -60,14 +67,15 @@ function unlimitedLeft(until, now) {
   return `${d}d ${h}h ${m}m left`
 }
 
-export default function HomePage({ offers = [], onOpenTokens }) {
+export default function HomePage({ offers = [], onOpenTokens, automationRunning = false, onToggleAutomation }) {
   const [txs, setTxs] = useState(loadTransactions)
   const [airtime, setAirtime] = useState(loadAirtime)
   const [wallet, setWallet] = useState(loadWallet)
   const [now, setNow] = useState(Date.now())
   const [hide, setHide] = useState(false)
   const [filter, setFilter] = useState('All')
-  const [view, setView] = useState({ name: 'home', id: null })
+  const [query, setQuery] = useState('')
+  const [view, setView] = useState({ name: 'home', id: null, from: 'home' })
   const [spin, setSpin] = useState(false)
   const [notice, setNotice] = useState('')
   const [open, setOpen] = useState({})
@@ -120,13 +128,22 @@ export default function HomePage({ offers = [], onOpenTokens }) {
   const unlimitedActive = wallet.unlimitedUntil > now
   const mask = (text) => (hide ? '••••••' : text)
 
-  const recent = txs
-    .filter((t) => filter === 'All' || t.status === filter)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 5)
+  // Home shows only the 3 latest
+  const sorted = [...txs].sort((a, b) => b.createdAt - a.createdAt)
+  const recent = sorted.filter((t) => filter === 'All' || t.status === filter).slice(0, 5)
+
+  // Full list page: filter chip + search (name, phone, M-Pesa message/ID, offer)
+  const q = query.trim().toLowerCase()
+  const allList = sorted.filter((t) => {
+    if (filter !== 'All' && t.status !== filter) return false
+    if (!q) return true
+    return [t.name, t.phone, t.mpesaId, t.rawMessage, t.offerName].some((v) =>
+      String(v || '').toLowerCase().includes(q)
+    )
+  })
 
   const tx = view.id ? txs.find((t) => t.id === view.id) : null
-  const screen = tx ? view.name : 'home'
+  const screen = tx ? view.name : view.name === 'all' ? 'all' : 'home'
 
   // ---- Actions ----
   function refreshBalance() {
@@ -140,14 +157,20 @@ export default function HomePage({ offers = [], onOpenTokens }) {
     }, 700)
   }
 
-  function openDetail(id) {
+  function openDetail(id, from = 'home') {
     setOpen({})
     setNotice('')
-    setView({ name: 'detail', id })
+    setView({ name: 'detail', id, from })
   }
 
-  function goHome() {
-    setView({ name: 'home', id: null })
+  function goBack() {
+    setView({ name: view.from === 'all' ? 'all' : 'home', id: null, from: 'home' })
+  }
+
+  function openAll() {
+    setNotice('')
+    setQuery('')
+    setView({ name: 'all', id: null, from: 'home' })
   }
 
   async function copy(text) {
@@ -169,11 +192,11 @@ export default function HomePage({ offers = [], onOpenTokens }) {
     }, 3000)
   }
 
-  function openReschedule(t) {
+ function openReschedule(t) {
     const soon = Date.now() + 5 * 60000
     setWhen({ date: toDateValue(soon), time: toTimeValue(soon) })
     setError('')
-    setView({ name: 'reschedule', id: t.id })
+    setView({ ...view, name: 'reschedule', id: t.id })
   }
 
   function confirmReschedule() {
@@ -182,14 +205,14 @@ export default function HomePage({ offers = [], onOpenTokens }) {
     if (at.getTime() <= Date.now()) return setError('Choose a time in the future')
     updateTransaction(view.id, { status: 'Scheduled', scheduledFor: at.getTime() })
     setNotice(`Rescheduled for ${fmtDate(at.getTime())} at ${fmtTime(at.getTime())}`)
-    setView({ name: 'detail', id: view.id })
+    setView({ ...view, name: 'detail' })
   }
 
   function remove(t) {
     if (!window.confirm('Delete this transaction? This cannot be undone.')) return
     deleteTransaction(t.id)
     setNotice('Transaction deleted')
-    goHome()
+    goBack()
   }
 
   function loadDemo() {
@@ -204,8 +227,62 @@ export default function HomePage({ offers = [], onOpenTokens }) {
       ? t.responses.map((r, i) => `--- Screen ${i + 1} (input: ${r.input}) ---\n${r.text}`).join('\n\n')
       : 'No response recorded yet.'
 
+  // One transaction row, used on Home and on the full list
+  const row = (t, from) => (
+    <button key={t.id} className="hm-row" onClick={() => openDetail(t.id, from)}>
+      <span className="hm-avatar">{initials(t.name || t.phone)}</span>
+      <span className="hm-row-main">
+        <span className="hm-row-name">{t.name || t.phone}{t.verified !== false && <span className="tick"> ✔</span>}</span>
+        <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
+      </span>
+      <span className="hm-row-end">
+        <span className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
+        <span className="when">{ago(t.createdAt, now)}</span>
+      </span>
+    </button>
+  )
+
+  // Compact info card with a copy icon (tap the text to expand)
+  const info = (title, text, copyText, key, lines) => (
+    <div className="hm-ic">
+      <div className="hm-ic-head">
+        <span>{title}</span>
+        <button className="hm-ic-copy" onClick={() => copy(copyText)} aria-label={`Copy ${title}`}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+          </svg>
+        </button>
+      </div>
+      <div
+        className={`hm-ic-text ${open[key] ? 'open' : ''}`}
+        style={open[key] ? undefined : { display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: lines }}
+        onClick={() => toggle(key)}
+        role="button"
+        tabIndex={0}
+      >
+        {text}
+      </div>
+    </div>
+  )
+    const chips = (
+    <div className="hm-chips" role="tablist">
+      {FILTERS.map((f) => (
+        <button
+          key={f}
+          role="tab"
+          aria-selected={filter === f}
+          className={`hm-chip ${filter === f ? 'on' : ''}`}
+          onClick={() => setFilter(f)}
+        >
+          {f}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
-    <div className="hm-page">
+<div className={`hm-page hm-s-${screen}`}>
       <style>{CSS}</style>
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
@@ -236,12 +313,12 @@ export default function HomePage({ offers = [], onOpenTokens }) {
                 >
                   <Icon name="refresh" />
                 </button>
-                <span className="hm-bal-val">{mask(`KES ${money(airtime)}`)}</span>
+{hide ? '••••••' : <><small className="hm-cur">KES</small>{money(airtime)}</>}
                 <span className="hm-bal-label">Airtime balance</span>
               </div>
 
               <div className="hm-bal used">
-                <span className="hm-bal-val">{mask(`KES ${money(airtimeUsed)}`)}</span>
+            {hide ? '••••••' : <><small className="hm-cur">KES</small>{money(airtimeUsed)}</>}    <span className="hm-bal-val"></span>
                 <span className="hm-bal-label">Airtime used</span>
               </div>
 
@@ -278,20 +355,11 @@ export default function HomePage({ offers = [], onOpenTokens }) {
           </section>
 
           <section>
-            <div className="hm-sec-head"><h2>Recent transactions</h2></div>
-            <div className="hm-chips" role="tablist">
-              {FILTERS.map((f) => (
-                <button
-                  key={f}
-                  role="tab"
-                  aria-selected={filter === f}
-                  className={`hm-chip ${filter === f ? 'on' : ''}`}
-                  onClick={() => setFilter(f)}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
+            <button className="hm-linkhead" onClick={openAll} aria-label="Open all transactions">
+              <h2>Recent transactions</h2>
+              <span className="hm-arrow" aria-hidden="true">→</span>
+            </button>
+            {chips}
 
             {recent.length === 0 ? (
               <div className="hm-card hm-empty">
@@ -305,83 +373,78 @@ export default function HomePage({ offers = [], onOpenTokens }) {
                 )}
               </div>
             ) : (
-              <div className="hm-list">
-                {recent.map((t) => (
-                  <button key={t.id} className="hm-row" onClick={() => openDetail(t.id)}>
-                    <span className="hm-avatar">{initials(t.name || t.phone)}</span>
-                    <span className="hm-row-main">
-                      <span className="hm-row-name">{t.name || t.phone}</span>
-                      <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
-                    </span>
-                    <span className="hm-row-end">
-                      <span className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
-                      <span className="when">{ago(t.createdAt, now)}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <div className="hm-list">{recent.map((t) => row(t, 'home'))}</div>
             )}
           </section>
+
+          {onToggleAutomation && (
+            <button
+              className={`hm-bigbtn ${automationRunning ? 'stop' : 'start'}`}
+              onClick={onToggleAutomation}
+            >
+              {automationRunning ? '■ Stop automation' : '▶ Start automation'}
+            </button>
+          )}
+        </>
+      )}
+
+      {screen === 'all' && (
+        <>
+          <div className="hm-head">
+            <button className="hm-icon" onClick={goBack} aria-label="Back to home">
+              <Icon name="back" />
+            </button>
+            <h2>Transactions</h2>
+          </div>
+
+          <input
+            className="hm-search"
+            type="search"
+            placeholder="Search M-Pesa ID, phone or name"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search transactions"
+          />
+          {chips}
+
+          {allList.length === 0 ? (
+            <div className="hm-card hm-empty">
+              <p>{txs.length === 0 ? 'No transactions yet.' : 'No transactions match your search.'}</p>
+            </div>
+          ) : (
+            <div className="hm-list">{allList.map((t) => row(t, 'all'))}</div>
+          )}
         </>
       )}
 
       {screen === 'detail' && tx && (
         <>
           <div className="hm-head">
-            <button className="hm-icon" onClick={goHome} aria-label="Back to home">
+            <button className="hm-icon" onClick={goBack} aria-label="Back">
               <Icon name="back" />
             </button>
             <h2>Transaction</h2>
           </div>
 
-          <div><span className={`hm-status ${TONE[tx.status]}`}>{tx.status}</span></div>
+          <div className="hm-statusrow">
+            <span className={`hm-status ${TONE[tx.status]}`}>{tx.status}</span>
+            <span className="hm-datetime">
+              <span><Icon name="calendar" />{fmtDate(execAt(tx))}</span>
+              <span><Icon name="clock" />{fmtTime(execAt(tx))}</span>
+            </span>
+          </div>
 
           <div className="hm-money">
             <span className="hm-amount">KES {tx.amount}</span>
             <span className="hm-offer">{tx.offerName}</span>
           </div>
 
-          <div className="hm-when">
-            {(() => {
-              const at =
-                tx.status === 'Completed' && tx.completedAt
-                  ? tx.completedAt
-                  : tx.status === 'Scheduled' && tx.scheduledFor
-                    ? tx.scheduledFor
-                    : tx.createdAt
-              return (
-                <>
-                  <span><Icon name="calendar" />{fmtDate(at)}</span>
-                  <span><Icon name="clock" />{fmtTime(at)}</span>
-                </>
-              )
-            })()}
+          {info('M-Pesa message', tx.rawMessage || 'No message saved.', tx.rawMessage || '', 'raw', 4)}
+          <div className="hm-ic-grid">
+            {info('Phone number', tx.phone || 'No phone number saved.', tx.phone || '', 'phone', 1)}
+            {info('USSD', tx.ussd || 'No USSD saved.', tx.ussd || '', 'ussd', 3)}
           </div>
-
-          <InfoCard
-            title="Raw message"
-            text={tx.rawMessage || 'No message saved.'}
-            lines={3}
-            open={open.raw}
-            onToggle={() => toggle('raw')}
-            onCopy={() => copy(tx.rawMessage || '')}
-          />
-          <InfoCard
-            title="USSD"
-            text={tx.ussd || 'No USSD saved.'}
-            lines={3}
-            open={open.ussd}
-            onToggle={() => toggle('ussd')}
-            onCopy={() => copy(tx.ussd || '')}
-          />
-          <InfoCard
-            title="Response"
-            text={responseText(tx)}
-            lines={8}
-            open={open.resp}
-            onToggle={() => toggle('resp')}
-            onCopy={() => copy(responseText(tx))}
-          />
+          {info('USSD response', responseText(tx), responseText(tx), 'resp', 3)}
 
           <div className="hm-actions">
             <button className="hm-act" onClick={() => retry(tx)} disabled={tx.status === 'Completed'}>
@@ -399,13 +462,12 @@ export default function HomePage({ offers = [], onOpenTokens }) {
           )}
         </>
       )}
-
       {screen === 'reschedule' && tx && (
         <>
           <div className="hm-head">
             <button
               className="hm-icon"
-              onClick={() => setView({ name: 'detail', id: tx.id })}
+              onClick={() => setView({ ...view, name: 'detail' })}
               aria-label="Back to transaction"
             >
               <Icon name="back" />
@@ -443,7 +505,7 @@ export default function HomePage({ offers = [], onOpenTokens }) {
           {error && <p className="hm-err" role="alert">{error}</p>}
 
           <button className="hm-btn" onClick={confirmReschedule}>Schedule</button>
-          <button className="hm-btn ghost" onClick={() => setView({ name: 'detail', id: tx.id })}>
+          <button className="hm-btn ghost" onClick={() => setView({ ...view, name: 'detail' })}>
             Cancel
           </button>
         </>
