@@ -1,19 +1,72 @@
 // AutoBingwa engine: runs inside the app. Pure logic, no screens.
 // It talks to the phone through a "bridge" (real one comes from the Android plugin later)
 // and to saved data through a "store".
+import { loadConfig, isBlacklisted } from './config.js'
+
+// ---------- Phone numbers ----------
+// Reads a Kenyan number written any common way:
+// 0797411114, +254797411114, 254797411114, 0117818996, 07 97411114, 0797-411-114, 0797***114
+const CANDIDATE_RE = /\+?\d[\d\s\-*]{7,15}[\d*]/g
+
+export function normalizePhone(token) {
+  const t = String(token || '').replace(/[\s\-().]/g, '')
+  const masked = t.includes('*')
+  const s = t.replace(/^\+/, '')
+  let local = ''
+  if (/^254[17][\d*]{8}$/.test(s)) local = '0' + s.slice(3)
+  else if (/^0[17][\d*]{8}$/.test(s)) local = s
+  else if (/^[17][\d*]{8}$/.test(s)) local = '0' + s
+  return local ? { phone: local, masked } : null
+}
+
+function findPhone(text) {
+  for (const c of String(text || '').match(CANDIDATE_RE) || []) {
+    const n = normalizePhone(c)
+    if (n) return n
+  }
+  return null
+}
 
 // ---------- M-Pesa SMS parsing ----------
+// type: 'mpesa' (personal "You have received"), 'paybill' (has an account number), 'till' (everything else)
+function detectType(raw, account) {
+  if (/you have received/i.test(raw)) return 'mpesa'
+  if (account) return 'paybill'
+  return 'till'
+}
+
 export function parseMpesa(text) {
-  const raw = String(text || '')
-  const code = (raw.match(/^\s*([A-Z0-9]{10})\s+Confirmed/i) || [])[1]
-  const amt = raw.match(/Ksh\s*([\d,]+(?:\.\d{1,2})?)\s+received\s+from\s+(\d{9,12})\s+([^.]+?)\./i)
-  if (!code || !amt) return { code: code || '', amount: 0, phone: '', name: '', ok: false, raw }
-  const digits = amt[2]
+  const raw = String(text || '').replace(/\s+/g, ' ').trim()
+  const code = (raw.match(/^([A-Z0-9]{10})\s+Confirmed/i) || [])[1]
+  const empty = {
+    code: code ? code.toUpperCase() : '', amount: 0, phone: '', name: '',
+    account: '', type: 'till', masked: false, ok: false, raw,
+  }
+  if (!code) return empty
+  if (!/received/i.test(raw)) return empty // sent, withdrawn, paid, balance messages
+
+  const amt = raw.match(/Ksh\.?\s*([\d,]+(?:\.\d{1,2})?)/i) // the first amount is the payment
+  if (!amt) return empty
+
+  const account = (raw.match(/Account(?:\s+Number)?\s+(?!balance\b)([A-Za-z0-9#\-]+)/i) || [])[1] || ''
+  const seg = (raw.match(/\bfrom\s+(.+?)\s+on\s+\d/i) || [])[1] || ''
+
+  const found = findPhone(seg) || findPhone(account)
+  const masked = Boolean(found && found.masked)
+  const name = seg
+    .replace(CANDIDATE_RE, '')
+    .replace(/Account(?:\s+Number)?\s+\S+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
   return {
     code: code.toUpperCase(),
     amount: Number(amt[1].replace(/,/g, '')),
-    phone: `0${digits.slice(-9)}`,
-    name: amt[3].trim(),
+    phone: found && !masked ? found.phone : '',
+    name,
+    account,
+    type: detectType(raw, account),
+    masked,
     ok: true,
     raw,
   }
@@ -22,7 +75,9 @@ export function parseMpesa(text) {
 export const fillPhone = (ussd, phone) => String(ussd).replace(/\bAB\b/g, phone)
 
 // ---------- Engine ----------
-export function createEngine({ store, bridge, getOffers, getMode = () => 'Express', now = () => Date.now() }) {
+export function createEngine({
+  store, bridge, getOffers, getMode = () => 'Express', getConfig = loadConfig, now = () => Date.now(),
+}) {
   let running = false
   let working = false
   const listeners = new Set()
@@ -31,22 +86,40 @@ export function createEngine({ store, bridge, getOffers, getMode = () => 'Expres
   const findOffer = (amount) =>
     getOffers().find((o) => o.enabled && Number(o.price) === Number(amount))
 
+  const typeEnabled = (type) => {
+    const cfg = getConfig()
+    if (type === 'mpesa') return cfg.processMpesa !== false
+    if (type === 'paybill') return cfg.processPaybill !== false
+    return cfg.processTill !== false
+  }
+
   // Every M-Pesa SMS lands here. Nothing is dropped.
   function ingest(sms) {
     const p = parseMpesa(typeof sms === 'string' ? sms : sms.body)
     if (p.code && store.list().some((t) => t.mpesaId === p.code)) return null // same SMS delivered twice
-    const offer = p.ok ? findOffer(p.amount) : null
-    const status = !offer ? 'Unmatched' : running ? 'Pending' : 'Paused'
+    console.log('AB parsed', JSON.stringify(p))
+    if (!p.code || !p.ok) return null // not a payment received, so it is not a transaction
+
+    const blacklisted = Boolean(p.phone && isBlacklisted(p.phone))
+    let skipReason = ''
+    if (!typeEnabled(p.type)) skipReason = 'This message type is switched off in Settings'
+    else if (blacklisted) skipReason = 'Customer is blacklisted'
+
+    const offer = !skipReason && p.phone ? findOffer(p.amount) : null
+    const status = skipReason ? 'Skipped' : !offer ? 'Unmatched' : running ? 'Pending' : 'Paused'
     const tx = store.add({
       id: `${p.code || 'MSG'}-${now()}`,
       mpesaId: p.code,
       name: p.name,
       phone: p.phone,
+      account: p.account,
+      messageType: p.type,
+      blacklisted,
       amount: p.amount,
       rawMessage: p.raw,
       status,
       offerId: offer ? offer.id : null,
-      offerName: offer ? offer.name : 'No matching offer',
+      offerName: skipReason || (offer ? offer.name : p.phone ? 'No matching offer' : 'No customer number in message'),
       ussd: offer ? fillPhone(offer.ussd, p.phone) : '',
       verified: Boolean(offer && (offer.smart || offer.signature || offer.sigEnabled)),
       cost: offer ? Number(offer.safPrice) || 0 : 0,
@@ -134,7 +207,7 @@ export function createEngine({ store, bridge, getOffers, getMode = () => 'Expres
     // Works on ANY status, whatever the last result was
     retry(id) { store.update(id, { status: 'Pending', scheduledFor: null }); pump(true) },
     reschedule(id, at) { store.update(id, { status: 'Scheduled', scheduledFor: at }) },
-        // If the app was closed mid-dial, mark it Failed so it is checked before retrying (avoids a double purchase)
+    // If the app was closed mid-dial, mark it Failed so it is checked before retrying (avoids a double purchase)
     recover() {
       store.list().filter((t) => t.status === 'Processing').forEach((t) =>
         store.update(t.id, {

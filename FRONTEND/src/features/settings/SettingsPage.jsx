@@ -1,55 +1,20 @@
 import { useRef, useState } from 'react'
-import { parsePhone } from '../quickdial/ussd'
+import { normalizePhone } from '../../engine/engine.js'
+import {
+  PROFILE_KEY, CONFIG_KEY, CLIENTS_KEY, readJson, writeJson, loadConfig, savedContactName,
+} from '../../engine/config.js'
 
-const PROFILE_KEY = 'settings:profile'
-const CONFIG_KEY = 'settings:config'
-const CLIENTS_KEY = 'clients:list'
-
-const DEFAULT_CONFIG = {
-  receiveSims: ['SIM 2'],
-  ussdSims: ['SIM 2'],
-  replySims: ['SIM 1'],
-  processMpesa: true,
-  processTill: true,
-  processSitelink: true,
-  autoSave: true,
-  saveSuffix: 'AutoBingwa',
-  portal: false,
-  mode: 'Advanced',
-}
+// Other pages import these from here, so they stay available
+export { loadConfig, savedContactName }
 
 const MODES = [
   { id: 'Express', label: 'Express Mode', desc: 'Processes USSDs that can be completed in one request' },
   { id: 'Advanced', label: 'Advanced Mode', desc: 'Processes USSDs that require multiple steps to complete' },
 ]
 
-function readJson(key, fallback) {
-  try {
-    const v = JSON.parse(localStorage.getItem(key) || 'null')
-    return v === null ? fallback : v
-  } catch (e) {
-    console.error('Could not read ' + key, e)
-    return fallback
-  }
-}
-
-function writeJson(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-    return true
-  } catch (e) {
-    console.error('Could not save ' + key, e)
-    return false
-  }
-}
-
 // ---- Helpers other pages can import ----
 export function loadProfile() {
   return { fullName: '', phone: '', business: '', photo: '', ...readJson(PROFILE_KEY, {}) }
-}
-
-export function loadConfig() {
-  return { ...DEFAULT_CONFIG, ...readJson(CONFIG_KEY, {}) }
 }
 
 export function loadMode() {
@@ -71,13 +36,6 @@ export function greetingFor(date = new Date()) {
 export function firstNameOf(fullName) {
   const first = String(fullName || '').trim().split(/\s+/)[0] || ''
   return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : ''
-}
-
-// Use when saving a new client: savedContactName('Faith Simiyu')
-export function savedContactName(name) {
-  const cfg = loadConfig()
-  const suffix = cfg.saveSuffix.trim()
-  return cfg.autoSave && suffix ? `${name} ${suffix}` : name
 }
 
 function compressPhoto(file) {
@@ -113,14 +71,6 @@ function Switch({ on, onChange, label }) {
   )
 }
 
-function SimIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="st-sim">
-      <path d="M7 2h7l5 5v15H7zM10 12h5M10 16h5" />
-    </svg>
-  )
-}
-
 export default function SettingsPage({ onBack, onProfileChange, onModeChange }) {
   const [screen, setScreen] = useState('main')
   const [profile, setProfile] = useState(loadProfile)
@@ -129,7 +79,8 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
   const [blocked, setBlocked] = useState([])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const fileRef = useRef(null)
+  const galleryRef = useRef(null)
+  const cameraRef = useRef(null)
 
   function updateConfig(patch) {
     const next = { ...config, ...patch }
@@ -137,15 +88,15 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
     writeJson(CONFIG_KEY, next)
   }
 
-  function toggleSim(field, sim) {
-    const list = config[field]
-    if (list.includes(sim)) {
-      if (list.length === 1) return setNotice('Keep at least one SIM selected')
-      updateConfig({ [field]: list.filter((s) => s !== sim) })
+  // One SIM runs payments, USSD, airtime balance and commission. One SIM sends replies.
+  function chooseSim(field, sim) {
+    if (field === 'bingwaSim') {
+      updateConfig({ bingwaSim: sim, receiveSims: [sim], ussdSims: [sim] })
+      setNotice(`${sim} will receive payments, run USSDs and read airtime and commission`)
     } else {
-      updateConfig({ [field]: [...list, sim] })
+      updateConfig({ replySim: sim, replySims: [sim] })
+      setNotice(`${sim} will send auto-replies`)
     }
-    setNotice('')
   }
 
   function chooseMode(id) {
@@ -180,8 +131,9 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
     if (!fullName) return setError('Enter your full name')
     let phone = ''
     if (form.phone.trim()) {
-      phone = parsePhone(form.phone)
-      if (!phone) return setError('Enter a valid phone number')
+      const n = normalizePhone(form.phone)
+      if (!n || n.masked) return setError('Enter a valid phone number, e.g. 0712345678')
+      phone = n.phone
     }
     const next = { fullName, phone, business: form.business.trim(), photo: form.photo }
     if (!writeJson(PROFILE_KEY, next)) return setError('Could not save. The photo may be too large.')
@@ -208,16 +160,19 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
   const suffix = config.saveSuffix.trim()
   const displayName = profile.fullName || 'Add your name'
 
-  const simGroup = (title, field) => (
+  const simPicker = (title, desc, field) => (
     <>
       <h3 className="st-sub">{title}</h3>
-      {['SIM 1', 'SIM 2'].map((sim) => (
-        <div className="st-row" key={sim}>
-          <span className="st-row-label"><SimIcon />{sim}</span>
-          <Switch on={config[field].includes(sim)} onChange={() => toggleSim(field, sim)}
-            label={`${title}: ${sim}`} />
-        </div>
-      ))}
+      {desc && <p className="st-desc">{desc}</p>}
+      <div role="radiogroup" aria-label={title}>
+        {['SIM 1', 'SIM 2'].map((sim) => (
+          <button key={sim} role="radio" aria-checked={config[field] === sim}
+            className={`st-radio ${config[field] === sim ? 'on' : ''}`} onClick={() => chooseSim(field, sim)}>
+            <span className="st-dot" />
+            <span><strong>{sim}</strong></span>
+          </button>
+        ))}
+      </div>
     </>
   )
 
@@ -266,7 +221,6 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
         .st-sub { margin: 20px 0 4px; font-size: 16px; font-weight: 600; }
         .st-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; }
         .st-row-label { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 16px; }
-        .st-sim { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
         .st-switch {
           width: 56px; height: 32px; padding: 0; border-radius: 999px; cursor: pointer; position: relative; flex-shrink: 0;
           border: 2px solid var(--st-border); background: var(--st-hover); transition: background 160ms ease, border-color 160ms ease;
@@ -358,13 +312,17 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
             {notice && <p className="st-note" role="status" style={{ marginTop: 16 }}>{notice}</p>}
 
             <h2 className="st-section">SIM Setup</h2>
-            {simGroup('SIM to receive payments', 'receiveSims')}
-            {simGroup('Bingwa SIM (To run USSDs)', 'ussdSims')}
-            {simGroup('Send Auto-Replies Using', 'replySims')}
+            {simPicker(
+              'Bingwa SIM',
+              'Receives payments and runs USSDs. Airtime balance and Safaricom commission messages are read from this SIM.',
+              'bingwaSim',
+            )}
+            {simPicker('Send Auto-Replies Using', 'This SIM sends every message the app sends.', 'replySim')}
 
             <h2 className="st-section">Message Processing</h2>
             {toggleRow('Process M-Pesa Messages', 'processMpesa')}
             {toggleRow('Process Till Messages', 'processTill')}
+            {toggleRow('Process Paybill Messages', 'processPaybill')}
             {toggleRow('Process SiteLink Messages', 'processSitelink')}
 
             <h2 className="st-section">My Customers</h2>
@@ -373,17 +331,17 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
               <div>
                 <label className="st-label" htmlFor="st-suffix">Common ending for saved names</label>
                 <input id="st-suffix" className="st-field" value={config.saveSuffix} maxLength={30}
-                  placeholder="e.g. Jabali AutoBingwa"
+                  placeholder="e.g. AutoBingwa"
                   onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
                 <p className="st-preview">
-                  Clients will be saved as: <strong>Faith Simiyu{suffix ? ` ${suffix}` : ''}</strong>
+                  Every customer is saved to your phone as: <strong>Faith Simiyu{suffix ? ` ${suffix}` : ''}</strong>
                 </p>
               </div>
             )}
             <button className="st-link" onClick={openBlacklist}>
               <span>
                 <strong>BlackList ({blockedCount})</strong>
-                <span className="d">Blacklisted customers will not be recommended offers</span>
+                <span className="d">Blacklisted customers are not processed and not saved to contacts</span>
               </span>
               <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></svg>
             </button>
@@ -435,14 +393,18 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
                 )}
               </div>
               <div className="st-chips">
-                <button className="st-chip" onClick={() => fileRef.current && fileRef.current.click()}>
-                  {form.photo ? 'Change photo' : 'Add photo'}
+                <button className="st-chip" onClick={() => galleryRef.current && galleryRef.current.click()}>
+                  Choose from gallery
+                </button>
+                <button className="st-chip" onClick={() => cameraRef.current && cameraRef.current.click()}>
+                  Take photo
                 </button>
                 {form.photo && (
                   <button className="st-chip" onClick={() => setForm({ ...form, photo: '' })}>Remove</button>
                 )}
               </div>
-              <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickPhoto} />
+              <input ref={galleryRef} type="file" accept="image/*" hidden onChange={pickPhoto} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={pickPhoto} />
             </div>
 
             <label className="st-label" htmlFor="st-name">Full name</label>
@@ -455,7 +417,7 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
               onChange={(e) => setForm({ ...form, phone: e.target.value })} />
 
             <label className="st-label" htmlFor="st-biz">Business name (optional)</label>
-            <input id="st-biz" className="st-field" value={form.business} placeholder="e.g. Bingwa Hybrid"
+            <input id="st-biz" className="st-field" value={form.business} placeholder="e.g. AutoBingwa"
               onChange={(e) => setForm({ ...form, business: e.target.value })} />
 
             {error && <p className="st-err" role="alert">{error}</p>}
@@ -473,10 +435,10 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
               </button>
               <h1>BlackList ({blocked.length})</h1>
             </div>
-            <p className="st-desc">Blacklisted customers will not be recommended offers.</p>
+            <p className="st-desc">Blacklisted customers are not processed and not saved to contacts.</p>
             {notice && <p className="st-note" role="status" style={{ marginTop: 14 }}>{notice}</p>}
             {blocked.length === 0 ? (
-              <p className="st-empty">No blocked contacts. You can blacklist a client from the Clients page.</p>
+              <p className="st-empty">No blocked contacts. Block a client from the Clients page and they will appear here.</p>
             ) : (
               blocked.map((c) => (
                 <div className="st-block" key={c.id}>

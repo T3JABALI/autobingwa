@@ -1,3 +1,4 @@
+import { askPermissions, startSmsBridge } from './native.js'
 import { createEngine } from './engine.js'
 import {
   loadTransactions, addTransaction, updateTransaction, deleteTransaction,
@@ -62,3 +63,7 @@ if (import.meta.env.DEV) {
     )
   }
 }
+
+askPermissions()
+  .then(() => startSmsBridge(engine))
+  .catch((e) => console.error(e))
