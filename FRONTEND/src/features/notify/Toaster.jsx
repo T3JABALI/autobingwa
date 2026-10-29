@@ -2,50 +2,65 @@ import { useEffect, useState } from 'react'
 import { TOAST_EVENT } from './notify.js'
 import { CSS } from './toastStyles.js'
 
-const QUOTES = [
-  'Automation Meets Ultimate Speeds.',
-  'Consistency Powered by AUTOBINGWA',
-  'Every Transaction Counts. Keep Going.',
-  'Speed Today. Profit Tomorrow.',
-  'Small Sales, Big Success. Stay Consistent.',
-]
+// Only these two kinds ever show. Everything else stays silent.
+const SHOW = ['processing', 'failed', 'error']
 
 export default function Toaster() {
-  const [items, setItems] = useState([])
+  const [item, setItem] = useState(null)
 
   useEffect(() => {
-    let n = 0
-    const show = (message, type = 'info', title = '') => {
-      const id = Date.now() + Math.random()
-      setItems((list) => [...list.slice(-2), { id, message, type, title }])
-      setTimeout(() => setItems((list) => list.filter((t) => t.id !== id)), type === 'motivation' ? 6000 : 4500)
+    let current = null
+    let queue = []
+    let timer = null
+
+    const put = (n) => { current = n; setItem(n) }
+    const arm = (n) => { timer = setTimeout(advance, n.type === 'processing' ? 40000 : 4000) }
+    function advance() {
+      clearTimeout(timer)
+      const n = queue.shift() || null
+      put(n)
+      if (n) arm(n)
     }
-    const onToast = (e) => show(e.detail.message, e.detail.type, e.detail.title)
+
+    const onToast = (e) => {
+      const { message, type = 'info', title = '' } = e.detail || {}
+
+      if (!SHOW.includes(type)) {
+        // A result such as "completed" ends a Processing pop-up and shows nothing itself
+        if (current && current.type === 'processing') advance()
+        return
+      }
+
+      const n = { message, type, title }
+      if (current && current.message === message && current.type === type) return
+      const last = queue[queue.length - 1]
+      if (last && last.message === message && last.type === type) return
+
+      if (!current) { put(n); arm(n); return }
+      if (current.type === 'processing') { clearTimeout(timer); put(n); arm(n); return }
+      queue.push(n)
+      if (queue.length > 3) queue.shift()
+    }
+
     window.addEventListener(TOAST_EVENT, onToast)
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') show(QUOTES[n++ % QUOTES.length], 'motivation', 'AUTOBINGWA')
-    }, 60000)
     return () => {
       window.removeEventListener(TOAST_EVENT, onToast)
-      clearInterval(timer)
+      clearTimeout(timer)
     }
   }, [])
-
-  const close = (id) => setItems((list) => list.filter((t) => t.id !== id))
 
   return (
     <div className="tt-wrap" aria-live="polite">
       <style>{CSS}</style>
-      {items.map((t) => (
-        <div key={t.id} className={`tt ${t.type}`} role="status">
-          {t.type === 'processing' && <span className="tt-spin" />}
+      {item && (
+        <div className={`tt ${item.type}`} role="status">
+          {item.type === 'processing' && <span className="tt-spin" />}
           <div className="tt-body">
-            {t.title && <div className="tt-title">{t.title}</div>}
-            <div className="tt-msg">{t.message}</div>
+            {item.title && <div className="tt-title">{item.title}</div>}
+            <div className="tt-msg">{item.message}</div>
           </div>
-          <button className="tt-x" onClick={() => close(t.id)} aria-label="Dismiss">×</button>
         </div>
-      ))}
+      )}
     </div>
   )
 }

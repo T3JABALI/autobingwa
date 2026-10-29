@@ -4,14 +4,64 @@ import {
   updateTransaction, deleteTransaction, seedDemo,
 } from './dataStore.js'
 import { CSS } from './homeStyles.js'
-import CommissionChart, { WEEKDAYS } from './CommissionChart.jsx'
-import { Icon, InfoCard } from './HomeParts.jsx'
+import CommissionChart from './CommissionChart.jsx'
+import { Icon } from './HomeParts.jsx'
 import { engine } from '../../engine/index.js'
+import { isNative, getSims, refreshAirtime } from '../../engine/native.js'
+// The card reads the balance the *144# check saved; the old store is only a fallback
+const readAirtime = () => {
+  const b = getAirtimeBalance()
+  return b && Number.isFinite(Number(b.value)) ? Number(b.value) : loadAirtime()
+}
+import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
 
 const DAY = 86400000
 const FILTERS = ['All', 'Completed', 'Pending', 'Scheduled', 'Failed']
 const ALL_FILTERS = ['All', 'Today', 'Completed', 'Pending', 'Scheduled', 'Failed', 'Unmatched', 'Paused', 'Skipped']
 const TONE = { Completed: 'ok', Pending: 'warn', Processing: 'warn', Scheduled: 'info', Failed: 'bad', Unmatched: 'bad', Paused: 'warn', Skipped: 'warn' }
+
+// Larger recent transactions, the Start/Stop button closer to them, and the SIM window
+const HOME_EXTRA = `
+  .hm-s-home .hm-list { display: flex; flex-direction: column; gap: 12px; }
+  .hm-s-home .hm-row { padding: 16px 14px; min-height: 80px; }
+  .hm-s-home .hm-avatar { width: 52px; height: 52px; font-size: 17px; }
+  .hm-s-home .hm-row-name { font-size: 17px; }
+  .hm-s-home .hm-row-sub { font-size: 14px; margin-top: 4px; }
+  .hm-s-home .st { font-size: 14px; }
+  .hm-s-home .when { font-size: 13px; }
+  .hm-s-home .hm-bigbtn {
+    position: sticky !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: 12px !important;
+    transform: none !important;
+    width: 100% !important;
+    margin: 18px 0 0 !important;
+    z-index: 5;
+  }
+  .hm-modal-back {
+    position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px;
+    background: rgba(0, 0, 0, 0.6);
+  }
+  .hm-modal {
+    width: 100%; max-width: 380px; padding: 22px 18px; border-radius: 20px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  }
+  .hm-modal h3 { margin: 0 0 6px; font-size: 19px; }
+  .hm-modal p { margin: 0 0 16px; font-size: 14px; color: var(--soft); }
+  .hm-simbtn {
+    display: block; width: 100%; margin-top: 10px; padding: 16px; border-radius: 14px; cursor: pointer;
+    border: 2px solid var(--primary); background: transparent; color: var(--text); font: inherit;
+    font-size: 17px; font-weight: 700; text-align: left;
+  }
+  .hm-simbtn small { display: block; margin-top: 3px; font-size: 13px; font-weight: 400; color: var(--soft); }
+  .hm-simbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .hm-modal .hm-cancel {
+    display: block; width: 100%; margin-top: 14px; padding: 12px; border: 0; background: transparent;
+    color: var(--soft); font: inherit; font-size: 15px; cursor: pointer;
+  }
+`
 
 const pad = (n) => String(n).padStart(2, '0')
 const money = (n) =>
@@ -71,7 +121,7 @@ function unlimitedLeft(until, now) {
 
 export default function HomePage({ offers = [], onOpenTokens, automationRunning = false, onToggleAutomation }) {
   const [txs, setTxs] = useState(loadTransactions)
-  const [airtime, setAirtime] = useState(loadAirtime)
+  const [airtime, setAirtime] = useState(readAirtime)
   const [wallet, setWallet] = useState(loadWallet)
   const [now, setNow] = useState(Date.now())
   const [hide, setHide] = useState(false)
@@ -79,6 +129,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
   const [query, setQuery] = useState('')
   const [view, setView] = useState({ name: 'home', id: null, from: 'home' })
   const [spin, setSpin] = useState(false)
+  const [simPick, setSimPick] = useState(null)
   const [notice, setNotice] = useState('')
   const [open, setOpen] = useState({})
   const [when, setWhen] = useState({ date: '', time: '' })
@@ -92,9 +143,12 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
       setNow(Date.now())
     }
     const off = subscribe(sync)
+    // New commission messages and balance checks tell the screen to redraw
+    window.addEventListener('ab-balances', sync)
     const tick = setInterval(() => setNow(Date.now()), 60000)
     return () => {
       off()
+      window.removeEventListener('ab-balances', sync)
       clearInterval(tick)
     }
   }, [])
@@ -108,24 +162,17 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     Scheduled: txs.filter((t) => t.status === 'Scheduled').length,
     Failed: todays.filter((t) => t.status === 'Failed').length,
   }
+
+  // Airtime used today: every transaction that completed since midnight. It starts again at 0 each midnight.
   const airtimeUsed = txs
     .filter((t) => t.status === 'Completed' && (t.completedAt || t.createdAt) >= todayStart)
     .reduce((sum, t) => sum + (Number(t.cost) || 0), 0)
 
-  const weekStartDate = new Date(todayStart)
-  weekStartDate.setDate(weekStartDate.getDate() - weekStartDate.getDay())
-  const weekStart = weekStartDate.getTime()
-  const todayIndex = new Date(now).getDay()
-  const values = WEEKDAYS.map((_, i) =>
-    txs
-      .filter((t) => t.status === 'Completed')
-      .reduce((sum, t) => {
-        const at = t.completedAt || t.createdAt
-        const inDay = at >= weekStart + i * DAY && at < weekStart + (i + 1) * DAY
-        return inDay ? sum + Math.max(0, (Number(t.amount) || 0) - (Number(t.cost) || 0)) : sum
-      }, 0)
-  )
-  const weekTotal = values.reduce((a, b) => a + b, 0)
+  // Commission comes from the Safaricom messages: "Total commission this week is Ksh..."
+  const commission = commissionByDay(now)
+  const values = commission.values.map((v) => v || 0)
+  const todayIndex = commission.today
+  const weekTotal = commissionThisWeek(now)
 
   const unlimitedActive = wallet.unlimitedUntil > now
   const mask = (text) => (hide ? '••••••' : text)
@@ -158,15 +205,40 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
   const screen = tx ? view.name : view.name === 'all' ? 'all' : 'home'
 
   // ---- Actions ----
-  function refreshBalance() {
+  // The refresh icon asks which SIM to check
+  async function openSimPicker() {
+    setNotice('')
+    if (!isNative()) {
+      setNotice('Airtime can only be checked inside the Android app')
+      return
+    }
+    let found = null
+    try {
+      found = await getSims()
+    } catch (e) {
+      console.error('AB getSims', e)
+    }
+    setSimPick(
+      [0, 1].map((slot) => {
+        const s = found ? found.find((x) => x.slot === slot) : null
+        return { slot, carrier: s ? s.carrier : '', present: found ? Boolean(s) : true }
+      })
+    )
+  }
+
+  async function checkAirtime(slot) {
+    setSimPick(null)
     setSpin(true)
-    setAirtime(loadAirtime())
-    setWallet(loadWallet())
-    setNow(Date.now())
-    setTimeout(() => {
+    setNotice(`Checking airtime on SIM ${slot + 1}...`)
+    try {
+      const value = await refreshAirtime(slot)
+      setAirtime(Number(value) || loadAirtime())
+      setNotice(`Airtime balance on SIM ${slot + 1}: KES ${money(value)}`)
+    } catch (e) {
+      setNotice(`Could not check airtime: ${e && e.message ? e.message : e}`)
+    } finally {
       setSpin(false)
-      setNotice('Balance refreshed')
-    }, 700)
+    }
   }
 
   function openDetail(id, from = 'home') {
@@ -199,7 +271,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     engine.retry(t.id)
   }
 
- function openReschedule(t) {
+  function openReschedule(t) {
     const soon = Date.now() + 5 * 60000
     setWhen({ date: toDateValue(soon), time: toTimeValue(soon) })
     setError('')
@@ -272,6 +344,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
       </div>
     </div>
   )
+
   const chipsFor = (list, withCount) => (
     <div className="hm-chips" role="tablist">
       {list.map((f) => (
@@ -289,10 +362,27 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
   )
 
   return (
-<div className={`hm-page hm-s-${screen}`}>
+    <div className={`hm-page hm-s-${screen}`}>
       <style>{CSS}</style>
+      <style>{HOME_EXTRA}</style>
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
+
+      {simPick && (
+        <div className="hm-modal-back" onClick={() => setSimPick(null)}>
+          <div className="hm-modal" role="dialog" aria-label="Choose a SIM" onClick={(e) => e.stopPropagation()}>
+            <h3>Check airtime on which SIM?</h3>
+            <p>The app dials *144# on the SIM you choose and shows the real balance.</p>
+            {simPick.map((s) => (
+              <button key={s.slot} className="hm-simbtn" disabled={!s.present} onClick={() => checkAirtime(s.slot)}>
+                SIM {s.slot + 1}
+                <small>{s.present ? s.carrier || 'Ready' : 'No SIM found'}</small>
+              </button>
+            ))}
+            <button className="hm-cancel" onClick={() => setSimPick(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {screen === 'home' && (
         <>
@@ -314,7 +404,8 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
               <div className="hm-bal air">
                 <button
                   className={`hm-icon ${spin ? 'hm-spin' : ''}`}
-                  onClick={refreshBalance}
+                  onClick={openSimPicker}
+                  disabled={spin}
                   aria-label="Refresh airtime balance"
                   title="Refresh balance"
                 >
@@ -366,7 +457,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
               <h2>Recent transactions</h2>
               <span className="hm-arrow" aria-hidden="true">→</span>
             </button>
-          {chipsFor(FILTERS)}
+            {chipsFor(FILTERS)}
 
             {recent.length === 0 ? (
               <div className="hm-card hm-empty">
@@ -412,7 +503,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search transactions"
           />
-        {chipsFor(ALL_FILTERS, true)}
+          {chipsFor(ALL_FILTERS, true)}
 
           {allList.length === 0 ? (
             <div className="hm-card hm-empty">
@@ -465,7 +556,9 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
             </button>
           </div>
         </>
-      )}      {screen === 'reschedule' && tx && (
+      )}
+
+      {screen === 'reschedule' && tx && (
         <>
           <div className="hm-head">
             <button

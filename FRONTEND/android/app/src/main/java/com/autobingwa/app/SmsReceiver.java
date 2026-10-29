@@ -33,8 +33,14 @@ public class SmsReceiver extends BroadcastReceiver {
 
         // Compare letters only, so "M-PESA", "MPESA" and "Mpesa " all match
         String letters = sender.toUpperCase(Locale.ROOT).replaceAll("[^A-Z]", "");
-        boolean keep = letters.contains("MPESA") || letters.contains("SAFARICOM");
-        Log.d(TAG, "SMS from '" + sender + "' keep=" + keep);
+        boolean fromSender = letters.contains("MPESA") || letters.contains("SAFARICOM");
+        // Bingwa commission messages are kept whoever sends them
+        String lower = body.toString().toLowerCase(Locale.ROOT);
+        boolean commission = lower.contains("total commission this week")
+                || lower.contains("thank you for choosing safaricom")
+                || lower.contains("recommendation failed");
+        boolean keep = fromSender || commission;
+        Log.d(TAG, "SMS from '" + sender + "' keep=" + keep + " commission=" + commission);
         if (!keep) return;
 
         SmsStore.add(context, sender, body.toString(), parts[0].getTimestampMillis());

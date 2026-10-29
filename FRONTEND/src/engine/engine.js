@@ -2,7 +2,7 @@
 // It talks to the phone through a "bridge" (real one comes from the Android plugin later)
 // and to saved data through a "store".
 import { loadConfig, isBlacklisted } from './config.js'
-
+// (confirmation matching lives in createEngine below)
 // ---------- Phone numbers ----------
 // Reads a Kenyan number written any common way:
 // 0797411114, +254797411114, 254797411114, 0117818996, 07 97411114, 0797-411-114, 0797***114
@@ -45,11 +45,11 @@ export function parseMpesa(text) {
   if (!code) return empty
   if (!/received/i.test(raw)) return empty // sent, withdrawn, paid, balance messages
 
-  const amt = raw.match(/Ksh\.?\s*([\d,]+(?:\.\d{1,2})?)/i) // the first amount is the payment
+  const amt = raw.match(/(?:ksh|kes)\.?\s*([\d,]+(?:\.\d{1,2})?)/i) // the first amount is the payment
   if (!amt) return empty
 
   const account = (raw.match(/Account(?:\s+Number)?\s+(?!balance\b)([A-Za-z0-9#\-]+)/i) || [])[1] || ''
-  const seg = (raw.match(/\bfrom\s+(.+?)\s+on\s+\d/i) || [])[1] || ''
+  const seg = (raw.match(/\bfrom\s+(.+?)(?:\s+on\s+\d|\.\s|\.$|$)/i) || [])[1] || ''
 
   const found = findPhone(seg) || findPhone(account)
   const masked = Boolean(found && found.masked)
@@ -131,7 +131,28 @@ export function createEngine({
     pump()
     return tx
   }
-
+  // Safaricom's SMS decides the final result. One transaction runs at a time, so one waiter is enough.
+  let waiter = null
+  function arm(tx) {
+    waiter = { phone: tx.phone, got: null, wake: null }
+    return waiter
+  }
+  function confirm(c) {
+    const w = waiter
+    if (!w) return false
+    if (c.phone && w.phone) {
+      const n = normalizePhone(c.phone)
+      if (n && n.phone !== w.phone) return false // a reply about another customer
+    }
+    w.got = c
+    if (w.wake) w.wake()
+    return true
+  }
+  async function awaitConfirm(w, ms) {
+    if (!w.got) await new Promise((res) => { w.wake = res; setTimeout(res, ms) })
+    waiter = null
+    return w.got
+  }
   // Runs ONE transaction to its final state (retrying first if the offer allows)
   async function process(tx) {
     const offer = getOffers().find((o) => o.id === tx.offerId)
@@ -144,15 +165,28 @@ export function createEngine({
     const maxRetries = offer.autoRetry && offer.retryFailed !== false ? Number(offer.retryCount) || 0 : 0
     let attempt = 0
     let result
+    let stop = false
     for (;;) {
       attempt += 1
+      const w = arm(tx)
       try {
         result = await bridge.runUssd({ ussd: tx.ussd, phone: tx.phone, mode: getMode(), offer })
       } catch (err) {
         result = { ok: false, responses: [{ input: '-', text: String(err && err.message ? err.message : err) }] }
       }
+      // The USSD went through: wait up to 60 seconds for Safaricom's SMS to say Successful or Failed
+      let conf = null
+      if (result.ok) conf = await awaitConfirm(w, 60000)
+      else waiter = null
+      if (conf) {
+        result = {
+          ok: conf.status === 'success',
+          responses: [...(result.responses || []), { input: 'SMS', text: conf.text || '' }],
+        }
+        if (!result.ok && conf.reason) stop = true // "already recommended": retrying cannot help
+      }
       store.update(tx.id, { attempts: attempt, responses: result.responses || [] })
-      if (result.ok || attempt > maxRetries) break
+      if (result.ok || stop || attempt > maxRetries) break
     }
     const done = store.update(tx.id, {
       status: result.ok ? 'Completed' : 'Failed',
@@ -190,7 +224,8 @@ export function createEngine({
   }
 
   return {
-    ingest,
+        ingest,
+    confirm,
     pump,
     tick,
     on(fn) { listeners.add(fn); return () => listeners.delete(fn) },

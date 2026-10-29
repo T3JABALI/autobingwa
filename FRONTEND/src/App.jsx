@@ -1,4 +1,4 @@
-import SmartPlans from './features/smartplans/SmartPlans.jsx'
+   import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
 import Offers from './Offers.jsx'
 import { useEffect, useState } from 'react'
