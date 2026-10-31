@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 const KEY = 'fallback:config'
-const MAX_DELAY = 30
+const MAX_DELAY = 5
 
 const TRIGGERS = [
   {
@@ -21,7 +21,10 @@ const EMPTY = { active: true, delay: 0, mappings: [] }
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (saved && Array.isArray(saved.mappings)) return { ...EMPTY, ...saved }
+    if (saved && Array.isArray(saved.mappings)) {
+      const delay = Math.min(MAX_DELAY, Math.max(0, Math.round(Number(saved.delay) || 0)))
+      return { ...EMPTY, ...saved, delay }
+    }
   } catch (e) {
     console.error('Could not read fallback plans', e)
   }
@@ -36,22 +39,11 @@ function save(config) {
   }
 }
 
-// For your transaction code later:
-//   findFallback(primaryOfferId, 'failed')  ->  mapping or null
-export function findFallback(primaryId, trigger) {
-  const config = load()
-  if (!config.active) return null
-  return (
-    config.mappings.find(
-      (m) => String(m.primaryId) === String(primaryId) && m.trigger === trigger
-    ) || null
-  )
-}
-
 const newId = () => 'm-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 const triggerLabel = (id) => (TRIGGERS.find((t) => t.id === id) || {}).label || ''
 
-export default function FallbackPage({ offers = [], onBack }) {
+export default function FallbackPage({ offers: offersProp, onBack }) {
+  const offers = Array.isArray(offersProp) ? offersProp : []
   const [config, setConfig] = useState(load)
   const [helpOpen, setHelpOpen] = useState(false)
   const [modal, setModal] = useState(null) // null | { id: string|null }
@@ -259,6 +251,39 @@ export default function FallbackPage({ offers = [], onBack }) {
           color: var(--fb-on); font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
         }
         .fb-btn.ghost { background: transparent; color: inherit; border: 2px solid var(--fb-border); }
+
+        /* compact, medium fonts */
+        .fb-page { padding: 0 2px 16px; }
+        .fb-head { margin-bottom: 8px; }
+        .fb-head h1 { font-size: 18px; }
+        .fb-icon { width: 38px; height: 38px; }
+        .fb-icon svg { width: 20px; height: 20px; }
+        .fb-text-btn { font-size: 14px; }
+        .fb-lead { font-size: 15px; margin: 0 0 4px; }
+        .fb-desc { font-size: 12.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .fb-status { margin: 10px 0; gap: 8px; }
+        .fb-chip { padding: 8px 14px; font-size: 14px; }
+        .fb-status p { font-size: 12.5px; }
+        .fb-help { font-size: 13px; padding: 12px; margin-bottom: 10px; }
+        .fb-card { padding: 12px; border-radius: 14px; margin-bottom: 10px; }
+        .fb-card h2 { font-size: 15px; }
+        .fb-card .fb-sub { font-size: 12.5px; }
+        .fb-range { margin: 10px 0 2px; height: 22px; }
+        .fb-range-label { font-size: 13px; }
+        .fb-note { padding: 8px 12px; font-size: 13px; margin-bottom: 10px; }
+        .fb-list { gap: 6px; margin-top: 8px; }
+        .fb-map { padding: 8px 10px; border-radius: 12px; }
+        .fb-map-main strong { font-size: 13.5px; }
+        .fb-map-main span { font-size: 12px; margin-top: 3px; }
+        .fb-empty { font-size: 13px; padding: 10px 4px 4px; }
+        .fb-fab-wrap { margin-top: 10px; bottom: 12px; }
+        .fb-fab { padding: 12px 20px; font-size: 14px; border-radius: 14px; }
+        .fb-modal { padding: 16px; }
+        .fb-modal h2 { font-size: 17px; margin-bottom: 12px; }
+        .fb-seg button { padding: 10px 6px; font-size: 13px; }
+        .fb-hint { font-size: 12.5px; }
+        .fb-select { padding: 13px 40px 13px 14px; font-size: 14px; }
+        .fb-btn { padding: 13px 0; font-size: 14px; }
       `}</style>
 
       <div className="fb-inner">
@@ -313,8 +338,8 @@ export default function FallbackPage({ offers = [], onBack }) {
           <h2>Wait before fallback</h2>
           <p className="fb-sub">
             {delay === 0
-              ? 'The backup goes out straight away, so a late verification SMS cannot cancel it.'
-              : `The original job waits ${delay} min. If a verification SMS arrives in that time, the backup is cancelled.`}
+              ? 'The backup goes out straight away, so a late success SMS cannot cancel it. 1 to 2 minutes is a good setting for "Purchase failed".'
+              : `For "Purchase failed", the backup waits ${delay} min. If a success SMS arrives in that time, the backup is cancelled. "Already recommended" always goes out straight away.`}
           </p>
           <input
             className="fb-range"

@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { smartOffers, GROUPS } from './smartCatalog.js'
 
+const t12 = (v) => {
+  if (!v) return ''
+  const [h, m] = v.split(':').map(Number)
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+}
+const noWindow = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
+
 export default function SmartPlans({ owned = [], onDownload = () => {} }) {
   const [group, setGroup] = useState(GROUPS[0])
   const [q, setQ] = useState('')
@@ -27,6 +34,9 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
       sid: pick.sid,
       smart: true,
       signature: true, // shows the verified tick and locks the USSD in Offers
+      sig: pick.sig || null, // the learned steps, once they have been added to the catalog
+      sigLearned: Boolean(pick.sig),
+      sigEnabled: true,
       category: pick.group.toUpperCase(),
       name: pick.name,
       ussd: pick.ussd,
@@ -43,6 +53,7 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
       retryFailed: true,
       points: false,
       enabled: true,
+      tw: pick.tw ? { ...noWindow(), ...pick.tw } : noWindow(),
       updated: new Date().toLocaleString(),
     })
     setPick(null)
@@ -68,11 +79,12 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
         <div className="empty"><b>No plans found</b></div>
       )}
 
-           {list.map((o) => (
+      {list.map((o) => (
         <div key={o.sid} className="sp-row">
           <div className="sp-name">
             <b>{o.name}</b>
             <span className="tick" title="Verified plan">✔</span>
+            {o.tw && o.tw.on && <small> 🕒 {t12(o.tw.from)} to {t12(o.tw.until)}</small>}
           </div>
           <div className="sp-price">KES {o.safPrice}</div>
           <code className="sp-ussd">{o.ussd}</code>
@@ -83,7 +95,6 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
           )}
         </div>
       ))}
-      
 
       {pick && (
         <div className="sheet-back" onClick={() => setPick(null)}>
@@ -93,6 +104,12 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
               <small className="muted-line">
                 {pick.ussd} · Safaricom price KES {pick.safPrice} (locked)
               </small>
+              {pick.tw && pick.tw.on && (
+                <small className="muted-line">
+                  Only sold between {t12(pick.tw.from)} and {t12(pick.tw.until)}. Choose what to sell outside
+                  these hours in the offer's time window.
+                </small>
+              )}
               <label className="field">
                 <span>Your selling price (KES)</span>
                 <input type="number" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />

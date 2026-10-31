@@ -3,7 +3,7 @@ const USSD_PATTERN = /^[*#][0-9*#]*#$/
 // Finds the first valid Kenyan number in pasted text and returns it as 07XXXXXXXX.
 // Accepts 0712..., 712..., 254712..., +254712..., with spaces or dashes.
 export function parsePhone(text) {
-  const chunks = text.split(/[\n,;]+/)
+  const chunks = String(text || '').split(/[\n,;]+/)
   for (const chunk of chunks) {
     let digits = chunk.replace(/\D/g, '')
     if (digits.startsWith('254') && digits.length === 12) digits = '0' + digits.slice(3)
@@ -13,9 +13,9 @@ export function parsePhone(text) {
   return ''
 }
 
-// Your Offers page uses "ab" as the phone-number placeholder.
+// Offers use AB (any case) as the phone-number placeholder.
 export function buildCode(offer, phone) {
-  return offer.ussd.replaceAll('ab', phone)
+  return String(offer.ussd).replace(/\bAB\b/gi, phone)
 }
 
 export function isValidUssd(code) {

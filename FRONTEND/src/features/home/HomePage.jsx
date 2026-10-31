@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import UssdSetup from './UssdSetup.jsx'
 import {
   subscribe, loadTransactions, loadAirtime, loadWallet,
   updateTransaction, deleteTransaction, seedDemo,
@@ -8,27 +9,51 @@ import CommissionChart from './CommissionChart.jsx'
 import { Icon } from './HomeParts.jsx'
 import { engine } from '../../engine/index.js'
 import { isNative, getSims, refreshAirtime } from '../../engine/native.js'
+import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
+
 // The card reads the balance the *144# check saved; the old store is only a fallback
 const readAirtime = () => {
   const b = getAirtimeBalance()
   return b && Number.isFinite(Number(b.value)) ? Number(b.value) : loadAirtime()
 }
-import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
 
 const DAY = 86400000
 const FILTERS = ['All', 'Completed', 'Pending', 'Scheduled', 'Failed']
 const ALL_FILTERS = ['All', 'Today', 'Completed', 'Pending', 'Scheduled', 'Failed', 'Unmatched', 'Paused', 'Skipped']
 const TONE = { Completed: 'ok', Pending: 'warn', Processing: 'warn', Scheduled: 'info', Failed: 'bad', Unmatched: 'bad', Paused: 'warn', Skipped: 'warn' }
 
+// The label shown beside a transaction that did not come from a customer payment
+const tagOf = (t) =>
+  t.blacklisted
+    ? '🚫 BLACKLISTED'
+    : t.isFallback
+      ? (t.fallbackDepth || 1) > 1 ? '(FB)' : '(FALLBACK)'
+      : t.renewal
+        ? `(RENEWAL ${t.renewal.day}/${t.renewal.of})`
+        : t.source === 'quickdial'
+          ? '(QUICK DIAL)'
+          : ''
+
 // Larger recent transactions, the Start/Stop button closer to them, and the SIM window
 const HOME_EXTRA = `
-  .hm-s-home .hm-list { display: flex; flex-direction: column; gap: 12px; }
-  .hm-s-home .hm-row { padding: 16px 14px; min-height: 80px; }
-  .hm-s-home .hm-avatar { width: 52px; height: 52px; font-size: 17px; }
-  .hm-s-home .hm-row-name { font-size: 17px; }
-  .hm-s-home .hm-row-sub { font-size: 14px; margin-top: 4px; }
-  .hm-s-home .st { font-size: 14px; }
-  .hm-s-home .when { font-size: 13px; }
+  .hm-s-home .hm-list, .hm-s-all .hm-list { display: flex; flex-direction: column; gap: 14px; }
+  .hm-s-home .hm-row, .hm-s-all .hm-row {
+    display: flex; align-items: center; gap: 14px; width: 100%; box-sizing: border-box;
+    padding: 18px 16px; min-height: 96px;
+  }
+  .hm-s-home .hm-avatar, .hm-s-all .hm-avatar { width: 56px; height: 56px; font-size: 18px; flex-shrink: 0; }
+  .hm-s-home .hm-row-main, .hm-s-all .hm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .hm-s-home .hm-row-name, .hm-s-all .hm-row-name { font-size: 18px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; }
+  .hm-s-home .hm-row-sub, .hm-s-all .hm-row-sub { font-size: 15px; line-height: 1.4; margin-top: 6px; white-space: normal; overflow-wrap: anywhere; }
+  .hm-s-home .hm-row-end, .hm-s-all .hm-row-end { flex-shrink: 0; text-align: right; }
+  .hm-s-home .st, .hm-s-all .st { font-size: 15px; font-weight: 700; }
+  .hm-s-home .when, .hm-s-all .when { font-size: 13px; margin-top: 4px; }
+  .hm-s-all .hm-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+  .hm-s-all .hm-chip { flex-shrink: 0; white-space: nowrap; }
+  .hm-note { position: static !important; margin: 0 0 10px !important; z-index: auto !important; }
+  .hm-s-all .hm-head { position: static !important; display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
+  .hm-s-all .hm-search { position: static !important; display: block; width: 100%; box-sizing: border-box; margin: 0 0 14px; }
+  .hm-s-all .hm-chips { margin-bottom: 14px; }
   .hm-s-home .hm-bigbtn {
     position: sticky !important;
     top: auto !important;
@@ -40,6 +65,10 @@ const HOME_EXTRA = `
     margin: 18px 0 0 !important;
     z-index: 5;
   }
+  .hm-s-home .hm-bigbtn.holding { filter: brightness(1.3); }
+  .hm-fb { margin-left: 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: var(--primary); white-space: nowrap; }
+  .hm-fbnote { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; border: 1px solid var(--border); }
+  .hm-fbnote b { color: var(--primary); }
   .hm-modal-back {
     position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px;
     background: rgba(0, 0, 0, 0.6);
@@ -130,15 +159,49 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
   const [view, setView] = useState({ name: 'home', id: null, from: 'home' })
   const [spin, setSpin] = useState(false)
   const [simPick, setSimPick] = useState(null)
-  const [notice, setNotice] = useState('')
+  const [notice, setNoticeRaw] = useState('')
+  const noticeTimer = useRef(null)
+  // Only real problems show, and only for a few seconds. "Copied", "Retrying" and balances stay silent.
+  const setNotice = (msg) => {
+    clearTimeout(noticeTimer.current)
+    if (msg && /could not|can only|cannot|failed|error|press and hold/i.test(msg)) {
+      setNoticeRaw(msg)
+      noticeTimer.current = setTimeout(() => setNoticeRaw(''), 3500)
+    } else {
+      setNoticeRaw('')
+    }
+  }
   const [open, setOpen] = useState({})
   const [when, setWhen] = useState({ date: '', time: '' })
   const [error, setError] = useState('')
 
+  // Start / Stop only works on a long press (about one second), never on a tap
+  const holdTimer = useRef(null)
+  const fired = useRef(false)
+  const [holding, setHolding] = useState(false)
+
+  const startHold = () => {
+    fired.current = false
+    setHolding(true)
+    holdTimer.current = setTimeout(() => {
+      fired.current = true
+      setHolding(false)
+      try { if (navigator.vibrate) navigator.vibrate(60) } catch (e) { /* no vibration */ }
+      if (onToggleAutomation) onToggleAutomation()
+    }, 1000)
+  }
+  // A quick release shows a hint instead of doing anything
+  const endHold = (showHint) => {
+    clearTimeout(holdTimer.current)
+    setHolding(false)
+    if (showHint && !fired.current) setNotice('Press and hold the button for 1 second')
+  }
+  useEffect(() => () => clearTimeout(holdTimer.current), [])
+
   useEffect(() => {
     const sync = () => {
       setTxs(loadTransactions())
-      setAirtime(loadAirtime())
+      setAirtime(readAirtime())
       setWallet(loadWallet())
       setNow(Date.now())
     }
@@ -155,11 +218,24 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
 
   // ---- Numbers shown on the dashboard ----
   const todayStart = startOfDay(now)
-  const todays = txs.filter((t) => t.createdAt >= todayStart)
+  // An original that has a fallback is hidden: only the fallback shows.
+  // If a success SMS cancelled the fallback, the original (now Completed) shows instead.
+  const hiddenIds = new Set()
+  txs.forEach((t) => {
+    if (!t.isFallback || !t.fallbackFromId) return
+    if (t.status === 'Skipped') {
+      const orig = txs.find((x) => x.id === t.fallbackFromId)
+      if (orig && orig.status === 'Completed') hiddenIds.add(t.id)
+    } else {
+      hiddenIds.add(t.fallbackFromId)
+    }
+  })
+  const visible = txs.filter((t) => !hiddenIds.has(t.id))
+  const todays = visible.filter((t) => t.createdAt >= todayStart)
   const counts = {
     Completed: todays.filter((t) => t.status === 'Completed').length,
     Pending: todays.filter((t) => t.status === 'Pending' || t.status === 'Processing').length,
-    Scheduled: txs.filter((t) => t.status === 'Scheduled').length,
+    Scheduled: visible.filter((t) => t.status === 'Scheduled').length,
     Failed: todays.filter((t) => t.status === 'Failed').length,
   }
 
@@ -183,12 +259,11 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     (filter === 'Today' ? t.createdAt >= todayStart : t.status === filter)
   const countFor = (f) =>
     f === 'All'
-      ? txs.length
+      ? visible.length
       : f === 'Today'
-        ? txs.filter((t) => t.createdAt >= todayStart).length
-        : txs.filter((t) => t.status === f).length
-
-  const sorted = [...txs].sort((a, b) => b.createdAt - a.createdAt)
+        ? visible.filter((t) => t.createdAt >= todayStart).length
+        : visible.filter((t) => t.status === f).length
+  const sorted = [...visible].sort((a, b) => b.createdAt - a.createdAt)
   const recent = sorted.filter(matches).slice(0, 5)
 
   // Full list page: category + search (name, phone, M-Pesa message/ID, offer)
@@ -232,7 +307,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     setNotice(`Checking airtime on SIM ${slot + 1}...`)
     try {
       const value = await refreshAirtime(slot)
-      setAirtime(Number(value) || loadAirtime())
+      setAirtime(readAirtime())
       setNotice(`Airtime balance on SIM ${slot + 1}: KES ${money(value)}`)
     } catch (e) {
       setNotice(`Could not check airtime: ${e && e.message ? e.message : e}`)
@@ -311,8 +386,13 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     <button key={t.id} className="hm-row" onClick={() => openDetail(t.id, from)}>
       <span className="hm-avatar">{initials(t.name || t.phone)}</span>
       <span className="hm-row-main">
-        <span className="hm-row-name">{t.name || t.phone}{t.verified !== false && <span className="tick"> ✔</span>}</span>
+        <span className="hm-row-name">
+          {t.name || t.phone}
+          {t.verified !== false && <span className="tick"> ✔</span>}
+          {tagOf(t) && <span className="hm-fb">{tagOf(t)}</span>}
+        </span>
         <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
+        {t.fallbackNote && <span className="hm-row-sub">{t.fallbackNote}</span>}
       </span>
       <span className="hm-row-end">
         <span className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
@@ -365,6 +445,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     <div className={`hm-page hm-s-${screen}`}>
       <style>{CSS}</style>
       <style>{HOME_EXTRA}</style>
+      <UssdSetup />
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
 
@@ -477,10 +558,15 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
 
           {onToggleAutomation && (
             <button
-              className={`hm-bigbtn ${automationRunning ? 'stop' : 'start'}`}
-              onClick={onToggleAutomation}
+              className={`hm-bigbtn ${automationRunning ? 'stop' : 'start'} ${holding ? 'holding' : ''}`}
+              onPointerDown={startHold}
+              onPointerUp={() => endHold(true)}
+              onPointerLeave={() => endHold(false)}
+              onPointerCancel={() => endHold(false)}
+              onContextMenu={(e) => e.preventDefault()}
+              style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation' }}
             >
-              {automationRunning ? '■ Stop automation' : '▶ Start automation'}
+              {automationRunning ? '■ Hold to stop automation' : '▶ Hold to start automation'}
             </button>
           )}
         </>
@@ -537,6 +623,23 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
             <span className="hm-offer">{tx.offerName}</span>
           </div>
 
+          {tagOf(tx) && (
+            <p className="hm-fbnote">
+              <b>{tagOf(tx)}</b>{' '}
+              {tx.fallbackNote ||
+                (tx.renewal
+                  ? `Auto renewal, day ${tx.renewal.day} of ${tx.renewal.of}`
+                  : tx.blacklisted
+                    ? 'This customer is blacklisted, so the payment was not processed.'
+                    : 'Started from Quick Dial')}
+            </p>
+          )}
+
+          {tx.isFallback && tx.fallbackFromId && txs.some((x) => x.id === tx.fallbackFromId) && (
+            <button className="hm-btn ghost" onClick={() => openDetail(tx.fallbackFromId, view.from)}>
+              View the original attempt
+            </button>
+          )}
           {info('M-Pesa message', tx.rawMessage || 'No message saved.', tx.rawMessage || '', 'raw', 4)}
           <div className="hm-ic-grid">
             {info('Phone number', tx.phone || 'No phone number saved.', tx.phone || '', 'phone', 1)}

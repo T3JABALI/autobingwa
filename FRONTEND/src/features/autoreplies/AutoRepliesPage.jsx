@@ -314,6 +314,22 @@ export default function AutoRepliesPage({ onBack }) {
         }
         .rp-btn:hover { filter: brightness(1.08); }
         .rp-btn.danger { background: transparent; color: var(--rp-bad); border: 2px solid var(--rp-bad); margin-top: 12px; }
+
+        /* compact list: all six default replies fit on one screen */
+        .rp-page { padding-bottom: 84px; }
+        .rp-head { margin-bottom: 10px; }
+        .rp-head h1 { font-size: 18px; }
+        .rp-icon { width: 38px; height: 38px; }
+        .rp-note { padding: 8px 12px; font-size: 13px; margin-bottom: 8px; }
+        .rp-list { gap: 8px; }
+        .rp-card { padding: 10px 12px; border-radius: 14px; gap: 10px; }
+        .rp-card-main h3 { font-size: 14.5px; margin: 0 0 3px; }
+        .rp-card-main p { font-size: 12.5px; -webkit-line-clamp: 1; line-height: 1.35; }
+        .rp-meta { font-size: 11px; margin-top: 3px; }
+        .rp-switch { width: 44px; height: 26px; }
+        .rp-thumb { width: 16px; height: 16px; }
+        .rp-switch.on .rp-thumb { transform: translateX(18px); }
+        .rp-fab { width: 52px; height: 52px; font-size: 28px; border-radius: 16px; right: 16px; bottom: 16px; }
       `}</style>
 
       <div className="rp-inner">

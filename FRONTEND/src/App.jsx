@@ -1,4 +1,6 @@
-   import SmartPlans from './features/smartplans/SmartPlans.jsx'
+ import TokenGate from './features/tokens/TokenGate.jsx'
+import { tokensActive } from './engine/tokens.js'
+  import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
 import Offers from './Offers.jsx'
 import { useEffect, useState } from 'react'
@@ -15,8 +17,13 @@ import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from '.
 import HomePage from './features/home/HomePage.jsx'
 import ModeDialog from './features/home/ModeDialog.jsx'
 import Toaster from './features/notify/Toaster.jsx'
+import UpdatesPage from './features/updates/UpdatesPage.jsx'
+import UpdatePrompt from './features/updates/UpdatePrompt.jsx'
+
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
+   import { isNative, ussdServiceEnabled, setKeepAlive } from './engine/native.js'
+   import { loadConfig } from './engine/config.js'
 
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
@@ -1312,7 +1319,7 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
   const [light, setLight] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
-  const [automationRunning, setAutomationRunning] = useState(true)
+  const [automationRunning, setAutomationRunning] = useState(false)
   const [filter, setFilter] = useState('All')
   const [showBalances, setShowBalances] = useState(true)
   const offers = myOffers.map(toOldShape)
@@ -1322,27 +1329,39 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
     const [modeOpen, setModeOpen] = useState(false)
 
    // The one big Start / Stop button
-  function toggleAutomation() {
-    if (automationRunning) {
-      engine.stop()
-      setAutomationRunning(false)
-      return
-    }
-    engine.start()
-    setAutomationRunning(true)
-    const waiting = engine.pausedCount()
-    if (waiting > 0) {
-      const go = window.confirm(
-        `${waiting} transaction(s) were paused while automation was off.\n\nOK = process them now\nCancel = mark them as Skipped`
-      )
-      engine.releasePaused(go ? 'process' : 'skip')
-    }
-  }
+     async function toggleAutomation() {
+       if (automationRunning) {
+         engine.stop()
+         setAutomationRunning(false)
+         setKeepAlive(false)
+         return
+       }
+// No token, no automation: show the "buy tokens" pop-up instead of starting.
+       if (!tokensActive()) {
+         window.dispatchEvent(new Event('ab-need-tokens'))
+         return
+       }
+       // Advanced mode needs the accessibility service. Show the setup guide instead of starting.
+       if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
+         window.dispatchEvent(new Event('ab-need-setup'))
+         return
+       }
+       setKeepAlive(true)
+       engine.start()
+       setAutomationRunning(true)
+       const waiting = engine.pausedCount()
+       if (waiting > 0) {
+         const go = window.confirm(
+           `${waiting} transaction(s) were paused while automation was off.\n\nOK = process them now\nCancel = mark them as Skipped`
+         )
+         engine.releasePaused(go ? 'process' : 'skip')
+       }
+     }
 
-  // Match the engine to the button when the app opens
+  // The app always opens stopped. Automation only starts when you hold the button.
   useEffect(() => {
-    if (automationRunning) engine.start()
-    else engine.stop()
+    engine.stop()
+    setKeepAlive(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
    function changeMode(id) {
@@ -1569,7 +1588,7 @@ onToggleAutomation={toggleAutomation}
             />
           </section>
         ) : activePage === 'Autorenewal' ? (
-          <section className="panel">
+          <section className="panel fit fit-md">
             <AutoRenewalPage
               offers={offers.filter(offer => offer.enabled)}
               onBack={() => setActivePage('Home')}
@@ -1587,17 +1606,21 @@ onToggleAutomation={toggleAutomation}
           <section className="panel">
             <ContactsPage onBack={() => setActivePage('Home')} />
           </section>
-        ) : activePage === 'Auto Replies' ? (
-          <section className="panel">
+         ) : activePage === 'Auto Replies' ? (
+          <section className="panel fit fit-replies">
             <AutoRepliesPage onBack={() => setActivePage('Home')} />
           </section>
         ) : activePage === 'Autobingwa Connect' ? (
-          <section className="panel">
+          <section className="panel fit fit-md">
             <ConnectPage onBack={() => setActivePage('Home')} />
           </section>
         ) : activePage === 'Fallback Plans' ? (
-          <section className="panel">
+          <section className="panel fit fit-fallback">
             <FallbackPage offers={offers} onBack={() => setActivePage('Home')} />
+          </section> 
+        ) : activePage === 'Updates' ? (
+          <section className="panel">
+            <UpdatesPage onBack={() => setActivePage('Home')} />
           </section>
         ) : activePage === 'Settings' ? (
           <section className="panel">
@@ -1618,6 +1641,8 @@ onToggleAutomation={toggleAutomation}
         )}
       </main>
       <Toaster />
+{activePage === 'Home' && <UpdatePrompt />}
+      <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />
       {modeOpen && (
         <ModeDialog mode={mode} onSelect={changeMode} onClose={() => setModeOpen(false)} />
       )}

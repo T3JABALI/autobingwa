@@ -8,6 +8,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+  window.addEventListener('error', function (e) { show(e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '')) })
+  window.addEventListener('unhandledrejection', function (e) { show('Promise: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)) })
+  function show(t) {
+    var d = document.getElementById('ab-err')
+    if (!d) {
+      d = document.createElement('pre')
+      d.id = 'ab-err'
+      d.style.cssText = 'position:fixed;inset:0;z-index:99999;margin:0;padding:60px 16px;background:#300;color:#fff;font:13px monospace;white-space:pre-wrap;overflow:auto'
+      document.body.appendChild(d)
+    }
+    d.textContent += t + '\n\n'
+  }
+</script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

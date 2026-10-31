@@ -1,24 +1,30 @@
 import { useState } from 'react'
-import { buildCode, dialUssd, isValidUssd, parsePhone } from './ussd.js'
+import { parsePhone } from './ussd.js'
+import { engine } from '../../engine/index.js'
 
 export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
   const [phoneText, setPhoneText] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [message, setMessage] = useState('')
+  const [result, setResult] = useState(null) // { ok, text }
+  const [busy, setBusy] = useState(false)
 
   const available = offers.filter(offer => offer.enabled)
 
   function handlePhoneChange(value) {
     setPhoneText(value)
     setMessage('')
+    setResult(null)
   }
 
   function handleSelect(id) {
     setSelectedId(id)
     setMessage('')
+    setResult(null)
   }
 
-  function handleDial() {
+  async function handleDial() {
+    if (busy) return
     const phone = parsePhone(phoneText)
     if (!phone) {
       setMessage('Enter a valid phone number, for example 0712345678.')
@@ -31,14 +37,17 @@ export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
       return
     }
 
-    const code = buildCode(offer, phone)
-    if (!isValidUssd(code)) {
-      setMessage(`The USSD template for "${offer.name}" is not valid. Check it on the Offers page.`)
-      return
-    }
-
     setMessage('')
-    dialUssd(code)
+    setResult(null)
+    setBusy(true)
+    try {
+      // Same path as a customer payment: it shows in Recent transactions on Home
+      setResult(await engine.quickDial({ offerId: offer.id, phone }))
+    } catch (e) {
+      setResult({ ok: false, text: `Could not dial: ${e && e.message ? e.message : e}` })
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -138,6 +147,7 @@ export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
 
         .qd-call:hover { background: var(--primary-hover); }
         .qd-call:active { transform: scale(0.96); }
+        .qd-call:disabled { opacity: 0.5; cursor: wait; transform: none; }
 
         .qd-page .qd-message {
           margin: 12px 0 0;
@@ -146,6 +156,27 @@ export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
           font-weight: 600;
           text-align: left;
         }
+
+        .qd-page .qd-status {
+          margin: 12px 0 0;
+          color: var(--muted);
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .qd-page .qd-result {
+          margin: 12px 0 0;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--border);
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1.5;
+          overflow-wrap: anywhere;
+        }
+
+        .qd-page .qd-result.ok { border-color: #1f9d55; color: #1f9d55; }
+        .qd-page .qd-result.bad { border-color: var(--red); color: var(--red); }
 
         .qd-offers {
           display: grid;
@@ -188,6 +219,16 @@ export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
         @media (max-width: 380px) {
           .qd-offers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
+
+        /* compact: all offers visible without scrolling */
+        .qd-header { margin: 0 0 10px; gap: 10px; }
+        .qd-back { width: 36px; height: 36px; }
+        .qd-title { font-size: 17px; }
+        .qd-phone { padding: 8px; gap: 8px; }
+        .qd-page .qd-input { font-size: 14px; padding: 6px; }
+        .qd-call { width: 46px; height: 46px; }
+        .qd-offers { gap: 6px; margin-top: 12px; }
+        .qd-offer { min-height: 40px; padding: 6px 8px; font-size: 11.5px; line-height: 1.3; border-radius: 10px; }
       `}</style>
 
       <header className="qd-header">
@@ -216,9 +257,9 @@ export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
           inputMode="tel"
           autoComplete="off"
           spellCheck={false}
-          rows={3}
+             rows={5}
         />
-        <button type="button" className="qd-call" onClick={handleDial} aria-label="Dial">
+        <button type="button" className="qd-call" onClick={handleDial} disabled={busy} aria-label="Dial">
           <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
             <path
               fill="currentColor"
@@ -231,6 +272,15 @@ export default function QuickDialPage({ offers, onBack, onOpenOffers }) {
       {message && (
         <p className="qd-message" role="alert">
           {message}
+        </p>
+      )}
+
+      {busy && <p className="qd-status" role="status">Dialing. Keep the phone unlocked, this can take up to a minute...</p>}
+
+      {result && (
+        <p className={`qd-result ${result.ok ? 'ok' : 'bad'}`} role="status">
+          {result.ok ? '✔ Successful. ' : '✖ Failed. '}
+          {result.text}
         </p>
       )}
 

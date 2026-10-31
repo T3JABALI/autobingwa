@@ -67,7 +67,7 @@ function announce(tx) {
   const to = who ? ` for ${who}` : ''
   if (tx.status === 'Pending') notify(`Processing ${what}${to}...`, 'processing', 'Processing')
   else if (tx.status === 'Completed') notify(`${what} completed${to}`, 'success', 'Successful')
-  else if (tx.status === 'Failed') notify(`${what} failed${to}`, 'error', 'Failed')
+  else if (tx.status === 'Failed' && !tx.hasFallback) notify(`${what} failed${to}`, 'error', 'Failed')
   else if (tx.status === 'Scheduled') notify(`${what} scheduled${to}`, 'info', 'Scheduled')
 }
 

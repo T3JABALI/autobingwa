@@ -1,10 +1,15 @@
 import { useRef, useState } from 'react'
-
+import { applyEdit, checkUssd, normalizeUssd } from './engine/offerRules.js'
+import { learnSignature, ussdServiceEnabled, isNative } from './engine/native.js'
+import { parseMenu } from './engine/signature.js'
+import { loadConfig } from './engine/config.js'
 const CATS = ['ALL', 'DATA', 'TUNUKIWA', 'MINUTES', 'SMS']
-const AB_OK = /\*AB(?=[*#])/
+const PICK = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA'] // the four categories an offer can be added under
+const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buying!'
 
-// Sorts every offer into a category from its name
-const autoCat = (o) => {
+// The offer's category: the one picked, otherwise worked out from its name
+const catOf = (o) => {
+  if (PICK.includes(o.category)) return o.category
   const s = `${o.name || ''} ${o.category || ''}`.toLowerCase()
   if (/sms/.test(s)) return 'SMS'
   if (/minutes|mins?(\s|$)/.test(s)) return 'MINUTES'
@@ -13,7 +18,6 @@ const autoCat = (o) => {
 }
 const isVerified = (o) => Boolean(o.smart || o.signature || (o.sigLearned && o.sigEnabled))
 const isLocked = (o) => Boolean(o.smart || o.signature)
-const normUssd = (u) => String(u || '').trim().replace(/\*ab(?=[*#])/gi, '*AB')
 const t12 = (v) => {
   if (!v) return ''
   const [h, m] = v.split(':').map(Number)
@@ -21,18 +25,53 @@ const t12 = (v) => {
 }
 const defaultWindow = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
 const blank = () => ({
-  id: Date.now(), isNew: true, name: '', ussd: '', price: '', safPrice: '',
+  id: Date.now(), isNew: true, name: '', category: 'DATA', ussd: '', price: '', safPrice: '',
   payment: 'Till SIM', execSim: 'SIM 1', notifSim: 'SIM 2', type: 'Advanced',
   autoRetry: false, retryCount: 1, retryPending: false, retryFailed: true,
   autoReschedule: false, rescheduleTime: '06:00',
+  notifyOn: false, notifyMsg: '',
   points: false, enabled: true, tw: defaultWindow(),
 })
 
-function stepsFrom(ussd) {
-  const parts = String(ussd).replace(/^\*/, '').replace(/#$/, '').split('*')
-  const out = [`Dial *${parts[0]}#`]
-  parts.slice(1).forEach((p) => out.push(p === 'AB' ? 'Enter the phone number 0700000000' : `Reply ${p}`))
-  return out
+// The settings an Edit can change, in one clean shape (used to save and to see whether anything changed)
+const toPatch = (s, lock) => {
+  const p = {
+    name: String(s.name || '').trim(),
+    ussd: normalizeUssd(s.ussd),
+    price: Number(s.price),
+    safPrice: Number(s.safPrice) || 0,
+    autoRetry: Boolean(s.autoRetry),
+    retryCount: Math.min(10, Math.max(1, Number(s.retryCount) || 1)),
+    retryPending: Boolean(s.retryPending),
+    retryFailed: s.retryFailed !== false,
+    autoReschedule: Boolean(s.autoReschedule),
+    rescheduleTime: s.rescheduleTime || '06:00',
+    notifyOn: Boolean(s.notifyOn),
+    notifyMsg: String(s.notifyMsg || '').trim(),
+  }
+  if (!lock) p.category = catOf(s)
+  return p
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch (e) {
+    try {
+      const t = document.createElement('textarea')
+      t.value = text
+      t.style.position = 'fixed'
+      t.style.opacity = '0'
+      document.body.appendChild(t)
+      t.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(t)
+      return ok
+    } catch (e2) {
+      return false
+    }
+  }
 }
 
 function Switch({ on, onChange, label, disabled }) {
@@ -73,7 +112,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
   const [note, setNote] = useState('')
   const fileRef = useRef(null)
 
-  const shown = cat === 'ALL' ? offers : offers.filter((o) => autoCat(o) === cat)
+  const shown = cat === 'ALL' ? offers : offers.filter((o) => catOf(o) === cat)
   const enabledCount = offers.filter((o) => o.enabled).length
 
   const flash = (m) => {
@@ -92,6 +131,10 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
       onDelete(o.id)
       flash('Offer deleted')
     }
+  }
+  const copyUssd = async (o) => {
+    setCardMenu(null)
+    flash((await copyText(o.ussd)) ? 'USSD copied' : 'Could not copy the USSD')
   }
 
   function exportOffers() {
@@ -114,7 +157,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
       try {
         const data = JSON.parse(String(reader.result))
         const list = (Array.isArray(data) ? data : data.offers) || []
-        const ok = list.filter((o) => o && o.name && AB_OK.test(o.ussd || ''))
+        const ok = list.filter((o) => o && o.name && !checkUssd(o.ussd))
         ok.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
         flash(`Imported ${ok.length} of ${list.length} offers`)
       } catch (err) {
@@ -211,6 +254,9 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
                     <button onClick={() => { setCardMenu(null); setSheet({ type: 'edit', offer: o }) }}>
                       <span>✎</span> Edit
                     </button>
+                    <button onClick={() => copyUssd(o)}>
+                      <span>⧉</span> Copy USSD
+                    </button>
                     <button onClick={() => { setCardMenu(null); setSheet({ type: 'signature', offer: o }) }}>
                       <span>✍</span> Signature
                     </button>
@@ -241,30 +287,37 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
 }
 
 function EditSheet({ start, onClose, onSave }) {
-  const [f, setF] = useState({ ...start })
+  const [f, setF] = useState(() => ({
+    ...start,
+    category: catOf(start),
+    notifyOn: Boolean(start.notifyOn),
+    notifyMsg: start.notifyMsg || '',
+  }))
   const [err, setErr] = useState('')
   const lock = isLocked(start)
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
 
+  function turnNotify(on) {
+    setF((p) => ({ ...p, notifyOn: on, notifyMsg: on && !p.notifyMsg ? DEFAULT_NOTIFY : p.notifyMsg }))
+  }
+
   function save() {
-    const ussd = normUssd(f.ussd)
-    const price = Number(f.price)
-    if (!String(f.name || '').trim()) return setErr('Enter the offer name')
-    if (!AB_OK.test(ussd)) return setErr('The USSD code must use AB where the phone number goes')
-    if (!price || price <= 0) return setErr('Enter the amount')
-    const { isNew, ...rest } = f
-    const changedUssd = start.sigLearned && ussd !== start.ussd
-    onSave({
-      ...rest,
-      name: String(f.name).trim(),
-      ussd,
-      price,
-      safPrice: Number(f.safPrice) || 0,
-      retryCount: Number(f.retryCount) || 1,
-      sigLearned: changedUssd ? false : f.sigLearned,
-      sigEnabled: changedUssd ? false : f.sigEnabled,
-      updated: new Date().toLocaleString(),
-    })
+    const patch = toPatch(f, lock)
+    if (!patch.name) return setErr('Enter the offer name')
+    const bad = checkUssd(patch.ussd)
+    if (bad) return setErr(bad)
+    if (!patch.price || patch.price <= 0) return setErr('Enter the amount')
+    if (patch.notifyOn && !patch.notifyMsg) return setErr('Write the SMS message for the customer')
+    const stamp = new Date().toLocaleString()
+
+    if (start.isNew) {
+      const { isNew, ...rest } = f
+      return onSave({ ...rest, ...patch, updated: stamp })
+    }
+    // Nothing changed: just close, so the signature is not switched off for no reason
+    if (JSON.stringify(patch) === JSON.stringify(toPatch(start, lock))) return onClose()
+    // Smart offers keep their USSD and signature. A manual offer's signature is switched off, so it is learnt again.
+    onSave({ ...applyEdit(start, patch), updated: stamp })
   }
 
   return (
@@ -279,9 +332,20 @@ function EditSheet({ start, onClose, onSave }) {
       }
     >
       {lock && <p className="of-hint">This is a verified Smart plan. Only the amount and the settings below can be changed.</p>}
+      {!lock && !start.isNew && start.sigLearned && (
+        <p className="of-hint">Saving a change switches this offer's signature off. You will need to learn it again.</p>
+      )}
 
       <label className="field"><span>Offer name</span>
         <input value={f.name} disabled={lock} onChange={(e) => set('name', e.target.value)} placeholder="1GB 1HR" />
+      </label>
+
+      <label className="field"><span>Category</span>
+        <select value={f.category} disabled={lock} onChange={(e) => set('category', e.target.value)}>
+          {PICK.map((c) => (
+            <option key={c} value={c}>{c.charAt(0) + c.slice(1).toLowerCase()}</option>
+          ))}
+        </select>
       </label>
 
       <label className="field"><span>USSD code</span>
@@ -303,25 +367,42 @@ function EditSheet({ start, onClose, onSave }) {
         <Switch on={Boolean(f.autoRetry)} onChange={(v) => set('autoRetry', v)} label="Auto retry" />
       </div>
       {f.autoRetry && (
-        <div className="two">
-          <label className="field"><span>Retry count</span>
-            <input type="number" min="1" max="10" value={f.retryCount} onChange={(e) => set('retryCount', e.target.value)} />
-          </label>
-          <div className="checks">
-            <label><input type="checkbox" checked={Boolean(f.retryPending)} onChange={(e) => set('retryPending', e.target.checked)} /> Retry pending</label>
-            <label><input type="checkbox" checked={Boolean(f.retryFailed)} onChange={(e) => set('retryFailed', e.target.checked)} /> Retry failed</label>
+        <>
+          <div className="two">
+            <label className="field"><span>Retry count</span>
+              <input type="number" min="1" max="10" value={f.retryCount} onChange={(e) => set('retryCount', e.target.value)} />
+            </label>
+            <div className="checks">
+              <label><input type="checkbox" checked={Boolean(f.retryPending)} onChange={(e) => set('retryPending', e.target.checked)} /> Retry pending</label>
+              <label><input type="checkbox" checked={f.retryFailed !== false} onChange={(e) => set('retryFailed', e.target.checked)} /> Retry failed</label>
+            </div>
           </div>
-        </div>
+          {f.retryPending && (
+            <p className="of-hint">
+              Pending means the last step was sent but nothing confirmed it. Retrying it can buy the offer twice if the first try had already sold.
+            </p>
+          )}
+        </>
       )}
 
       <div className="switch-row">
-        <div><b>Auto reschedule to the next day</b><small>If it still fails, the customer gets a time they can pick</small></div>
+        <div><b>Auto reschedule to the next day</b><small>If a purchase fails, save it for tomorrow and try again then</small></div>
         <Switch on={Boolean(f.autoReschedule)} onChange={(v) => set('autoReschedule', v)} label="Auto reschedule next day" />
       </div>
       {f.autoReschedule && (
-        <label className="field"><span>Default time the next day</span>
+        <label className="field"><span>Time the next day</span>
           <input type="time" value={f.rescheduleTime || '06:00'} onChange={(e) => set('rescheduleTime', e.target.value)} />
-          <small>The customer can choose a different time.</small>
+        </label>
+      )}
+
+      <div className="switch-row">
+        <div><b>Notify the customer</b><small>Send an SMS after this offer is bought</small></div>
+        <Switch on={Boolean(f.notifyOn)} onChange={turnNotify} label="Notify the customer" />
+      </div>
+      {f.notifyOn && (
+        <label className="field"><span>SMS message</span>
+          <textarea className="of-area" rows="3" value={f.notifyMsg} onChange={(e) => set('notifyMsg', e.target.value)} />
+          <small>You can use {'{name}'}, {'{offer}'}, {'{amount}'} and {'{phone}'}.</small>
         </label>
       )}
 
@@ -342,7 +423,8 @@ function WindowSheet({ start, offers, onClose, onSave }) {
       if (w.from === w.until) return setErr('The start and end time cannot be the same')
       if (!w.altId) return setErr('Choose an alternative offer for outside the window')
     }
-    onSave({ ...start, tw: { ...w, altId: w.altId ? Number(w.altId) : '' }, updated: new Date().toLocaleString() })
+    const alt = w.altId ? offers.find((x) => String(x.id) === String(w.altId)) : null
+    onSave({ ...start, tw: { ...w, altId: alt ? alt.id : '' }, updated: new Date().toLocaleString() })
   }
 
   return (
@@ -408,70 +490,148 @@ function WindowSheet({ start, offers, onClose, onSave }) {
 }
 
 function SignatureSheet({ start, onClose, onSave }) {
-  const builtIn = isLocked(start)
-  const [steps, setSteps] = useState(start.sigSteps || null)
-  const [enable, setEnable] = useState(Boolean(start.sigEnabled))
+  const smart = Boolean(start.smart)
+  const saved = start.sig && start.sig.steps ? start.sig : null
+  const locked = smart && Boolean(saved) // a built-in signature cannot be changed
+  const [learned, setLearned] = useState(null) // { signature, screens } from this session
+  const [enable, setEnable] = useState(smart ? true : Boolean(start.sigEnabled))
+  const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
 
-  function learn() {
-    if (!AB_OK.test(start.ussd || '')) return setErr('Edit the offer first. Its USSD code must use AB.')
+  const sig = learned ? learned.signature : saved
+
+  async function learn() {
     setErr('')
-    setSteps(stepsFrom(start.ussd))
+    setMsg('')
+    const bad = checkUssd(start.ussd)
+    if (bad) return setErr(bad)
+    if (!isNative()) return setErr('Learning only works in the Android app, on a phone with a SIM.')
+    setBusy(true)
+    try {
+      if (!(await ussdServiceEnabled())) throw new Error('Turn on the AutoBingwa accessibility service first.')
+      const slot = loadConfig().bingwaSim === 'SIM 1' ? 0 : 1
+      const res = await learnSignature({ ussd: start.ussd, slot })
+      setLearned(res)
+      setEnable(res.signature.complete)
+    } catch (e) {
+      setErr(String(e && e.message ? e.message : e))
+    } finally {
+      setBusy(false)
+    }
   }
+
+  const canSave = !locked && !busy && (
+    (learned && learned.signature.complete) ||
+    (!learned && saved && saved.complete && enable !== Boolean(start.sigEnabled))
+  )
 
   function save() {
-    onSave({ ...start, sigSteps: steps, sigLearned: true, sigEnabled: enable, updated: new Date().toLocaleString() })
+    onSave({
+      ...start,
+      sig,
+      sigLearned: true,
+      sigEnabled: smart ? true : enable,
+      updated: new Date().toLocaleString(),
+    })
   }
 
-  const list = builtIn ? stepsFrom(start.ussd) : steps
+  async function copySig() {
+    const ok = await copyText(JSON.stringify(sig))
+    setMsg(ok ? 'Signature copied. Paste it as sig: on this plan in smartCatalog.js.' : 'Could not copy the signature.')
+  }
+
+  const rows = sig
+    ? sig.steps.map((s, i) => {
+        if (s.kind === 'input') return { ok: true, text: "Types the customer's phone number" }
+        if (s.kind === 'literal') {
+          return s.unmatched
+            ? { ok: false, text: `Option ${s.value} was not found on the screen` }
+            : { ok: true, text: `Types ${s.value}` }
+        }
+        const raw = learned ? (parseMenu(learned.screens[i]).find((o) => o.n === s.hint) || {}).text : ''
+        return { ok: true, text: `Picks "${raw || s.label}" (option ${s.hint} today)` }
+      })
+    : []
 
   return (
     <Sheet
       title="Signature"
-      onClose={onClose}
+      onClose={busy ? () => {} : onClose}
       footer={
-        builtIn ? (
+        locked ? (
           <button className="btn" onClick={onClose}>Close</button>
         ) : (
           <>
-            <button className="btn ghost" onClick={onClose}>Cancel</button>
-            <button className="btn" onClick={save} disabled={!steps}>Save signature</button>
+            <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+            <button className="btn" onClick={save} disabled={!canSave}>Save signature</button>
           </>
         )
       }
     >
       <p className="of-hint">
-        The signature remembers the menu steps of this offer, so it still works if Safaricom reorders the menu.
+        The signature remembers what each step of this offer should contain, so it still buys the right plan if Safaricom reorders the menu.
       </p>
       <p className="of-hint"><b>{start.name}</b> · <code>{start.ussd}</code></p>
 
-      {builtIn ? (
+      {locked ? (
         <p className="of-hint"><span className="tick">✔</span> This is a verified Smart plan. Its signature is built in and locked.</p>
       ) : (
         <>
+          {smart && !saved && (
+            <p className="of-hint">
+              This plan has no saved signature yet. Learn it once here. Then copy it into the catalog so every user gets it.
+            </p>
+          )}
           <div className="switch-row">
-            <div><b>Enable signature</b><small>{steps ? 'Turn on to use the saved steps' : 'Learn the steps first, then enable'}</small></div>
-            <Switch on={enable} onChange={setEnable} label="Enable signature" disabled={!steps} />
+            <div>
+              <b>Enable signature</b>
+              <small>{sig && sig.complete ? 'Turn on to use the saved steps' : 'Learn the steps first, then enable'}</small>
+            </div>
+            <Switch on={enable} onChange={setEnable} label="Enable signature" disabled={busy || !sig || !sig.complete} />
           </div>
-          <button className="btn ghost of-learn" onClick={learn}>
-            {steps ? 'Learn again' : 'Learn signature'}
+          <button className="btn ghost of-learn" onClick={learn} disabled={busy}>
+            {busy ? 'Learning…' : sig ? 'Learn again' : 'Learn signature'}
           </button>
           <p className="of-hint">
-            Learning runs this offer once with the test number 0700000000 and lists the steps it found.
-            In this preview the steps come from the USSD code. The real run happens in the Android app.
+            {busy
+              ? 'Dialing the steps with the test number 0700000000. This can take up to 90 seconds. Keep the phone unlocked.'
+              : 'Learning dials every step with the test number 0700000000 and stops before the last step, so nothing is bought. Stop automation first so a customer payment does not wait behind it.'}
           </p>
         </>
       )}
 
-      {list && (
+      {sig && (
         <>
-          <b>Steps found</b>
+          <b>{learned ? 'Steps found' : 'Saved steps'}</b>
           <ol className="of-steps">
-            {list.map((s, i) => <li key={i}>{s}</li>)}
+            {rows.map((r, i) => <li key={i}>{r.ok ? '' : '⚠ '}{r.text}</li>)}
           </ol>
+          {learned && sig.complete && (
+            <p className="of-hint">The last step is the purchase. It was not sent.</p>
+          )}
+          {learned && !sig.complete && (
+            <p className="of-hint">
+              Some steps could not be matched, so this signature cannot be saved. Check the USSD code, then learn again.
+            </p>
+          )}
         </>
       )}
 
+      {learned && (
+        <details>
+          <summary>What the phone showed at each step</summary>
+          {learned.screens.map((s, i) => (
+            <pre key={i} style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: '6px 0' }}>{`Step ${i + 1}\n${s}`}</pre>
+          ))}
+        </details>
+      )}
+
+      {smart && sig && (
+        <button className="btn ghost of-learn" onClick={copySig}>Copy signature</button>
+      )}
+
+      {msg && <p className="of-hint">{msg}</p>}
       {err && <p className="err">{err}</p>}
     </Sheet>
   )

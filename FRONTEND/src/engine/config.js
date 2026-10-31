@@ -17,7 +17,14 @@ export const DEFAULT_CONFIG = {
   autoSave: true,
   saveSuffix: 'AutoBingwa',
   portal: false,
-  mode: 'Advanced',
+   mode: 'Advanced',
+  // USSD speed settings
+  stepTimeoutSec: 20, // wait for each next dialog
+  totalTimeoutSec: 90, // whole Advanced run
+  keyDelayMs: 80, // pause before typing each option
+  gapMs: 1000, // pause between two transactions
+  retryAfterSec: 15, // wait before retrying a failed attempt
+  confirmWaitSec: 45, // wait for Safaricom's SMS if the last screen is unclear
 }
 
 export function readJson(key, fallback) {

@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
 import { parsePhone } from '../quickdial/ussd'
+import { AutoBingwa, isNative, listContacts, askPermissions } from '../../engine/native.js'
+import { last9, loadConfig } from '../../engine/config.js'
+import {
+  loadClients, saveClients, recordClientPurchase, purchaseDays, dayKey, CLIENTS_EVENT, DAY,
+} from '../../engine/clientsStore.js'
 
-const KEY = 'clients:list'
-const DAY = 24 * 60 * 60 * 1000
+export { recordClientPurchase }
 
-// ---- Change these numbers to change the category rules ----
-const AT_RISK_MIN_DAYS = 2   // at risk starts after this many days of silence
-const AT_RISK_MAX_DAYS = 3   // 4+ days is treated as churned, so not "at risk"
-const NEW_DAYS = 7           // "New Last 7 Days"
-const RETURNING_MIN_PURCHASES = 2
-const RETURNING_ACTIVE_DAYS = 7
+const SHOW_MAX = 200
 
 const TABS = [
   { id: 'all', label: 'All Clients' },
@@ -19,78 +18,40 @@ const TABS = [
   { id: 'returning', label: 'Returning' },
 ]
 
-function loadClients() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || '[]')
-    return Array.isArray(saved) ? saved : []
-  } catch (e) {
-    console.error('Could not read clients', e)
-    return []
-  }
-}
-
-function saveClients(list) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list))
-  } catch (e) {
-    console.error('Could not save clients', e)
-  }
-}
-
-// Call this from your transaction code later:
-//   recordClientPurchase('0712345678', 50)
-export function recordClientPurchase(phone, amount, name = '') {
-  const clean = parsePhone(String(phone || ''))
-  if (!clean) return
-  const list = loadClients()
-  const now = Date.now()
-  let client = list.find((c) => c.phone === clean)
-  if (!client) {
-    client = {
-      id: now + Math.random(),
-      name: name || clean,
-      phone: clean,
-      createdAt: now,
-      lastActive: now,
-      totalSpent: 0,
-      purchases: 0,
-      blacklisted: false,
-    }
-    list.push(client)
-  }
-  client.totalSpent += Number(amount) || 0
-  client.purchases += 1
-  client.lastActive = now
-  saveClients(list)
-}
-
 function startOfToday() {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 }
 
+// Categories are worked out fresh from each client's purchase days, so they roll over at midnight by themselves.
+//  New Today / New Last 7 Days: first seen as a customer in that time
+//  At risk: has bought before, but not in the last 3 days
+//  Returning: bought yesterday and today
 function matches(client, tab, now) {
-  const idleDays = (now - client.lastActive) / DAY
+  const today = startOfToday()
   switch (tab) {
     case 'today':
-      return client.createdAt >= startOfToday()
+      return client.createdAt >= today
     case 'week':
-      return now - client.createdAt <= NEW_DAYS * DAY
-    case 'risk':
-      return (
-        client.purchases > 0 &&
-        idleDays >= AT_RISK_MIN_DAYS &&
-        idleDays < AT_RISK_MAX_DAYS + 1
-      )
-    case 'returning':
-      return client.purchases >= RETURNING_MIN_PURCHASES && idleDays <= RETURNING_ACTIVE_DAYS
+      return client.createdAt > 0 && now - client.createdAt <= 7 * DAY
+    case 'risk': {
+      if (!(client.purchases > 0) || !client.lastActive) return false
+      const last = new Date(client.lastActive)
+      last.setHours(0, 0, 0, 0)
+      return Math.round((today - last.getTime()) / DAY) >= 3
+    }
+    case 'returning': {
+      const days = purchaseDays(client)
+      return days.includes(dayKey(now)) && days.includes(dayKey(now - DAY))
+    }
     default:
       return true
   }
 }
 
 function ago(ts, now) {
+  if (!ts) return 'No purchase yet'
   const mins = Math.max(0, Math.floor((now - ts) / 60000))
   if (mins < 1) return 'Just now'
   if (mins < 60) return `${mins}m ago`
@@ -100,29 +61,21 @@ function ago(ts, now) {
 }
 
 function initials(name) {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean)
   return ((parts[0]?.[0] || '?') + (parts[1]?.[0] || '')).toUpperCase()
 }
 
-function demoClients() {
-  const now = Date.now()
-  const mk = (name, phone, createdDays, idleHours, spent, purchases) => ({
-    id: now + Math.random(),
-    name,
-    phone,
-    createdAt: now - createdDays * DAY,
-    lastActive: now - idleHours * 3600000,
-    totalSpent: spent,
-    purchases,
-    blacklisted: false,
-  })
-  return [
-    mk('Faith Simiyu', '0704590730', 0, 1, 50, 1),
-    mk('Ruth Mogaka', '0759461380', 3, 60, 150, 3),
-    mk('Purity Bowen', '0769010855', 20, 30, 300, 6),
-    mk('Sydney Wangwe', '0797609585', 40, 96, 90, 2),
-    mk('Imran Ahmed', '0180723954'.replace(/^018/, '071'), 60, 500, 190, 4),
-  ]
+// Saves to the phone's own contact list (Android app only)
+async function saveToPhone(name, phone) {
+  if (!isNative()) return 'browser'
+  try {
+    await askPermissions()
+    const r = await AutoBingwa.saveContact({ name, phone })
+    return r && r.saved === false ? 'exists' : 'saved'
+  } catch (e) {
+    console.error('saveToPhone', e)
+    return 'failed'
+  }
 }
 
 export default function ClientsPage({ onBack }) {
@@ -134,11 +87,18 @@ export default function ClientsPage({ onBack }) {
   const [form, setForm] = useState({ name: '', phone: '' })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [syncing, setSyncing] = useState(false)
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 60000)
-    return () => clearInterval(t)
+    // The engine records purchases while this page is open, so reload when it does
+    const reload = () => setClients(loadClients())
+    window.addEventListener(CLIENTS_EVENT, reload)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener(CLIENTS_EVENT, reload)
+    }
   }, [])
 
   function update(list) {
@@ -152,10 +112,11 @@ export default function ClientsPage({ onBack }) {
   })
 
   const q = query.trim().toLowerCase()
-  const visible = clients
+  const filtered = clients
     .filter((c) => matches(c, tab, now))
-    .filter((c) => !q || c.name.toLowerCase().includes(q) || c.phone.includes(q.replace(/\s/g, '')))
-    .sort((a, b) => b.lastActive - a.lastActive)
+    .filter((c) => !q || String(c.name).toLowerCase().includes(q) || c.phone.includes(q.replace(/\s/g, '')))
+    .sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0) || String(a.name).localeCompare(String(b.name)))
+  const visible = filtered.slice(0, SHOW_MAX)
 
   function openAdd() {
     setForm({ name: '', phone: '' })
@@ -171,85 +132,86 @@ export default function ClientsPage({ onBack }) {
     setMenuId(null)
   }
 
-  function saveForm() {
+  async function saveForm() {
     const name = form.name.trim()
     const phone = parsePhone(form.phone)
     if (!name) return setError('Enter the client name')
     if (!phone) return setError('Enter a valid phone number')
-    if (clients.some((c) => c.phone === phone && c.id !== modal.id))
+    if (clients.some((c) => last9(c.phone) === last9(phone) && c.id !== modal.id))
       return setError('A client with this number already exists')
 
     if (modal.id) {
       update(clients.map((c) => (c.id === modal.id ? { ...c, name, phone } : c)))
       setNotice('Client updated')
-    } else {
-      const t = Date.now()
-      update([
-        ...clients,
-        {
-          id: t + Math.random(),
-          name,
-          phone,
-          createdAt: t,
-          lastActive: t,
-          totalSpent: 0,
-          purchases: 0,
-          blacklisted: false,
-        },
-      ])
-      setNotice('Client added')
+      setModal(null)
+      return
     }
+    const t = Date.now()
+    update([
+      ...clients,
+      { id: t + Math.random(), name, phone, createdAt: t, lastActive: 0, totalSpent: 0, purchases: 0, blacklisted: false, days: [] },
+    ])
     setModal(null)
+    const r = await saveToPhone(name, phone)
+    setNotice(
+      r === 'saved' ? 'Client added and saved to your phone contacts'
+        : r === 'exists' ? 'Client added. That number was already in your phone contacts'
+          : r === 'failed' ? 'Client added, but could not save to the phone contacts (check the Contacts permission)'
+            : 'Client added'
+    )
   }
 
   function toggleBlacklist(c) {
-    update(clients.map((x) => (x.id === c.id ? { ...x, blacklisted: !x.blacklisted } : x)))
-    setNotice(c.blacklisted ? `${c.name} removed from blacklist` : `${c.name} blacklisted`)
+    update(loadClients().map((x) => (x.id === c.id ? { ...x, blacklisted: !x.blacklisted } : x)))
+    setNotice(
+      c.blacklisted
+        ? `${c.name} removed from the blacklist`
+        : `${c.name} blacklisted. Their payments will not be processed`
+    )
     setMenuId(null)
   }
 
   async function syncContacts() {
     setNotice('')
-    if (!('contacts' in navigator) || !navigator.contacts?.select) {
-      setNotice('Contact sync works in Chrome on Android over a secure (https) link. Use the add button for now.')
-      return
-    }
+    if (!isNative()) return setNotice('Syncing contacts only works inside the Android app.')
+    setSyncing(true)
     try {
-      const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true })
-      const list = [...clients]
+      await askPermissions()
+      const phoneList = await listContacts()
+      const suffix = String(loadConfig().saveSuffix || '').trim()
+      const list = loadClients()
+      const known = new Set(list.map((c) => last9(c.phone)))
       let added = 0
-      const t = Date.now()
-      picked.forEach((p) => {
-        const phone = (p.tel || []).map((n) => parsePhone(n)).find(Boolean)
-        if (!phone || list.some((c) => c.phone === phone)) return
+      phoneList.forEach((p) => {
+        const phone = parsePhone(String(p.phone || ''))
+        if (!phone) return
+        const k = last9(phone)
+        if (known.has(k)) return
+        known.add(k)
+        let name = String(p.name || '').trim()
+        if (suffix && name.endsWith(' ' + suffix)) name = name.slice(0, -suffix.length).trim()
+        // createdAt 0: synced contacts are not "new customers" until they buy
         list.push({
-          id: t + Math.random(),
-          name: (p.name && p.name[0]) || phone,
-          phone,
-          createdAt: t,
-          lastActive: t,
-          totalSpent: 0,
-          purchases: 0,
-          blacklisted: false,
+          id: Date.now() + Math.random(), name: name || phone, phone,
+          createdAt: 0, lastActive: 0, totalSpent: 0, purchases: 0, blacklisted: false, days: [],
         })
         added += 1
       })
       update(list)
-      setNotice(added ? `${added} contact(s) synced` : 'No new contacts to add')
+      setNotice(added ? `${added} contact(s) synced from your phone` : 'No new contacts to add')
     } catch (e) {
-      if (e && e.name !== 'AbortError') setNotice('Could not read your contacts')
+      setNotice(`Could not read your contacts: ${e && e.message ? e.message : e}`)
+    } finally {
+      setSyncing(false)
     }
-  }
-
-  function loadDemo() {
-    update([...clients, ...demoClients()])
-    setNotice('Demo clients loaded')
   }
 
   function go(url) {
     setMenuId(null)
     window.location.href = url
   }
+
+  const intl = (p) => '254' + p.slice(1)
 
   return (
     <div className="cl-page">
@@ -274,7 +236,10 @@ export default function ClientsPage({ onBack }) {
           color: inherit; cursor: pointer; display: grid; place-items: center;
         }
         .cl-icon:hover { background: var(--cl-hover); }
+        .cl-icon:disabled { opacity: 0.5; cursor: wait; }
         .cl-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .cl-spin svg { animation: cl-rot 1s linear infinite; }
+        @keyframes cl-rot { to { transform: rotate(360deg); } }
         .cl-icon:focus-visible, .cl-tab:focus-visible, .cl-btn:focus-visible { outline: 2px solid var(--cl-accent); outline-offset: 3px; }
         .cl-search {
           width: 100%; box-sizing: border-box; padding: 15px 16px; border: 2px solid var(--cl-border);
@@ -306,7 +271,7 @@ export default function ClientsPage({ onBack }) {
         }
         .cl-dots-wrap { position: relative; }
         .cl-menu {
-          position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: 190px; padding: 6px;
+          position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: 200px; padding: 6px;
           border: 1px solid var(--cl-border); border-radius: 12px; background: var(--cl-card);
           box-shadow: 0 10px 30px rgb(0 0 0 / 18%);
         }
@@ -318,6 +283,7 @@ export default function ClientsPage({ onBack }) {
         .cl-menu .bad { color: var(--cl-bad); }
         .cl-backdrop { position: fixed; inset: 0; z-index: 20; background: transparent; border: 0; }
         .cl-empty { text-align: center; padding: 36px 16px; color: var(--cl-soft); }
+        .cl-more { text-align: center; color: var(--cl-soft); font-size: 13px; margin: 14px 0 0; }
         .cl-btn {
           padding: 14px 22px; border: 0; border-radius: 999px; background: var(--cl-accent);
           color: var(--cl-on); font: inherit; font-weight: 700; cursor: pointer;
@@ -351,10 +317,16 @@ export default function ClientsPage({ onBack }) {
             <h1>Clients</h1>
           </div>
           <div className="cl-head-icons">
-            <button className="cl-icon" onClick={syncContacts} aria-label="Sync contacts" title="Sync contacts">
+            <button
+              className={`cl-icon ${syncing ? 'cl-spin' : ''}`}
+              onClick={syncContacts}
+              disabled={syncing}
+              aria-label="Sync contacts from phone"
+              title="Sync contacts from phone"
+            >
               <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.5-6.2L3 8M3 3v5h5M3 12a9 9 0 0 0 15.5 6.2L21 16M21 21v-5h-5" /></svg>
             </button>
-            <button className="cl-icon" onClick={openAdd} aria-label="Add contact" title="Add contact">
+            <button className="cl-icon" onClick={openAdd} aria-label="Add client" title="Add client">
               <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4" /><path d="M2 21c0-4 3-6 7-6s7 2 7 6M19 8v6M16 11h6" /></svg>
             </button>
           </div>
@@ -387,10 +359,7 @@ export default function ClientsPage({ onBack }) {
         {visible.length === 0 ? (
           <div className="cl-empty">
             {clients.length === 0 ? (
-              <>
-                <p>No clients yet. Add one, sync your contacts, or load sample clients to test.</p>
-                <button className="cl-btn" onClick={loadDemo}>Load demo clients</button>
-              </>
+              <p>No clients yet. Customers appear here after they buy. You can also add one, or sync your phone contacts.</p>
             ) : (
               <p>No clients in this category.</p>
             )}
@@ -409,7 +378,7 @@ export default function ClientsPage({ onBack }) {
                   <div className="cl-meta">
                     Average spent: KES {c.purchases ? Math.round(c.totalSpent / c.purchases) : 0}
                   </div>
-                  <div className="cl-meta">Last active: {ago(c.lastActive, now)}</div>
+                  <div className="cl-meta">Last purchase: {ago(c.lastActive, now)}</div>
                 </div>
 
                 <div className="cl-dots-wrap">
@@ -426,7 +395,8 @@ export default function ClientsPage({ onBack }) {
                       <button className="cl-backdrop" aria-label="Close menu" onClick={() => setMenuId(null)} />
                       <div className="cl-menu">
                         <button onClick={() => go(`tel:${c.phone}`)}>Call</button>
-                        <button onClick={() => go(`sms:${c.phone}`)}>Text</button>
+                        <button onClick={() => go(`sms:${c.phone}`)}>Text (Messages)</button>
+                        <button onClick={() => go(`https://wa.me/${intl(c.phone)}`)}>Text (WhatsApp)</button>
                         <button onClick={() => openEdit(c)}>Edit</button>
                         <button className="bad" onClick={() => toggleBlacklist(c)}>
                           {c.blacklisted ? 'Remove from blacklist' : 'Blacklist'}
@@ -438,6 +408,9 @@ export default function ClientsPage({ onBack }) {
               </article>
             ))}
           </div>
+        )}
+        {filtered.length > SHOW_MAX && (
+          <p className="cl-more">Showing the first {SHOW_MAX} of {filtered.length}. Use search to find the rest.</p>
         )}
       </div>
 

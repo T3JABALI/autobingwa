@@ -4,4 +4,5 @@
     <string name="title_activity_main">autobingwa</string>
     <string name="package_name">com.autobingwa.app</string>
     <string name="custom_url_scheme">com.autobingwa.app</string>
+    <string name="ussd_service_description">AutoBingwa types the USSD menu options for you</string>
 </resources>

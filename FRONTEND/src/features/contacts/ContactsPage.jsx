@@ -1,163 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
 import { parsePhone } from '../quickdial/ussd'
+import { AutoBingwa, isNative, askPermissions } from '../../engine/native.js'
+import { last9 } from '../../engine/config.js'
+import { loadContacts, writeContacts, newContactId, CONTACTS_EVENT } from '../../engine/contactsStore.js'
+import { exportContacts, importFile } from './contactsIO.js'
 
-const KEY = 'contacts:list'
-const CLIENTS_KEY = 'clients:list'
-
-const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-
-function read(key) {
-  try {
-    const v = JSON.parse(localStorage.getItem(key) || '[]')
-    return Array.isArray(v) ? v : []
-  } catch (e) {
-    console.error('Could not read ' + key, e)
-    return []
-  }
-}
-
-function write(key, list) {
-  try {
-    localStorage.setItem(key, JSON.stringify(list))
-  } catch (e) {
-    console.error('Could not save ' + key, e)
-  }
-}
-
-// Loads contacts and copies in any client who has bought before.
-function loadContacts() {
-  const contacts = read(KEY)
-  let changed = false
-  read(CLIENTS_KEY).forEach((c) => {
-    if (c.purchases > 0 && !contacts.some((x) => x.phone === c.phone)) {
-      contacts.push({
-        id: newId(), name: c.name || c.phone, phone: c.phone,
-        email: '', source: 'local', createdAt: c.createdAt || Date.now(),
-      })
-      changed = true
-    }
-  })
-  if (changed) write(KEY, contacts)
-  return contacts
-}
-
-// Call from your Sitelink / purchase code:
-//   addContact('0712345678', 'Name', 'sitelink')
-export function addContact(phone, name = '', source = 'local') {
-  const clean = parsePhone(String(phone || ''))
-  if (!clean) return
-  const list = read(KEY)
-  if (list.some((c) => c.phone === clean)) return
-  list.push({ id: newId(), name: name || clean, phone: clean, email: '', source, createdAt: Date.now() })
-  write(KEY, list)
-}
+export { addContact } from '../../engine/contactsStore.js'
 
 const show = (p) => `+254 ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7)}`
-const intl = (p) => '+254' + p.slice(1)
 
 function initials(name) {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean)
   if (parts.length === 1) return parts[0][0].toUpperCase()
   return ((parts[0]?.[0] || '?') + (parts[1]?.[0] || '')).toUpperCase()
 }
 
-function splitCsvLine(line) {
-  const out = []
-  let cur = ''
-  let q = false
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (q) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') { cur += '"'; i++ } else q = false
-      } else cur += ch
-    } else if (ch === '"') q = true
-    else if (ch === ',' || ch === ';' || ch === '\t') { out.push(cur); cur = '' }
-    else cur += ch
+// Saves to the phone's own contact list (Android app only)
+async function saveToPhone(name, phone) {
+  if (!isNative()) return 'browser'
+  try {
+    await askPermissions()
+    const r = await AutoBingwa.saveContact({ name, phone })
+    return r && r.saved === false ? 'exists' : 'saved'
+  } catch (e) {
+    console.error('saveToPhone', e)
+    return 'failed'
   }
-  out.push(cur)
-  return out
-}
-
-function parseCsv(text) {
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim())
-  if (!lines.length) return []
-  const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase())
-  let nameIdx = header.findIndex((h) => /name/.test(h))
-  let phoneIdx = header.findIndex((h) => /phone|number|tel|mobile/.test(h))
-  const emailIdx = header.findIndex((h) => /mail/.test(h))
-  let start = 1
-  if (nameIdx < 0 && phoneIdx < 0) { nameIdx = 0; phoneIdx = 1; start = 0 }
-  const rows = []
-  for (let i = start; i < lines.length; i++) {
-    const cells = splitCsvLine(lines[i])
-    const phone = parsePhone(phoneIdx >= 0 ? cells[phoneIdx] || '' : '')
-    if (!phone) continue
-    const name = (nameIdx >= 0 && (cells[nameIdx] || '').trim()) || phone
-    rows.push({ name, phone, email: emailIdx >= 0 ? (cells[emailIdx] || '').trim() : '' })
-  }
-  return rows
-}
-
-function parseVcf(text) {
-  const rows = []
-  text.split(/BEGIN:VCARD/i).slice(1).forEach((card) => {
-    const fn = (card.match(/^FN[^:]*:(.*)$/im) || [])[1] || ''
-    const tel = (card.match(/^TEL[^:]*:(.*)$/im) || [])[1] || ''
-    const mail = (card.match(/^EMAIL[^:]*:(.*)$/im) || [])[1] || ''
-    const phone = parsePhone(tel)
-    if (phone) rows.push({ name: fn.trim() || phone, phone, email: mail.trim() })
-  })
-  return rows
-}
-
-const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
-const htmlEsc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-function download(filename, mime, content) {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-function exportContacts(list, format) {
-  const stamp = new Date().toISOString().slice(0, 10)
-  const base = `contacts-${stamp}`
-  if (format === 'csv') {
-    const rows = [['Name', 'Phone', 'Email', 'Source'], ...list.map((c) => [c.name, intl(c.phone), c.email, c.source])]
-    download(`${base}.csv`, 'text/csv;charset=utf-8', '\uFEFF' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'))
-  } else if (format === 'xls') {
-    const rows = list.map((c) =>
-      `<tr><td>${htmlEsc(c.name)}</td><td style="mso-number-format:'\\@'">${htmlEsc(intl(c.phone))}</td><td>${htmlEsc(c.email)}</td><td>${htmlEsc(c.source)}</td></tr>`
-    ).join('')
-    download(`${base}.xls`, 'application/vnd.ms-excel',
-      `<html><head><meta charset="utf-8"></head><body><table><tr><th>Name</th><th>Phone</th><th>Email</th><th>Source</th></tr>${rows}</table></body></html>`)
-  } else if (format === 'vcf') {
-    const cards = list.map((c) =>
-      `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${c.name}\r\nTEL;TYPE=CELL:${intl(c.phone)}\r\n${c.email ? `EMAIL:${c.email}\r\n` : ''}END:VCARD`
-    ).join('\r\n')
-    download(`${base}.vcf`, 'text/vcard;charset=utf-8', cards)
-  } else {
-    download(`${base}.json`, 'application/json', JSON.stringify(list, null, 2))
-  }
-}
-
-function demoContacts() {
-  const t = Date.now()
-  const mk = (name, phone, source) => ({ id: newId(), name, phone, email: '', source, createdAt: t })
-  return [
-    mk('KCB', '0712501901', 'local'),
-    mk('Rachael Mukami', '0720463494', 'local'),
-    mk('Lucia Matea Akanga', '0111957805', 'local'),
-    mk('Philip Memo Akaranga', '0702120431', 'sitelink'),
-    mk('Miltone Zephania Anjeche', '0704204766', 'sitelink'),
-  ]
 }
 
 const ICONS = {
@@ -170,9 +38,7 @@ const ICONS = {
 }
 
 function Icon({ name }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">{ICONS[name]}</svg>
-  )
+  return <svg viewBox="0 0 24 24" aria-hidden="true">{ICONS[name]}</svg>
 }
 
 export default function ContactsPage({ onBack }) {
@@ -191,19 +57,23 @@ export default function ContactsPage({ onBack }) {
   const fileRef = useRef(null)
 
   useEffect(() => {
-    setContacts(loadContacts())
+    // The engine adds customers here when they buy, so reload when it does
+    const reload = () => setContacts(loadContacts())
+    reload()
+    window.addEventListener(CONTACTS_EVENT, reload)
+    return () => window.removeEventListener(CONTACTS_EVENT, reload)
   }, [])
 
   function update(list) {
     setContacts(list)
-    write(KEY, list)
+    writeContacts(list)
   }
 
   const q = query.trim().toLowerCase()
   const visible = contacts
     .filter((c) => c.source === tab)
-    .filter((c) => !q || c.name.toLowerCase().includes(q) || c.phone.includes(q.replace(/\s|\+/g, '').replace(/^254/, '0')) || (c.email || '').toLowerCase().includes(q))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .filter((c) => !q || String(c.name).toLowerCase().includes(q) || c.phone.includes(q.replace(/\s|\+/g, '').replace(/^254/, '0')) || (c.email || '').toLowerCase().includes(q))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)))
 
   const localCount = contacts.filter((c) => c.source === 'local').length
   const sitelinkCount = contacts.filter((c) => c.source === 'sitelink').length
@@ -229,24 +99,31 @@ export default function ContactsPage({ onBack }) {
     setModal({ type: 'edit', id: c.id })
   }
 
-  function saveForm() {
+  async function saveForm() {
     const name = form.name.trim()
     const phone = parsePhone(form.phone)
     if (!name) return setError('Enter the contact name')
     if (!phone) return setError('Enter a valid phone number')
     const editingId = modal.type === 'edit' ? modal.id : null
-    if (contacts.some((c) => c.phone === phone && c.id !== editingId))
+    if (contacts.some((c) => last9(c.phone) === last9(phone) && c.id !== editingId))
       return setError('A contact with this number already exists')
 
     if (editingId) {
       update(contacts.map((c) => (c.id === editingId ? { ...c, name, phone, email: form.email.trim() } : c)))
       setNotice('Contact updated')
-    } else {
-      update([...contacts, { id: newId(), name, phone, email: form.email.trim(), source: 'local', createdAt: Date.now() }])
-      setTab('local')
-      setNotice('Contact added')
+      setModal(null)
+      return
     }
+    update([...contacts, { id: newContactId(), name, phone, email: form.email.trim(), source: 'local', createdAt: Date.now() }])
+    setTab('local')
     setModal(null)
+    const r = await saveToPhone(name, phone)
+    setNotice(
+      r === 'saved' ? 'Contact added and saved to your phone'
+        : r === 'exists' ? 'Contact added. That number was already in your phone contacts'
+          : r === 'failed' ? 'Contact added, but could not save to the phone (check the Contacts permission)'
+            : 'Contact added'
+    )
   }
 
   function deleteOne(c) {
@@ -285,43 +162,48 @@ export default function ContactsPage({ onBack }) {
     setSelectMode(false)
   }
 
-  function doExport(format) {
+  async function doExport(format) {
     const list = selectMode && chosen.length ? chosen : contacts
-    if (!list.length) {
-      setExportOpen(false)
-      return setNotice('There are no contacts to export')
-    }
-    exportContacts(list, format)
     setExportOpen(false)
-    setNotice(`${list.length} contact(s) exported`)
+    if (!list.length) return setNotice('There are no contacts to export')
+    try {
+      await exportContacts(list, format)
+      setNotice(`${list.length} contact(s) exported`)
+    } catch (e) {
+      console.error('export', e)
+      setNotice(`Could not export: ${e && e.message ? e.message : e}`)
+    }
   }
 
-  function handleImport(e) {
+  async function handleImport(e) {
     const file = e.target.files && e.target.files[0]
     e.target.value = ''
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = String(reader.result || '')
-      const rows = /\.vcf$/i.test(file.name) ? parseVcf(text) : parseCsv(text)
-      const list = [...contacts]
+    try {
+      const rows = await importFile(file)
+      const list = loadContacts()
+      const known = new Set(list.map((c) => last9(c.phone)))
       let added = 0
       rows.forEach((r) => {
-        if (list.some((c) => c.phone === r.phone)) return
-        list.push({ id: newId(), name: r.name, phone: r.phone, email: r.email, source: 'local', createdAt: Date.now() })
+        const k = last9(r.phone)
+        if (known.has(k)) return
+        known.add(k)
+        list.push({
+          id: newContactId(), name: r.name, phone: r.phone, email: r.email || '',
+          source: r.source === 'sitelink' ? 'sitelink' : 'local', createdAt: Date.now(),
+        })
         added += 1
       })
       update(list)
-      setTab('local')
-      setNotice(added ? `${added} contact(s) imported` : 'No new contacts found in that file')
+      setNotice(
+        added
+          ? `${added} contact(s) imported (${rows.length - added} already existed)`
+          : rows.length ? 'All contacts in that file already exist' : 'No phone numbers found in that file'
+      )
+    } catch (err) {
+      console.error('import', err)
+      setNotice('Could not read that file')
     }
-    reader.onerror = () => setNotice('Could not read that file')
-    reader.readAsText(file)
-  }
-
-  function loadDemo() {
-    update([...contacts, ...demoContacts().filter((d) => !contacts.some((c) => c.phone === d.phone))])
-    setNotice('Demo contacts loaded')
   }
 
   const viewing = modal && modal.type === 'view' ? contacts.find((c) => c.id === modal.id) : null
@@ -455,7 +337,7 @@ export default function ContactsPage({ onBack }) {
                       {selectMode && chosen.length ? `Export ${chosen.length} selected` : `Export all ${contacts.length}`}
                     </div>
                     <button onClick={() => doExport('csv')}>CSV (.csv)</button>
-                    <button onClick={() => doExport('xls')}>Excel (.xls)</button>
+                    <button onClick={() => doExport('xlsx')}>Excel (.xlsx)</button>
                     <button onClick={() => doExport('vcf')}>vCard (.vcf)</button>
                     <button onClick={() => doExport('json')}>JSON (.json)</button>
                   </div>
@@ -466,7 +348,7 @@ export default function ContactsPage({ onBack }) {
             <button className="ct-icon" aria-label="Import contacts" title="Import" onClick={() => fileRef.current && fileRef.current.click()}>
               <Icon name="download" />
             </button>
-            <input ref={fileRef} type="file" accept=".csv,.vcf,text/csv,text/vcard" hidden onChange={handleImport} />
+            <input ref={fileRef} type="file" hidden onChange={handleImport} />
 
             <div className="ct-rel">
               <button className="ct-icon" aria-label="More options" onClick={() => { setExportOpen(false); setTopMenu(!topMenu) }}>
@@ -521,10 +403,7 @@ export default function ContactsPage({ onBack }) {
         {visible.length === 0 ? (
           <div className="ct-empty">
             {contacts.length === 0 ? (
-              <>
-                <p>No contacts yet. Customers who buy appear here automatically. You can also add, import or load samples to test.</p>
-                <button className="ct-btn" onClick={loadDemo}>Load demo contacts</button>
-              </>
+              <p>No contacts yet. Customers who buy appear here automatically. You can also add or import contacts.</p>
             ) : (
               <p>No contacts found in this list.</p>
             )}
