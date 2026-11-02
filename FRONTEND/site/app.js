@@ -59,7 +59,11 @@ try{await api('POST','/site/'+encodeURIComponent(CID)+'/purchase',{offerId:sel.i
 catch(e){er.textContent=e.message;b.disabled=false;b.textContent='Purchase'}}};
 document.addEventListener('click',e=>{const t=e.target.closest('[data-a]');if(!t||!A[t.dataset.a])return;if(t.dataset.a==='bg'&&e.target!==t)return;A[t.dataset.a](t.dataset,e)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')A.close()});
+
+
+
 /* ===== Start ===== */
-(async()=>{$('#app').innerHTML='<p class="mu c" style="margin-top:40px">Loading offers...</p>';
+(async()=>{if(!CID){$('#app').innerHTML='<p class="mu c" style="margin-top:40px">Open a business link, for example /jabali</p>';return}
+$('#app').innerHTML='<p class="mu c" style="margin-top:40px">Loading offers...</p>';
 try{D=await api('GET','/site/'+encodeURIComponent(CID));document.title=D.biz;page()}
 catch(e){$('#app').innerHTML=`<p class="err c" style="margin-top:40px">${esc(e.message)}</p>`}})();
