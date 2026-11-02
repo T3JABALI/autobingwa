@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import VerifiedBadge from './features/home/VerifiedBadge.jsx'
+import FingerprintIcon from './features/home/FingerprintIcon.jsx'
 import { signatureOffers } from './signatureCatalog.js'
 
 function Signature({ owned = [], onDownload = () => {}, onBack }) {
@@ -37,9 +39,9 @@ function Signature({ owned = [], onDownload = () => {}, onBack }) {
 
       {list.map(o => (
         <div key={o.sid} className="sig-card">
-          <div className="sig-icon">🌐</div>
+          <div className="sig-icon"><FingerprintIcon size={26} /></div>
           <div className="sig-main">
-            <div className="sig-title"><b>{o.name}</b><span className="tick" title="Verified transaction">✔</span></div>
+  <VerifiedBadge />        <div className="sig-title"><b>{o.name}</b></div>
             <code>{o.ussd}</code>
           </div>
           <div className="sig-side">
@@ -58,7 +60,7 @@ function Signature({ owned = [], onDownload = () => {}, onBack }) {
         <div className="sheet-back" onClick={() => setPick(null)}>
           <div className="sheet" onClick={e => e.stopPropagation()}>
             <div className="sheet-body">
-              <h3>{pick.name} <span className="tick">✔</span></h3>
+              <h3>{pick.name} <VerifiedBadge /></h3>
               <small className="muted-line">USSD {pick.ussd} · Safaricom KES {pick.safPrice} (locked)</small>
               <label className="field"><span>Your selling price (KES)</span>
                 <input type="number" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} />

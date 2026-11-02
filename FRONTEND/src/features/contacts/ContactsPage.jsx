@@ -4,6 +4,7 @@ import { AutoBingwa, isNative, askPermissions } from '../../engine/native.js'
 import { last9 } from '../../engine/config.js'
 import { loadContacts, writeContacts, newContactId, CONTACTS_EVENT } from '../../engine/contactsStore.js'
 import { exportContacts, importFile } from './contactsIO.js'
+import { confirmDialog } from '../ui/dialog.js'
 
 export { addContact } from '../../engine/contactsStore.js'
 
@@ -126,16 +127,16 @@ export default function ContactsPage({ onBack }) {
     )
   }
 
-  function deleteOne(c) {
+   async function deleteOne(c) {
     closeMenus()
-    if (!window.confirm(`Delete ${c.name}? This cannot be undone.`)) return
+    if (!(await confirmDialog(`${c.name} will be removed from your contacts for good.`, { title: 'Delete contact?', confirmLabel: 'Delete', danger: true }))) return
     update(contacts.filter((x) => x.id !== c.id))
     setNotice('Contact deleted')
   }
 
-  function deleteSelected() {
+   async function deleteSelected() {
     if (!chosen.length) return setNotice('Select at least one contact')
-    if (!window.confirm(`Delete ${chosen.length} contact(s)? This cannot be undone.`)) return
+    if (!(await confirmDialog(`${chosen.length} contact${chosen.length === 1 ? '' : 's'} will be removed for good.`, { title: 'Delete selected?', confirmLabel: 'Delete', danger: true }))) return
     update(contacts.filter((c) => !selected.includes(c.id)))
     setSelected([])
     setSelectMode(false)

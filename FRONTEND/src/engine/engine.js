@@ -111,6 +111,7 @@ function writeRenewals(list) {
 export function createEngine({
   store, bridge, getOffers, getMode = () => 'Express', getConfig = loadConfig, now = () => Date.now(),
   hasToken = () => true,
+  chargeToken = () => {},
 }) {
   let running = false
   let working = false
@@ -439,6 +440,8 @@ export function createEngine({
       await new Promise((r) => setTimeout(r, retryMs))
     }
 
+    chargeToken() // the app dialed: one token, whatever the outcome
+
     // Fallback: only after a DEFINITE failure (all retries used) or "already recommended".
     // A timeout or no reply may have sold, so it never triggers a backup.
     if (!ok) {
@@ -495,7 +498,7 @@ export function createEngine({
         await process(next)
         manual.delete(next.id)
         // a short breather so the phone releases the USSD session before the next one
-        await new Promise((r) => setTimeout(r, Number(getConfig().gapMs ?? 1000)))
+        await new Promise((r) => setTimeout(r, Number(getConfig().gapMs ?? 400)))
       }
     } finally {
       working = false

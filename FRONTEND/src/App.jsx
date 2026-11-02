@@ -19,6 +19,9 @@ import ModeDialog from './features/home/ModeDialog.jsx'
 import Toaster from './features/notify/Toaster.jsx'
 import UpdatesPage from './features/updates/UpdatesPage.jsx'
 import UpdatePrompt from './features/updates/UpdatePrompt.jsx'
+import PhoneSetupPage from './features/setup/PhoneSetupPage.jsx'
+import DialogHost from './features/ui/DialogHost.jsx'
+import { askChoice } from './features/ui/dialog.js'
 
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
@@ -37,10 +40,11 @@ const navigation = [
   'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
   'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
   'Auto Replies', 'Autobingwa Connect', 'Fallback Plans',
-  'Settings', 'Updates',
+  'Settings', 'Updates', 'Phone Setup',
+
 ]
 
-const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷']
+const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷', '✓']
 
 const chartValues = [120, 190, 290, 280, 460, 490, 820]
 
@@ -1346,17 +1350,38 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
          window.dispatchEvent(new Event('ab-need-setup'))
          return
        }
+       const waiting = engine.pausedCount()
+       let choice = 'process'
+       if (waiting > 0) {
+         choice = await askChoice({
+           title: 'Before we start',
+           message: `${waiting} payment${waiting === 1 ? '' : 's'} arrived while automation was off. Handle ${waiting === 1 ? 'it' : 'them'} now, or leave ${waiting === 1 ? 'it' : 'them'} out and only take new payments from here?`,
+           choices: [
+             { id: 'cancel', label: "Don't start", kind: 'text' },
+             { id: 'skip', label: 'Leave them out', kind: 'text' },
+             { id: 'process', label: 'Handle them now', kind: 'primary' },
+           ],
+         })
+         if (choice !== 'process' && choice !== 'skip') return // closed or "Don't start": nothing starts
+       }
        setKeepAlive(true)
        engine.start()
        setAutomationRunning(true)
-       const waiting = engine.pausedCount()
-       if (waiting > 0) {
-         const go = window.confirm(
-           `${waiting} transaction(s) were paused while automation was off.\n\nOK = process them now\nCancel = mark them as Skipped`
-         )
-         engine.releasePaused(go ? 'process' : 'skip')
-       }
+       if (waiting > 0) engine.releasePaused(choice)
      }
+
+  // A successful purchase teaches its menu path (see engine/index.js). Saved here so the offers list stays in sync.
+  useEffect(() => {
+    const learned = (e) => {
+      const d = e.detail || {}
+      setMyOffers(p => p.map(o =>
+        String(o.id) === String(d.offerId) && !(o.sig && o.sig.complete)
+          ? { ...o, sig: d.sig, sigLearned: true, sigEnabled: true, sigAuto: true, updated: new Date().toLocaleString() }
+          : o))
+    }
+    window.addEventListener('ab-offer-learned', learned)
+    return () => window.removeEventListener('ab-offer-learned', learned)
+  }, [])
 
   // The app always opens stopped. Automation only starts when you hold the button.
   useEffect(() => {
@@ -1618,6 +1643,10 @@ onToggleAutomation={toggleAutomation}
           <section className="panel fit fit-fallback">
             <FallbackPage offers={offers} onBack={() => setActivePage('Home')} />
           </section> 
+        ) : activePage === 'Phone Setup' ? (
+          <section className="panel">
+            <PhoneSetupPage onBack={() => setActivePage('Home')} />
+          </section>
         ) : activePage === 'Updates' ? (
           <section className="panel">
             <UpdatesPage onBack={() => setActivePage('Home')} />
@@ -1641,6 +1670,7 @@ onToggleAutomation={toggleAutomation}
         )}
       </main>
       <Toaster />
+      <DialogHost />
 {activePage === 'Home' && <UpdatePrompt />}
       <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />
       {modeOpen && (

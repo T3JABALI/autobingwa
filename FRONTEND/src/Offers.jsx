@@ -3,6 +3,9 @@ import { applyEdit, checkUssd, normalizeUssd } from './engine/offerRules.js'
 import { learnSignature, ussdServiceEnabled, isNative } from './engine/native.js'
 import { parseMenu } from './engine/signature.js'
 import { loadConfig } from './engine/config.js'
+import { confirmDialog } from './features/ui/dialog.js'
+import VerifiedBadge from './features/home/VerifiedBadge.jsx'
+import FingerprintIcon from './features/home/FingerprintIcon.jsx'
 const CATS = ['ALL', 'DATA', 'TUNUKIWA', 'MINUTES', 'SMS']
 const PICK = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA'] // the four categories an offer can be added under
 const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buying!'
@@ -125,9 +128,9 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
     flash('Saved')
   }
   const toggle = (o) => onSave({ ...o, enabled: !o.enabled })
-  const remove = (o) => {
+  const remove = async (o) => {
     setCardMenu(null)
-    if (window.confirm(`Delete ${o.name}? This cannot be undone.`)) {
+    if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
       onDelete(o.id)
       flash('Offer deleted')
     }
@@ -219,7 +222,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
           <div className="of-top">
             <div className="of-title">
               <b>{o.name}</b>
-              {isVerified(o) && <span className="tick" title="Verified">✔</span>}
+              {isVerified(o) && <VerifiedBadge />}
             </div>
             <Switch on={o.enabled} onChange={() => toggle(o)} label={`Turn ${o.name} ${o.enabled ? 'off' : 'on'}`} />
           </div>
@@ -258,7 +261,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
                       <span>⧉</span> Copy USSD
                     </button>
                     <button onClick={() => { setCardMenu(null); setSheet({ type: 'signature', offer: o }) }}>
-                      <span>✍</span> Signature
+                      <span><FingerprintIcon size={18} /></span> Signature
                     </button>
                     <button className="danger" onClick={() => remove(o)}>
                       <span>🗑</span> Delete
@@ -492,7 +495,7 @@ function WindowSheet({ start, offers, onClose, onSave }) {
 function SignatureSheet({ start, onClose, onSave }) {
   const smart = Boolean(start.smart)
   const saved = start.sig && start.sig.steps ? start.sig : null
-  const locked = smart && Boolean(saved) // a built-in signature cannot be changed
+  const locked = smart && Boolean(saved) && !start.sigAuto // a built-in signature cannot be changed. One the app learned itself can be learned again.
   const [learned, setLearned] = useState(null) // { signature, screens } from this session
   const [enable, setEnable] = useState(smart ? true : Boolean(start.sigEnabled))
   const [busy, setBusy] = useState(false)
@@ -575,7 +578,7 @@ function SignatureSheet({ start, onClose, onSave }) {
       <p className="of-hint"><b>{start.name}</b> · <code>{start.ussd}</code></p>
 
       {locked ? (
-        <p className="of-hint"><span className="tick">✔</span> This is a verified Smart plan. Its signature is built in and locked.</p>
+        <p className="of-hint"><VerifiedBadge /> This is a verified Smart plan. Its signature is built in and locked.</p>
       ) : (
         <>
           {smart && !saved && (

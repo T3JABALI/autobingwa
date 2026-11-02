@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { confirmDialog } from '../ui/dialog.js'
 
 const KEY = 'autoreplies:list'
 
@@ -191,8 +192,8 @@ export default function AutoRepliesPage({ onBack }) {
     setScreen('list')
   }
 
-  function remove() {
-    if (!window.confirm('Delete this AutoReply? This cannot be undone.')) return
+  async function remove() {
+    if (!(await confirmDialog('This reply will be removed for good.', { title: 'Delete AutoReply?', confirmLabel: 'Delete', danger: true }))) return
     update(list.filter((r) => r.id !== editingId))
     setNotice('AutoReply deleted')
     setScreen('list')

@@ -105,6 +105,11 @@ const safe = async (fn) => {
   try { return await fn() } catch (e) { console.error('AB native', e); return null }
 }
 export const openAppInfo = () => safe(() => AutoBingwa.openAppInfo())
+export const deviceInfo = () => safe(() => AutoBingwa.deviceInfo())
+export async function batteryExempt() {
+  const r = await safe(() => AutoBingwa.batteryStatus())
+  return Boolean(r && r.exempt)
+}
 export const requestBatteryExemption = () => safe(() => AutoBingwa.requestBatteryExemption())
 export const requestNotifications = () => safe(() => AutoBingwa.requestNotifications())
 export const setKeepAlive = (on) => safe(() => (on ? AutoBingwa.startKeepAlive() : AutoBingwa.stopKeepAlive()))

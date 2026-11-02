@@ -73,10 +73,14 @@ function announce(tx) {
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
-// Airtime and tokens go down when a transaction completes.
+// Airtime goes down when a transaction completes.
 function applyCompletion(tx) {
   const cost = Number(tx.cost) || 0
   if (cost) write(AIRTIME_KEY, Math.max(0, loadAirtime() - cost))
+}
+
+// One token per dialed transaction, whether it ended Completed or Failed (unlimited plans ignore this)
+export function chargeToken() {
   const wallet = loadWallet()
   if (!(wallet.unlimitedUntil > Date.now()) && wallet.units > 0) {
     write(WALLET_KEY, { ...wallet, units: Math.max(0, wallet.units - TOKENS_PER_TRANSACTION) })

@@ -9,4 +9,27 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AutoBingwaPlugin.class);
         super.onCreate(savedInstanceState);
     }
+
+    // While automation is running, do not let the web view's timers stay paused in the background
+    private void keepWebViewRunning() {
+        try {
+            if (KeepAliveService.active && getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().resumeTimers();
+            }
+        } catch (Exception e) {
+            // never block the app because of this
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        keepWebViewRunning();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        keepWebViewRunning();
+    }
 }

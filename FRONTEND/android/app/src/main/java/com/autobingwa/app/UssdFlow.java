@@ -190,6 +190,19 @@ public class UssdFlow {
             r.message = "The saved signature does not match this USSD code. Learn the signature again.";
             return r;
         }
+        // On a dual-SIM phone, never fall back to the default SIM: that could spend the wrong SIM's airtime
+        if (handleForSlot(ctx, slot) == null) {
+            try {
+                SubscriptionManager sm0 = ctx.getSystemService(SubscriptionManager.class);
+                if (sm0 != null && sm0.getActiveSubscriptionInfoCount() > 1) {
+                    r.status = "error";
+                    r.message = "Could not select SIM " + (slot + 1) + " for the dialer, so nothing was dialed. Use Express mode or check the SIM setting.";
+                    return r;
+                }
+            } catch (SecurityException e) {
+                // carry on with the default SIM
+            }
+        }
         dial(ctx, slot, first);
         String sent = first;
         r.status = "complete";

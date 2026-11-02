@@ -7,6 +7,7 @@ import {
   AutoBingwa,
   requestNotifications,
   phoneAlert,
+  ussdServiceEnabled,
 } from './native.js'
 
 import { loadConfig } from './config.js'
@@ -15,6 +16,7 @@ import { findAutoReply, fillTemplate as fillReply } from './autoRepliesStore.js'
 import { recordClientPurchase } from './clientsStore.js'
 import { addContact } from './contactsStore.js'
 import { tokensActive } from './tokens.js'
+import { chargeToken } from '../features/home/dataStore.js'
 
 import {
   loadTransactions,
@@ -115,6 +117,32 @@ const realBridge = {
         }
       } catch (err) {
         const msg = String(err && err.message ? err.message : err)
+        // The phone refused the silent request (code -1 or -2): try once more, then use the dialer window
+        if (/USSD failed, code -[12]\b/.test(msg) || /USSD error/.test(msg)) {
+          try {
+            await new Promise((r) => setTimeout(r, 1500))
+            const again = await AutoBingwa.runUssd({ code, slot, express: true })
+            return { ok: true, status: 'complete', responses: [{ input: code, text: again.text || '' }] }
+          } catch (err2) {
+            console.error('AB express retry', err2)
+          }
+          if (await ussdServiceEnabled()) {
+            return runFlow({ ussd, phone, slot, express: false, ...timeouts })
+          }
+        }
+        // The phone refused the silent request (code -1 or -2): try once more, then use the dialer window
+        if (/USSD failed, code -[12]\b/.test(msg) || /USSD error/.test(msg)) {
+          try {
+            await new Promise((r) => setTimeout(r, 1500))
+            const again = await AutoBingwa.runUssd({ code, slot, express: true })
+            return { ok: true, status: 'complete', responses: [{ input: code, text: again.text || '' }] }
+          } catch (err2) {
+            console.error('AB express retry', err2)
+          }
+          if (await ussdServiceEnabled()) {
+            return runFlow({ ussd, phone, slot, express: false, ...timeouts })
+          }
+        }
         // A timeout means the request went out but no answer came back. The plan may have sold,
         // so report "no reply" (unknown) instead of a definite failure. That blocks retries and fallbacks.
         if (/timed out/i.test(msg)) {
@@ -149,6 +177,7 @@ export const engine = createEngine({
   getOffers: () => readJson('myOffers', []),
   getMode: () => loadConfig().mode,
   hasToken: tokensActive,
+  chargeToken,
 })
 
 engine.recover()

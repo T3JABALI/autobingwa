@@ -5,8 +5,10 @@ import {
   updateTransaction, deleteTransaction, seedDemo,
 } from './dataStore.js'
 import { CSS } from './homeStyles.js'
+import { confirmDialog } from '../ui/dialog.js'
 import CommissionChart from './CommissionChart.jsx'
 import { Icon } from './HomeParts.jsx'
+import VerifiedBadge from './VerifiedBadge.jsx'
 import { engine } from '../../engine/index.js'
 import { isNative, getSims, refreshAirtime } from '../../engine/native.js'
 import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
@@ -362,8 +364,8 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     setView({ ...view, name: 'detail' })
   }
 
-  function remove(t) {
-    if (!window.confirm('Delete this transaction? This cannot be undone.')) return
+  async function remove(t) {
+    if (!(await confirmDialog('This transaction will be removed for good.', { title: 'Delete transaction?', confirmLabel: 'Delete', danger: true }))) return
     deleteTransaction(t.id)
     setNotice('Transaction deleted')
     goBack()
@@ -388,7 +390,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
       <span className="hm-row-main">
         <span className="hm-row-name">
           {t.name || t.phone}
-          {t.verified !== false && <span className="tick"> ✔</span>}
+          {t.verified !== false && <VerifiedBadge />}
           {tagOf(t) && <span className="hm-fb">{tagOf(t)}</span>}
         </span>
         <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>

@@ -333,7 +333,12 @@ public class AutoBingwaPlugin extends Plugin {
         }
         try {
             SubscriptionManager sm = getContext().getSystemService(SubscriptionManager.class);
-            SubscriptionInfo info = sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
+              SubscriptionInfo info = sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
+            if (info == null) {
+                // a phone with one SIM: use it whatever slot was chosen
+                List<SubscriptionInfo> actives = sm.getActiveSubscriptionInfoList();
+                if (actives != null && actives.size() == 1) info = actives.get(0);
+            }
             if (info == null) {
                 call.reject("No SIM found in slot " + (slot + 1));
                 return;
@@ -543,6 +548,36 @@ public class AutoBingwaPlugin extends Plugin {
             // some phones do not offer this screen
         }
         call.resolve();
+    }
+
+    // True when Android is not limiting this app's battery use
+    @PluginMethod
+    public void batteryStatus(PluginCall call) {
+        boolean exempt = true;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager)
+                getContext().getSystemService(android.content.Context.POWER_SERVICE);
+            if (pm != null && Build.VERSION.SDK_INT >= 23) {
+                exempt = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+            }
+        } catch (Exception e) {
+            exempt = false;
+        }
+        JSObject out = new JSObject();
+        out.put("exempt", exempt);
+        call.resolve(out);
+    }
+
+    // Phone brand, model and Android version, so the app can show the right setup steps
+    @PluginMethod
+    public void deviceInfo(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER);
+        out.put("brand", Build.BRAND == null ? "" : Build.BRAND);
+        out.put("model", Build.MODEL == null ? "" : Build.MODEL);
+        out.put("sdk", Build.VERSION.SDK_INT);
+        out.put("release", Build.VERSION.RELEASE == null ? "" : Build.VERSION.RELEASE);
+        call.resolve(out);
     }
 
     @PluginMethod

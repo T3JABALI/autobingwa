@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { confirmDialog } from '../ui/dialog.js'
+import PickerField from '../ui/PickerField.jsx'
 
 const KEY = 'fallback:config'
 const MAX_DELAY = 5
@@ -119,15 +121,15 @@ export default function FallbackPage({ offers: offersProp, onBack }) {
     setModal(null)
   }
 
-  function removeOne(m) {
-    if (!window.confirm('Remove this mapping?')) return
+   async function removeOne(m) {
+    if (!(await confirmDialog('This fallback mapping will be removed.', { title: 'Remove mapping?', confirmLabel: 'Remove', danger: true }))) return
     update({ ...config, mappings: config.mappings.filter((x) => x.id !== m.id) })
     setNotice('Mapping removed')
   }
 
-  function clearAll() {
+  async function clearAll() {
     if (!config.mappings.length) return setNotice('There are no mappings to delete')
-    if (!window.confirm(`Delete all ${config.mappings.length} fallback mappings? This cannot be undone.`)) return
+    if (!(await confirmDialog(`All ${config.mappings.length} fallback mappings will be deleted for good.`, { title: 'Delete all mappings?', confirmLabel: 'Delete all', danger: true }))) return
     update({ ...config, mappings: [] })
     setNotice('All mappings deleted')
   }
@@ -405,41 +407,22 @@ export default function FallbackPage({ offers: offersProp, onBack }) {
             </div>
             <p className="fb-hint">{TRIGGERS.find((t) => t.id === form.trigger).help}</p>
 
-            <div className="fb-select-wrap">
-              <select
-                className="fb-select"
-                value={form.primaryId}
-                onChange={(e) => {
-                  const primaryId = e.target.value
-                  setForm({ ...form, primaryId, fallbackId: form.fallbackId === primaryId ? '' : form.fallbackId })
-                }}
-                aria-label="Primary plan"
-              >
-                <option value="">Primary plan</option>
-                {primaryOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
-              <span className="fb-caret" />
-            </div>
+            <PickerField
+              label="Primary plan"
+              value={form.primaryId}
+              options={primaryOptions.map((o) => ({ value: String(o.id), label: o.name }))}
+              onChange={(primaryId) => setForm({ ...form, primaryId, fallbackId: form.fallbackId === primaryId ? '' : form.fallbackId })}
+            />
             {primaryOptions.length === 0 && (
               <p className="fb-hint">Every plan already has a fallback. Remove a mapping to free one up.</p>
             )}
 
-            <div className="fb-select-wrap">
-              <select
-                className="fb-select"
-                value={form.fallbackId}
-                onChange={(e) => setForm({ ...form, fallbackId: e.target.value })}
-                aria-label="Fallback plan to recommend"
-              >
-                <option value="">Fallback plan to recommend</option>
-                {fallbackOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
-              <span className="fb-caret" />
-            </div>
+             <PickerField
+              label="Fallback plan to recommend"
+              value={form.fallbackId}
+              options={fallbackOptions.map((o) => ({ value: String(o.id), label: o.name }))}
+              onChange={(fallbackId) => setForm({ ...form, fallbackId })}
+            />
 
             <div className="fb-switch-row">
               <span>Notify client</span>

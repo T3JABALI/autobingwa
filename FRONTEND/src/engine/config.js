@@ -3,6 +3,9 @@ export const PROFILE_KEY = 'settings:profile'
 export const CONFIG_KEY = 'settings:config'
 export const CLIENTS_KEY = 'clients:list'
 
+// Bump this number to push new speed defaults to phones that already saved the old ones
+const SPEED_V = 2
+
 export const DEFAULT_CONFIG = {
   bingwaSim: 'SIM 2', // receives payments, runs USSD, airtime balance and commission messages
   replySim: 'SIM 1', // sends auto-replies and any other SMS
@@ -17,13 +20,13 @@ export const DEFAULT_CONFIG = {
   autoSave: true,
   saveSuffix: 'AutoBingwa',
   portal: false,
-   mode: 'Advanced',
+  mode: 'Advanced',
   // USSD speed settings
   stepTimeoutSec: 20, // wait for each next dialog
   totalTimeoutSec: 90, // whole Advanced run
-  keyDelayMs: 80, // pause before typing each option
-  gapMs: 1000, // pause between two transactions
-  retryAfterSec: 15, // wait before retrying a failed attempt
+  keyDelayMs: 40, // pause before typing each option
+  gapMs: 400, // pause between two transactions
+  retryAfterSec: 8, // wait before retrying a failed attempt
   confirmWaitSec: 45, // wait for Safaricom's SMS if the last screen is unclear
 }
 
@@ -49,6 +52,18 @@ export function writeJson(key, value) {
 
 export function loadConfig() {
   const saved = readJson(CONFIG_KEY, {})
+  // One-time upgrade of the saved speed numbers. Nothing else in the saved settings is changed.
+  if (saved.speedV !== SPEED_V) {
+    const upgraded = {
+      ...saved,
+      keyDelayMs: DEFAULT_CONFIG.keyDelayMs,
+      gapMs: DEFAULT_CONFIG.gapMs,
+      retryAfterSec: DEFAULT_CONFIG.retryAfterSec,
+      speedV: SPEED_V,
+    }
+    writeJson(CONFIG_KEY, upgraded)
+    Object.assign(saved, upgraded)
+  }
   const cfg = { ...DEFAULT_CONFIG, ...saved }
   // Older saves had separate SIM lists. Use their first entry.
   if (!saved.bingwaSim) cfg.bingwaSim = (saved.ussdSims && saved.ussdSims[0]) || DEFAULT_CONFIG.bingwaSim

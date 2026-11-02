@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { smartOffers, GROUPS } from './smartCatalog.js'
+import VerifiedBadge from '../home/VerifiedBadge.jsx'
 
 const t12 = (v) => {
   if (!v) return ''
@@ -83,7 +84,7 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
         <div key={o.sid} className="sp-row">
           <div className="sp-name">
             <b>{o.name}</b>
-            <span className="tick" title="Verified plan">✔</span>
+            <VerifiedBadge />
             {o.tw && o.tw.on && <small> 🕒 {t12(o.tw.from)} to {t12(o.tw.until)}</small>}
           </div>
           <div className="sp-price">KES {o.safPrice}</div>
@@ -100,7 +101,7 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
         <div className="sheet-back" onClick={() => setPick(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-body">
-              <h3>{pick.name} <span className="tick">✔</span></h3>
+              <h3>{pick.name} <VerifiedBadge /></h3>
               <small className="muted-line">
                 {pick.ussd} · Safaricom price KES {pick.safPrice} (locked)
               </small>
