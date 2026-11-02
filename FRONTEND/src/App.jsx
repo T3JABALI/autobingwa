@@ -22,6 +22,7 @@ import UpdatePrompt from './features/updates/UpdatePrompt.jsx'
 import PhoneSetupPage from './features/setup/PhoneSetupPage.jsx'
 import DialogHost from './features/ui/DialogHost.jsx'
 import { askChoice } from './features/ui/dialog.js'
+import Sitelink from "./Sitelink";
 
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
