@@ -33,10 +33,10 @@ Deno.serve(async (req) => {
     if (!cid) return json({ error: "Missing business ID" }, 400);
 
     const { data: biz, error: bizError } = await db
-      .from("businesses")
-      .select("id, name")
-      .eq("cid", cid)
-      .maybeSingle();
+       .from("sitelinks")
+       .select("business_id, site_name")
+       .eq("username", cid.toLowerCase())
+       .maybeSingle();
 
     if (bizError) throw bizError;
     if (!biz) return json({ error: "Business not found" }, 404);
@@ -45,10 +45,11 @@ Deno.serve(async (req) => {
       const { data, error } = await db
         .from("plans")
         .select("id, name, cat, price")
-        .eq("business_id", biz.id)
+        .eq("business_id", biz.business_id)
         .eq("on_site", true);
       if (error) throw error;
-      return json({ biz: biz.name, offers: data ?? [] });
+      return json({ biz: biz.site_name, offers: data ?? [] });
+
     }
 
     if (req.method === "POST" && action === "purchase") {
@@ -66,7 +67,7 @@ Deno.serve(async (req) => {
         .from("plans")
         .select("id, price, name")
         .eq("id", body.offerId)
-        .eq("business_id", biz.id)
+        .eq("business_id", biz.business_id)
         .eq("on_site", true)
         .maybeSingle();
 

@@ -4,8 +4,9 @@
    Server routes (no login, customers are public):
    GET  /site/:cid            -> { biz, offers:[{id,name,cat,price}] }   (only plans the owner switched ON)
    POST /site/:cid/purchase   {offerId, receive, pay}  -> starts the M-Pesa prompt on the "pay" number */
-const USE_MOCK=true,API_URL='https://YOUR-SERVER';
-const CID=new URLSearchParams(location.search).get('b')||'AB-1042';
+const USE_MOCK=false,API_URL='https://smoukalewmuorpowfiqr.supabase.co/functions/v1';
+const seg=location.pathname.split('/').filter(Boolean)[0]||'';
+const CID=((/\./.test(seg)?'':seg)||new URLSearchParams(location.search).get('b')||'').toLowerCase();
 const MOCK={biz:'Jabali Bingwa Deals',offers:[
 {id:'1',name:'750MBs+50SMS, 24Hrs',cat:'Data',price:50},
 {id:'2',name:'400MBs, 7Days',cat:'Data',price:49},
@@ -23,7 +24,7 @@ const r=await fetch(API_URL+p,{method:m,headers:{'Content-Type':'application/jso
 if(!r.ok)throw new Error(r.status===404?'This link is not active.':'Something went wrong. Please try again.');return r.json()}
 /* ===== Logo (uses logo.png, falls back to a drawn icon) ===== */
 const FALLBACK=s=>`<svg class="lg" width="${s}" height="${s}" viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00208C"/><stop offset="1" stop-color="#067A3D"/></linearGradient></defs><path d="M30 4C20 10 10 20 10 31a14 14 0 0 0 28 0c0-6-3-10-8-10" fill="none" stroke="url(#g)" stroke-width="7" stroke-linecap="round"/></svg>`;
-const logo=s=>`<img class="lg" src="logo.png" width="${s}" height="${s}" alt="" onerror="this.outerHTML=FALLBACK(${s})">`;
+const logo=s=>`<img class="lg" src="/logo.png" width="${s}" height="${s}" alt="" onerror="this.outerHTML=FALLBACK(${s})">`;
 /* ===== State ===== */
 let D=null,sel=null,mode='me';
 const phoneOk=v=>{const p=String(v).replace(/[\s+-]/g,'').replace(/^254/,'0');return /^0[17]\d{8}$/.test(p)?p:''};
