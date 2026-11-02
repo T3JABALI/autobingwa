@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
    DELETE /sitelink/offers/:id    switches that plan off for the site */
 const USE_MOCK = true;
 const API_URL = "https://YOUR_PROJECT_REF.supabase.co/functions/v1";
-const SITE_BASE = "https://bingwahybrid.com/"; // until the domain is connected, use your Netlify link plus "/"
+const SITE_BASE = "https://www.autobingwaapp.co.ke/"; // until the domain is connected, use your Netlify link plus "/"
 const RESERVED = ["admin","api","site","portal","app","login","support","help","www","sitelink"];
 
 const M = {
