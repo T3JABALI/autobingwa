@@ -22,6 +22,7 @@ import UpdatePrompt from './features/updates/UpdatePrompt.jsx'
 import PhoneSetupPage from './features/setup/PhoneSetupPage.jsx'
 import DialogHost from './features/ui/DialogHost.jsx'
 import { askChoice } from './features/ui/dialog.js'
+import Sitelink from './features/sitelink/sitelink.jsx'
 
 
 import { saveMode } from './features/home/dataStore.js'
@@ -1644,7 +1645,15 @@ onToggleAutomation={toggleAutomation}
           <section className="panel fit fit-fallback">
             <FallbackPage offers={offers} onBack={() => setActivePage('Home')} />
           </section> 
+                ) : activePage === 'Sitelink' ? (
+          <section className="panel">
+            <Sitelink onBack={() => setActivePage('Home')} />
+          </section>
         ) : activePage === 'Phone Setup' ? (
+          <section className="panel">
+            <PhoneSetupPage onBack={() => setActivePage('Home')} />
+          </section>
+      ) : activePage === 'Phone Setup' ? (
           <section className="panel">
             <PhoneSetupPage onBack={() => setActivePage('Home')} />
           </section>
