@@ -39,8 +39,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (bizError) throw bizError;
-    if (!biz) return json({ error: "Business not found" }, 404);
-    
+    if (!biz) return json({ error: "Business not found", v: 2, cid, path: new URL(req.url).pathname }, 404);
+
     if (req.method === "GET" && !action) {
       const { data, error } = await db
         .from("plans")
