@@ -5,7 +5,7 @@
    GET  /site/:cid            -> { biz, offers:[{id,name,cat,price}] }   (only plans the owner switched ON)
    POST /site/:cid/purchase   {offerId, receive, pay}  -> starts the M-Pesa prompt on the "pay" number */
 const USE_MOCK=false,API_URL='https://smoukalewmuorpowfiqr.supabase.co/functions/v1';
-const DEFAULT_SITE=''; // the business shown at the root address
+const DEFAULT_SITE='jabali'; // the business shown at the root address
 const seg=location.pathname.split('/').filter(Boolean)[0]||'';
 const CID=((/\./.test(seg)?'':seg)||new URLSearchParams(location.search).get('b')||DEFAULT_SITE).toLowerCase();
 const MOCK={biz:'Jabali Bingwa Deals',offers:[
