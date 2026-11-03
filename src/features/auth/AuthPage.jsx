@@ -99,10 +99,11 @@ export default function AuthPage() {
           <input className="au-input" type="email" placeholder="Email" autoComplete="email"
             value={email} onChange={(e) => setEmail(e.target.value)} required />
         )}
-        {showCode && (
-          <input className="au-input au-code" inputMode="numeric" maxLength={6} placeholder="Code from email"
-            value={code} onChange={digits(setCode, 6)} required />
-        )}
+{showCode && (
+  <input className="au-input au-code" inputMode="numeric" maxLength={8}
+    placeholder="Code from email"
+    value={code} onChange={digits(setCode, 8)} required />
+)}
 {showPin && (
   <>
     <div className="au-row">
