@@ -51,7 +51,7 @@ async function accessToken() {
     headers: { Authorization: `Basic ${auth}` },
     signal: AbortSignal.timeout(20000),
   })
-  if (!r.ok) throw new Error(`Daraja auth failed (${r.status})`)
+if (!r.ok) throw new Error(`Daraja auth failed (${r.status}) ${await r.text()} [env=${DARAJA_ENV}]`)
   const d = await r.json()
   tokenCache = { value: d.access_token, until: Date.now() + (Number(d.expires_in) - 60) * 1000 }
   return tokenCache.value
