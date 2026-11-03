@@ -3,51 +3,87 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
-  background: var(--bg, #faf5e9);
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .au-card {
   width: 100%;
-  max-width: 380px;
+  max-width: 340px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  background: var(--card, #fff);
-  padding: 24px;
-  border-radius: 18px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+  gap: 10px;
+  padding: 20px 18px;
+  border-radius: 16px;
+  background: var(--card-bg, rgba(127, 127, 127, 0.12));
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.35));
 }
 
 .au-title {
-  margin: 0 0 6px;
-  font-size: 22px;
-  color: var(--text, #0f2e2b);
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  color: inherit;
 }
 
 .au-input {
-  padding: 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  font-size: 16px;
-  background: transparent;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-color, rgba(127, 127, 127, 0.45));
+  background: rgba(127, 127, 127, 0.1);
   color: inherit;
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.au-input::placeholder {
+  color: inherit;
+  opacity: 0.55;
+}
+
+.au-input:focus {
+  border-color: var(--accent-color, #14a090);
+}
+
+.au-row {
+  display: flex;
+  gap: 10px;
+}
+
+.au-row .au-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .au-code {
   text-align: center;
-  font-size: 26px;
-  letter-spacing: 8px;
+  font-size: 18px;
+  letter-spacing: 6px;
+  padding: 9px 8px;
+}
+
+.au-code::placeholder {
+  font-size: 13px;
+  letter-spacing: 0;
 }
 
 .au-btn {
-  padding: 14px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 12px;
   border: 0;
-  border-radius: 12px;
-  font-size: 16px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 15px;
   font-weight: 700;
-  color: #fff;
-  background: var(--teal, #0f766e);
+  cursor: pointer;
+  color: var(--on-primary, #ffffff);
+  background: var(--accent-color, #0f766e);
 }
 
 .au-btn:disabled {
@@ -57,17 +93,30 @@
 .au-link {
   background: none;
   border: 0;
-  color: var(--teal, #0f766e);
-  font-size: 14px;
-  padding: 6px;
+  padding: 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--accent-color, #14a090);
+}
+
+.au-hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center;
 }
 
 .au-error {
-  color: #b42318;
-  font-size: 14px;
+  color: var(--danger, #e5484d);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .au-info {
-  color: var(--teal, #0f766e);
-  font-size: 14px;
+  color: var(--accent-color, #14a090);
+  font-size: 13px;
+  text-align: center;
 }

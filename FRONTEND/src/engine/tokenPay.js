@@ -6,7 +6,7 @@ import { parsePhone } from '../features/quickdial/ussd.js'
 
 export const AIRTIME_NUMBER = '0143926894'
 // Set this to your Render URL once the server is deployed, e.g. https://autobingwa-tokens.onrender.com
-export const TOKEN_API = 'https://YOUR-SERVER'
+export    const TOKEN_API = import.meta.env.VITE_TOKEN_API || ''
 
 const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'

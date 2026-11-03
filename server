@@ -1,0 +1,6 @@
+.gitignore
+BACKEND/payments/.gitignore
+BACKEND/payments/daraja.js
+BACKEND/payments/package-lock.json
+BACKEND/payments/package.json
+BACKEND/payments/server.js

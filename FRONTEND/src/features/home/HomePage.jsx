@@ -1,3 +1,4 @@
+import UpdatePopup from '../updates/UpdatePopup'
 import { useEffect, useRef, useState } from 'react'
 import UssdSetup from './UssdSetup.jsx'
 import {
@@ -448,6 +449,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
       <style>{CSS}</style>
       <style>{HOME_EXTRA}</style>
       <UssdSetup />
+      <UpdatePopup />
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
 

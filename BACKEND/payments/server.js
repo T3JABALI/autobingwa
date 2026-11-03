@@ -2,10 +2,13 @@ import express from 'express'
 import cors from 'cors'
 import pg from 'pg'
 import crypto from 'crypto'
+import { createClient } from '@supabase/supabase-js'
+import rateLimit from 'express-rate-limit'
 
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
+  SUPABASE_URL, SUPABASE_SERVICE_KEY,
 } = process.env
 
 const LIVE = DARAJA_ENV === 'production'
@@ -13,13 +16,18 @@ const BASE = LIVE ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.c
 // Prices live here, never trusted from the app
 const PLANS = { u1000: 90, u600: 50, u250: 25, u100: 15, d1: 30, d7: 200, d30: 550 }
 
-for (const [k, v] of Object.entries({ CONSUMER_KEY, CONSUMER_SECRET, PASSKEY, SHORTCODE, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL })) {
+for (const [k, v] of Object.entries({ CONSUMER_KEY, CONSUMER_SECRET, PASSKEY, SHORTCODE, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_KEY })) {
   if (!v) console.error(`MISSING ENV VAR: ${k}`)
 }
 if (LIVE && !TILL_NUMBER) console.error('MISSING ENV VAR: TILL_NUMBER')
 
 const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } })
 pool.on('error', (e) => console.error('pool error', e.message))
+
+// Supabase admin client for the portal (service key stays on the server only)
+const sbAdmin = SUPABASE_URL && SUPABASE_SERVICE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
+  : null
 
 let dbReady = false
 async function initDb() {
@@ -51,7 +59,7 @@ async function accessToken() {
     headers: { Authorization: `Basic ${auth}` },
     signal: AbortSignal.timeout(20000),
   })
-if (!r.ok) throw new Error(`Daraja auth failed (${r.status}) ${await r.text()} [env=${DARAJA_ENV}]`)
+  if (!r.ok) throw new Error(`Daraja auth failed (${r.status}) ${await r.text()} [env=${DARAJA_ENV}]`)
   const d = await r.json()
   tokenCache = { value: d.access_token, until: Date.now() + (Number(d.expires_in) - 60) * 1000 }
   return tokenCache.value
@@ -75,10 +83,73 @@ async function daraja(path, body) {
 }
 
 const app = express()
+app.set('trust proxy', 1) // Render sits behind a proxy; needed for correct rate limiting
 app.use(cors())
 app.use(express.json())
 app.use((req, res, next) => { console.log(req.method, req.path); next() })
 app.get('/', (req, res) => res.send('AutoBingwa token server running'))
+
+/* ================= PORTAL (phone + password accounts) ================= */
+
+// Public: create a portal account. Only this route can mark a user as a portal user.
+app.post('/portal/signup',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false }),
+  async (req, res) => {
+    try {
+      if (!sbAdmin) return res.status(503).json({ error: 'Portal is not configured yet.' })
+      const phone = normalizePhone(req.body && req.body.phone)
+      const pw = String((req.body && req.body.password) || '')
+      if (!phone) return res.status(400).json({ error: 'Enter a valid phone number, for example 0712345678.' })
+      if (pw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' })
+
+      const { data, error } = await sbAdmin.auth.admin.createUser({
+        email: `${phone}@portal.autobingwaportal.co.ke`,
+        password: pw,
+        email_confirm: true,
+        app_metadata: { portal: true },
+        user_metadata: { phone },
+      })
+      if (error) {
+        if (error.code === 'email_exists' || /already|registered/i.test(error.message || ''))
+          return res.status(409).json({ error: 'This phone number already has a portal account. Please log in.' })
+        console.error('portal signup', error.message)
+        return res.status(400).json({ error: 'Could not create the account.' })
+      }
+      // The database trigger already created the portal_accounts row; store the phone on it
+      await sbAdmin.from('portal_accounts').update({ phone }).eq('user_id', data.user.id)
+      res.json({ ok: true })
+    } catch (e) {
+      console.error('portal signup', e)
+      res.status(500).json({ error: 'Could not create the account.' })
+    }
+  })
+
+// Everything below /portal needs a logged-in portal user
+async function requireUser(req, res, next) {
+  try {
+    if (!sbAdmin) return res.status(503).json({ error: 'Portal is not configured yet.' })
+    const token = (req.headers.authorization || '').replace(/^Bearer /, '')
+    if (!token) return res.status(401).json({ error: 'No token' })
+    const { data, error } = await sbAdmin.auth.getUser(token)
+    if (error || !data.user) return res.status(401).json({ error: 'Invalid token' })
+    const { data: acct } = await sbAdmin.from('portal_accounts').select('*').eq('user_id', data.user.id).maybeSingle()
+    if (!acct) return res.status(403).json({ error: 'No portal account' })
+    req.user = data.user
+    req.acct = acct // biz, plan and phone for this portal user
+    next()
+  } catch (e) {
+    console.error('requireUser', e)
+    res.status(500).json({ error: 'Could not check your login.' })
+  }
+}
+app.use('/portal', requireUser)
+
+// Test route: confirms the login reaches the server
+app.get('/portal/me', (req, res) => {
+  res.json({ userId: req.user.id, phone: req.acct.phone || null, biz: req.acct.biz || null, plan: req.acct.plan || null })
+})
+
+/* ================= TOKENS (M-Pesa) ================= */
 
 // 1. The app asks for an STK push
 app.post('/tokens/mpesa/start', async (req, res) => {

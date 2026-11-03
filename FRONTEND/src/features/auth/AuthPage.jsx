@@ -99,19 +99,25 @@ export default function AuthPage() {
           <input className="au-input" type="email" placeholder="Email" autoComplete="email"
             value={email} onChange={(e) => setEmail(e.target.value)} required />
         )}
-        {showCode && (
-          <input className="au-input au-code" inputMode="numeric" maxLength={6} placeholder="Code from email"
-            value={code} onChange={digits(setCode, 6)} required />
-        )}
-        {showPin && (
-          <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
-            placeholder={mode === 'reset' ? 'New 5-digit PIN' : '5-digit PIN'}
-            value={pin} onChange={digits(setPin, 5)} required />
-        )}
-        {showPin2 && (
-          <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
-            placeholder="Confirm PIN" value={pin2} onChange={digits(setPin2, 5)} required />
-        )}
+{showCode && (
+  <input className="au-input au-code" inputMode="numeric" maxLength={8}
+    placeholder="Code from email"
+    value={code} onChange={digits(setCode, 8)} required />
+)}
+{showPin && (
+  <>
+    <div className="au-row">
+      <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
+        placeholder={mode === 'reset' ? 'New PIN' : 'PIN'}
+        value={pin} onChange={digits(setPin, 5)} required />
+      {showPin2 && (
+        <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
+          placeholder="Confirm PIN" value={pin2} onChange={digits(setPin2, 5)} required />
+      )}
+    </div>
+    {showPin2 && <p className="au-hint">Choose a 5-digit PIN you will remember</p>}
+  </>
+)}
 
         {info && <div className="au-info">{info}</div>}
         {error && <div className="au-error">{error}</div>}
