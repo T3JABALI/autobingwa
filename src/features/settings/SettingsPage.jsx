@@ -1,3 +1,4 @@
+import { useAuth } from "../auth/AuthContext";
 import { useRef, useState } from 'react'
 import { normalizePhone } from '../../engine/engine.js'
 import {
@@ -72,6 +73,7 @@ function Switch({ on, onChange, label }) {
 }
 
 export default function SettingsPage({ onBack, onProfileChange, onModeChange }) {
+  const { user, logout } = useAuth()
   const [screen, setScreen] = useState('main')
   const [profile, setProfile] = useState(loadProfile)
   const [config, setConfig] = useState(loadConfig)
@@ -372,6 +374,10 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
                 </button>
               ))}
             </div>
+
+            <h2 className="st-section">Account</h2>
+            {user && user.email && <p className="st-desc">Signed in as {user.email}</p>}
+            <button className="st-btn ghost" onClick={logout}>Sign out</button>
           </>
         )}
 
