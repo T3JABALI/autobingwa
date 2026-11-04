@@ -29,3 +29,4 @@ dist-ssr
 node_modules_old/
 node_modules/
 dist/
+FRONTEND/FRONTEND/android/gradle/gradle-daemon-jvm.properties
