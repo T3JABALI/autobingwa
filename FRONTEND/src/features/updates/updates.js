@@ -34,3 +34,4 @@ export async function installUpdate(url) {
   const sep = url.includes('?') ? '&' : '?'
   await Browser.open({ url: `${url}${sep}download=AutoBingwa.apk` })
 }
+const UPDATE_URL = 'https://t3jabali.github.io/autobingwa-updates/version.json'
