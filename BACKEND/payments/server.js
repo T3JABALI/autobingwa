@@ -135,7 +135,7 @@ async function requireUser(req, res, next) {
     const { data: acct } = await sbAdmin.from('portal_accounts').select('*').eq('user_id', data.user.id).maybeSingle()
     if (!acct) return res.status(403).json({ error: 'No portal account' })
     req.user = data.user
-    req.acct = acct // biz, plan and phone for this portal user
+    req.acct = acct // biz, plan, plan_exp and phone for this portal user
     next()
   } catch (e) {
     console.error('requireUser', e)
@@ -147,6 +147,222 @@ app.use('/portal', requireUser)
 // Test route: confirms the login reaches the server
 app.get('/portal/me', (req, res) => {
   res.json({ userId: req.user.id, phone: req.acct.phone || null, biz: req.acct.biz || null, plan: req.acct.plan || null })
+})
+
+/* ================= PORTAL DEVICES (connect ID, live data, commands) ================= */
+
+// Subscription plans: how many phones each one allows. Everyone must subscribe; there is no free plan.
+const SUB_PLANS = { '2 devices': { max: 2 }, '5 devices': { max: 5 }, 'Unlimited': { max: 1000 } }
+function planInfo(acct) {
+  const exp = acct.plan_exp ? new Date(acct.plan_exp) : null
+  const def = SUB_PLANS[acct.plan]
+  if (def && exp && exp.getTime() > Date.now())
+    return { name: acct.plan, max: def.max, exp: exp.toISOString().slice(0, 10), active: true }
+  return { name: 'None', max: 0, exp: '', active: false }
+}
+const ONLINE_MS = 40000 // a phone counts as online if it synced in the last 40 seconds
+
+const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex')
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b))
+  return x.length === y.length && crypto.timingSafeEqual(x, y)
+}
+const num = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d }
+const str = (v, max = 500) => String(v ?? '').slice(0, max)
+const normCid = (v) => { const c = String(v || '').trim().toUpperCase(); return /^[A-Z0-9-]{5,20}$/.test(c) ? c : '' }
+const isOnline = (d) => !!d.portal_enabled && !!d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS
+
+// Only known fields are kept, so a phone can never store anything unexpected
+function cleanSnapshot(s = {}) {
+  const recent = (Array.isArray(s.recent) ? s.recent : []).slice(0, 5).map((t) => ({
+    id: str(t.id, 64), name: str(t.name, 80), phone: str(t.phone, 20), amt: num(t.amt), offer: str(t.offer, 80),
+    st: ['Completed', 'Failed', 'Pending', 'Scheduled'].includes(t.st) ? t.st : 'Pending',
+    ts: Number.isFinite(Date.parse(t.ts)) ? new Date(t.ts).toISOString() : new Date().toISOString(),
+    msg: str(t.msg, 600), ussd: str(t.ussd, 200), resp: str(t.resp, 600),
+  }))
+  return {
+    ok: num(s.ok), failed: num(s.failed), tokens: num(s.tokens),
+    airUsed: num(s.airUsed), airBal: num(s.airBal),
+    battery: Math.max(0, Math.min(100, Math.round(num(s.battery)))), charging: !!s.charging,
+    commission: num(s.commission), running: !!s.running, unlimitedUntil: str(s.unlimitedUntil, 10), recent,
+  }
+}
+
+/* ---------- Phone side (authenticated with the device key, not a login) ---------- */
+async function deviceAuth(req, res, next) {
+  try {
+    if (!sbAdmin) return res.status(503).json({ error: 'Portal is not configured yet.' })
+    const cid = normCid(req.headers['x-connect-id'])
+    const secret = str(req.headers['x-device-secret'], 100)
+    const { data: dev } = await sbAdmin.from('devices').select('*').eq('connect_id', cid).maybeSingle()
+    if (!dev || !safeEq(sha(secret), dev.secret_hash)) return res.status(401).json({ error: 'Bad device credentials.' })
+    req.dev = dev
+    next()
+  } catch (e) {
+    console.error('deviceAuth', e)
+    res.status(500).json({ error: 'Could not check the device.' })
+  }
+}
+
+app.post('/device/register',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false }),
+  async (req, res) => {
+    try {
+      if (!sbAdmin) return res.status(503).json({ error: 'Portal is not configured yet.' })
+      const cid = normCid(req.body && req.body.connectId)
+      if (!cid) return res.status(400).json({ error: 'Bad Connect ID.' })
+      const secret = crypto.randomBytes(24).toString('hex')
+      const { error } = await sbAdmin.from('devices').insert({ connect_id: cid, secret_hash: sha(secret) })
+      if (error) {
+        if (error.code === '23505') return res.status(409).json({ error: 'This device is already registered.' })
+        console.error('register', error.message)
+        return res.status(500).json({ error: 'Could not register the device.' })
+      }
+      res.json({ secret })
+    } catch (e) {
+      console.error('register', e)
+      res.status(500).json({ error: 'Could not register the device.' })
+    }
+  })
+
+app.post('/device/sync',
+  rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => String(req.headers['x-connect-id'] || 'none') }),
+  deviceAuth,
+  async (req, res) => {
+    try {
+      const b = req.body || {}
+      const portalOn = !!b.portalOn
+      const patch = { portal_enabled: portalOn, last_seen: new Date().toISOString() }
+      if (portalOn && b.snapshot) patch.snapshot = cleanSnapshot(b.snapshot)
+      await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
+
+      let commands = []
+      if (portalOn) {
+        const cutoff = new Date(Date.now() - 120000).toISOString()
+        await sbAdmin.from('device_commands').update({ status: 'expired' })
+          .eq('device_id', req.dev.id).eq('status', 'pending').lt('created_at', cutoff)
+        const { data } = await sbAdmin.from('device_commands').select('id,type')
+          .eq('device_id', req.dev.id).eq('status', 'pending').order('id').limit(10)
+        commands = data || []
+        if (commands.length)
+          await sbAdmin.from('device_commands').update({ status: 'sent', done_at: new Date().toISOString() })
+            .in('id', commands.map((c) => c.id))
+      }
+      res.json({ ok: true, commands })
+    } catch (e) {
+      console.error('sync', e)
+      res.status(500).json({ error: 'Sync failed.' })
+    }
+  })
+
+/* ---------- Portal side (logged-in portal user) ---------- */
+app.post('/portal/devices/connect',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => (req.user ? req.user.id : 'none') }),
+  async (req, res) => {
+    try {
+      const plan = planInfo(req.acct)
+      if (!plan.active)
+        return res.status(403).json({ error: 'Subscribe first to connect a phone. Go to More, then Portal Subscription.' })
+
+      const cid = normCid(req.body && req.body.connectId)
+      const name = str(req.body && req.body.name, 40).trim()
+      if (!cid) return res.status(400).json({ error: 'Enter the Connect ID shown in the app, for example AUB-ABC12.' })
+      if (!name) return res.status(400).json({ error: 'Give this phone a name.' })
+
+      const { data: dev } = await sbAdmin.from('devices').select('*').eq('connect_id', cid).maybeSingle()
+      if (!dev || !dev.portal_enabled)
+        return res.status(404).json({ error: 'No device found with that ID. In the app, switch on AutoBingwa Portal and make sure the phone is online.' })
+      if (dev.owner_id && dev.owner_id !== req.user.id)
+        return res.status(409).json({ error: 'This phone is already connected to another portal account.' })
+
+      if (dev.owner_id !== req.user.id) {
+        const { count } = await sbAdmin.from('devices').select('id', { count: 'exact', head: true }).eq('owner_id', req.user.id)
+        if ((count || 0) >= plan.max)
+          return res.status(403).json({ error: `Your plan allows up to ${plan.max} phone${plan.max === 1 ? '' : 's'}. Upgrade to connect more.` })
+      }
+      const { error } = await sbAdmin.from('devices').update({ owner_id: req.user.id, name }).eq('id', dev.id)
+      if (error) return res.status(500).json({ error: 'Could not connect the phone.' })
+      res.json({ ok: true, id: dev.id })
+    } catch (e) {
+      console.error('connect', e)
+      res.status(500).json({ error: 'Could not connect the phone.' })
+    }
+  })
+app.get('/portal/overview', async (req, res) => {
+  try {
+        const plan = planInfo(req.acct)
+    if (!plan.active)
+      return res.json({ biz: req.acct.biz || 'My business', cid: req.acct.phone || '', plan, locked: true, devices: [], tx: [], plans: [] })
+    const { data: rows, error } = await sbAdmin.from('devices').select('*').eq('owner_id', req.user.id).order('created_at')
+    if (error) return res.status(500).json({ error: 'Could not load your devices.' })
+    const now = Date.now()
+    const devices = [], tx = []
+    for (const d of rows || []) {
+      const s = d.snapshot || {}
+      devices.push({
+        id: d.id, name: d.name || d.connect_id, cid: d.connect_id,
+        online: isOnline(d), portalOn: !!d.portal_enabled, running: !!s.running,
+        air: s.airBal || 0, used: s.airUsed || 0, tok: s.tokens || 0,
+        bat: s.battery || 0, chg: !!s.charging, com: s.commission || 0,
+        ok: s.ok || 0, failed: s.failed || 0,
+        ...(s.unlimitedUntil ? { until: s.unlimitedUntil } : {}),
+      })
+      for (const t of s.recent || []) {
+        tx.push({
+          id: d.id + ':' + t.id, dev: d.id, name: t.name, phone: t.phone, amt: t.amt, offer: t.offer, st: t.st,
+          m: Math.max(0, Math.floor((now - Date.parse(t.ts)) / 60000)), msg: t.msg, ussd: t.ussd, resp: t.resp,
+        })
+      }
+    }
+    tx.sort((a, b) => a.m - b.m)
+    res.json({
+      biz: req.acct.biz || 'My business', cid: req.acct.phone || '',
+      plan: planInfo(req.acct),
+      devices, tx, plans: [],
+    })
+  } catch (e) {
+    console.error('overview', e)
+    res.status(500).json({ error: 'Could not load your portal.' })
+  }
+})
+
+async function ownedDevice(req, res) {
+  const { data } = await sbAdmin.from('devices').select('*').eq('id', req.params.id).eq('owner_id', req.user.id).maybeSingle()
+  if (!data) { res.status(404).json({ error: 'Device not found.' }); return null }
+  return data
+}
+
+for (const [path, type] of [['airtime-check', 'airtime_check'], ['start', 'start'], ['stop', 'stop']]) {
+  app.post(`/portal/devices/:id/${path}`, async (req, res) => {
+    try {
+      const d = await ownedDevice(req, res)
+      if (!d) return
+            if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' })
+      if (!isOnline(d)) return res.status(409).json({ error: 'The phone is offline. Open AutoBingwa on it and check that AutoBingwa Portal is on.' })
+      const since = new Date(Date.now() - 20000).toISOString()
+      const { data: dup } = await sbAdmin.from('device_commands').select('id')
+        .eq('device_id', d.id).eq('type', type).in('status', ['pending', 'sent']).gte('created_at', since).limit(1)
+      if (!dup || !dup.length) await sbAdmin.from('device_commands').insert({ device_id: d.id, type })
+      res.json({ ok: true })
+    } catch (e) {
+      console.error('command', e)
+      res.status(500).json({ error: 'Could not send the command.' })
+    }
+  })
+}
+
+app.post('/portal/devices/:id/unlink', async (req, res) => {
+  try {
+    const d = await ownedDevice(req, res)
+    if (!d) return
+    await sbAdmin.from('devices').update({ owner_id: null, name: null }).eq('id', d.id)
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('unlink', e)
+    res.status(500).json({ error: 'Could not remove the phone.' })
+  }
 })
 
 /* ================= TOKENS (M-Pesa) ================= */
