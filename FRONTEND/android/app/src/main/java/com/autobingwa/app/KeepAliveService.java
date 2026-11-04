@@ -73,8 +73,3 @@ public class KeepAliveService extends Service {
     @Override
     public IBinder onBind(Intent intent) { return null; }
 }
-        <service
-            android:name=".KeepAliveService"
-            android:exported="false"
-            android:stopWithTask="false"
-            android:foregroundServiceType="specialUse">

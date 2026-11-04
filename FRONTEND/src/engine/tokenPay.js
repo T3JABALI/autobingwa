@@ -55,6 +55,17 @@ function findAirtimeSms(p) {
   return list.some((s) => s && s.at >= p.startedAt - 5000 && confirmsTransfer(s.body))
 }
 
+// Second proof of payment: the airtime really dropped by at least the amount
+async function airtimeDropped(p) {
+  if (p.before === null || p.before === undefined) return false
+  try {
+    const now = await refreshAirtime(p.slot)
+    return now !== null && p.before - now >= p.amount
+  } catch (e) {
+    return false
+  }
+}
+
 // Adds the token as soon as the transfer confirmation is seen
 export async function verifyAirtimePayment({ onStatus = () => {}, waitMs = 20000 } = {}) {
   const p = pendingAirtimePayment()
@@ -70,6 +81,7 @@ export async function verifyAirtimePayment({ onStatus = () => {}, waitMs = 20000
         confirmed = findAirtimeSms(p)
       }
     }
+    if (!confirmed) confirmed = await airtimeDropped(p)
     if (!confirmed) {
       return {
         status: 'unconfirmed',
@@ -118,24 +130,29 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
     }
 
     // Saved BEFORE dialing, so a crash can never dial twice
-    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, startedAt: Date.now(), status: 'dialed', screen: '' })
+    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed', screen: '' })
     onStatus('Sending airtime...')
     let screen = ''
     const code = `*140*${amount}*${AIRTIME_NUMBER}#`
+
+    // Errors that mean nothing was sent yet, so trying the dialer afterwards cannot pay twice
+    const NOT_SENT = /permission not granted|cannot run USSD silently|No SIM found|No USSD code/i
     try {
-      // One dial only. Never dial the payment a second time.
-      if (await ussdServiceEnabled()) {
-        const res = await dialUssdOnce({ code, slot }) // dials in the dialer and reads the confirmation dialog
-        console.log('AB airtime pay raw', JSON.stringify(res))
-        screen = String((res && (res.text || res.message)) || '')
-      } else {
-        const res = await AutoBingwa.runUssd({ code, slot, express: true })
-        console.log('AB airtime pay raw', JSON.stringify(res))
-        screen = String((res && res.text) || '')
-      }
+      const res = await AutoBingwa.runUssd({ code, slot }) // silent: no dialer, no window, no keyboard
+      console.log('AB airtime pay raw', JSON.stringify(res))
+      screen = String((res && res.text) || '')
     } catch (e) {
-      console.error('AB airtime dial', e)
-      screen = String((e && e.message) || '')
+      const msg = String((e && e.message) || '')
+      console.error('AB airtime silent dial', e)
+      screen = msg
+      if (NOT_SENT.test(msg) && (await ussdServiceEnabled())) {
+        try {
+          const res = await dialUssdOnce({ code, slot })
+          screen = String((res && (res.text || res.message)) || '')
+        } catch (e2) {
+          screen = String((e2 && e2.message) || msg)
+        }
+      }
     }
     write(PENDING, { ...read(PENDING), screen })
     await sleep(1000)

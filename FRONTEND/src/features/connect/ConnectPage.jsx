@@ -2,14 +2,6 @@ import { useEffect, useState } from 'react'
 import { loadConfig, setPortal } from '../../engine/config.js'
 
 const ID_KEY = 'connect:id'
-  const [live, setLive] = useState(() => Boolean(loadConfig().portal) && Boolean(readText(ID_KEY)))
-
-  // Follows the Settings switch and the portal
-  useEffect(() => {
-    const sync = () => setLive(Boolean(loadConfig().portal) && Boolean(readText(ID_KEY)))
-    window.addEventListener('ab-connect', sync)
-    return () => window.removeEventListener('ab-connect', sync)
-  }, [])
 const ISSUED_KEY = 'connect:issued'
 // No 0/O or 1/I so IDs are easy to read out and type.
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -65,8 +57,18 @@ export function getConnectId() {
 
 export default function ConnectPage({ onBack }) {
   const [connectId, setConnectId] = useState(() => readText(ID_KEY))
-  const [live, setLive] = useState(() => readText(LIVE_KEY) === '1' && Boolean(readText(ID_KEY)))
+  const [live, setLive] = useState(
+    () => Boolean(loadConfig().portal) && Boolean(readText(ID_KEY))
+  )
   const [notice, setNotice] = useState('')
+
+  // Follows the Settings switch and the portal
+  useEffect(() => {
+    const sync = () =>
+      setLive(Boolean(loadConfig().portal) && Boolean(readText(ID_KEY)))
+    window.addEventListener('ab-connect', sync)
+    return () => window.removeEventListener('ab-connect', sync)
+  }, [])
 
   function handleGenerate() {
     const id = generateConnectId()

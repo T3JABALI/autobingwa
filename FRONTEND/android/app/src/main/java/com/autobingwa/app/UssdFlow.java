@@ -52,7 +52,7 @@ public class UssdFlow {
         return null;
     }
 
-    private static void dial(Context ctx, int slot, String code) {
+    static void dial(Context ctx, int slot, String code) {
         TelecomManager tc = ctx.getSystemService(TelecomManager.class);
         Bundle extras = new Bundle();
         PhoneAccountHandle h = handleForSlot(ctx, slot);
@@ -276,6 +276,31 @@ public class UssdFlow {
     // Used for the airtime transfer: "You have transferred ... from your account to ..."
     public static JSObject dialOnce(Context ctx, int slot, String code, long waitMs) {
         synchronized (LOCK) {
+            // Silent route first: no dialer, no window, nothing on screen
+            if (Build.VERSION.SDK_INT >= 26) {
+                PowerManager pm0 = ctx.getSystemService(PowerManager.class);
+                PowerManager.WakeLock w = null;
+                try {
+                    w = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoBingwa:silent");
+                    w.acquire(waitMs + 15000);
+                    JSObject fast = runExpress(ctx, slot, code, new String[0], waitMs);
+                    if (fast != null) {
+                        String text0 = "";
+                        org.json.JSONArray arr = fast.optJSONArray("responses");
+                        if (arr != null && arr.length() > 0) {
+                            JSONObject o0 = arr.optJSONObject(0);
+                            if (o0 != null) text0 = o0.optString("text", "");
+                        }
+                        JSObject res = new JSObject();
+                        res.put("status", fast.optString("status", "error"));
+                        res.put("message", fast.optString("message", ""));
+                        res.put("text", text0);
+                        return res; // once sent, the result is final: never dial it again
+                    }
+                } finally {
+                    if (w != null && w.isHeld()) w.release();
+                }
+            }
             JSObject out = new JSObject();
             String status = "error";
             String message = "";

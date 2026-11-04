@@ -26,3 +26,6 @@ dist-ssr
 .env.*
 !.env.example
 *.bak
+node_modules_old/
+node_modules/
+dist/

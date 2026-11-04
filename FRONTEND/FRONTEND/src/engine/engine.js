@@ -220,7 +220,29 @@ export function createEngine({
     if (fb.fallbackTrigger === 'failed' && fb.fallbackFromId) store.update(fb.fallbackFromId, { status: 'Completed' })
     return true
   }
-
+  // A success SMS that arrives after a restart completes the recovered transaction instead of being lost
+  function completeRecovered(c) {
+    if (!c || c.status !== 'success' || !c.phone) return false
+    const n = normalizePhone(c.phone)
+    if (!n) return false
+    const tx = store
+      .list()
+      .filter((t) => t.recovered && t.status === 'Failed' && t.phone === n.phone && now() - (t.startedAt || 0) < 30 * 60000)
+      .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))[0]
+    if (!tx) return false
+    const done = store.update(tx.id, {
+      status: 'Completed',
+      recovered: false,
+      completedAt: now(),
+      responses: [
+        ...(tx.responses || []),
+        ...(c.text ? [{ input: 'SMS', text: c.text }] : []),
+        { input: '-', text: 'Confirmed by an SMS that arrived after the app restarted.' },
+      ],
+    })
+    emit('completed', done)
+    return true
+  }
   function confirm(c) {
     const w = waiter
     if (w) {
@@ -235,7 +257,7 @@ export function createEngine({
         return true
       }
     }
-    return cancelPendingFallback(c)
+    return cancelPendingFallback(c) || completeRecovered(c)
   }
 
   async function awaitConfirm(w, ms) {
@@ -648,9 +670,13 @@ export function createEngine({
       store.list().filter((t) => t.status === 'Processing').forEach((t) =>
         store.update(t.id, {
           status: 'Failed',
-          responses: [{ input: '-', text: 'The app closed while this was processing. Check your balance, then retry.' }],
+          recovered: true,
+          responses: [
+            ...(t.responses || []),
+            { input: '-', text: 'The app closed while this was processing. If a success SMS arrives it will update here. Otherwise check your balance, then retry.' },
+          ],
         }))
     },
-    remove(id) { store.remove(id) },
+        remove(id) { store.remove(id) },
   }
 }

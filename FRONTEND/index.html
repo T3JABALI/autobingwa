@@ -9,7 +9,7 @@
   <body>
     <div id="root"></div>
     <script>
-  window.addEventListener('error', function (e) { show(e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '')) })
+window.addEventListener('error', function (e) { show(e.message + '\n' + (e.error && e.error.stack ? e.error.stack : (e.filename || '') + ':' + (e.lineno || ''))) })
   window.addEventListener('unhandledrejection', function (e) { show('Promise: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)) })
   function show(t) {
     var d = document.getElementById('ab-err')

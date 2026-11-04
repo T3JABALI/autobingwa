@@ -4,13 +4,20 @@ import android.accessibilityservice.AccessibilityService;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.graphics.PixelFormat;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Gravity;
+import android.view.View;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
+import android.widget.TextView;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -31,6 +38,9 @@ public class UssdAccessibilityService extends AccessibilityService {
     private volatile AccessibilityNodeInfo lastRoot = null;
     private volatile long lastNoWinLog = 0;
 
+    // The small "USSD code running..." pill drawn over every app
+    private View pill = null;
+
     // Only a pure progress window counts as progress. A real message that merely contains "please wait" does not.
     private static final Pattern PROGRESS = Pattern.compile(
         "^((ussd code running|running ussd code|ussd running|running|please wait|loading|sending request|sending|connecting)[\\s.\\u2026]*)+$");
@@ -39,12 +49,12 @@ public class UssdAccessibilityService extends AccessibilityService {
     private final Runnable scan = new Runnable() {
         @Override public void run() { scanNow(); }
     };
-    // While a transaction runs, look at the USSD window every 120ms, not only when Android sends an event
+    // While a transaction runs, look at the USSD window every 80ms, not only when Android sends an event
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!active) return;
             scanNow();
-            handler.postDelayed(this, 120);
+            handler.postDelayed(this, 80);
         }
     };
 
@@ -65,12 +75,25 @@ public class UssdAccessibilityService extends AccessibilityService {
         UssdAccessibilityService s = instance;
         if (s != null) {
             s.lastRoot = null;
+            s.setKeyboardHidden(true);
+            s.showPill("USSD code running...");
             s.handler.post(s.poll);
         }
     }
 
     public static void end() {
         active = false;
+        UssdAccessibilityService s = instance;
+        if (s != null) {
+            s.hidePill();
+            s.setKeyboardHidden(false);
+        }
+    }
+
+    // Changes the pill text while a run is active, e.g. setPillText("Processing 0712345678")
+    public static void setPillText(String text) {
+        UssdAccessibilityService s = instance;
+        if (s != null && active) s.showPill(text);
     }
 
     // True if a "USSD code running" window was seen since the last value was sent
@@ -79,8 +102,84 @@ public class UssdAccessibilityService extends AccessibilityService {
     }
 
     @Override protected void onServiceConnected() { instance = this; }
-    @Override public void onInterrupt() {}
-    @Override public boolean onUnbind(android.content.Intent i) { instance = null; return super.onUnbind(i); }
+    @Override public void onInterrupt() { hidePill(); setKeyboardHidden(false); }
+    @Override public boolean onUnbind(android.content.Intent i) {
+        hidePill();
+        setKeyboardHidden(false);
+        instance = null;
+        return super.onUnbind(i);
+    }
+
+    // Keeps the soft keyboard from popping up over the USSD dialog while a run is active.
+    // Typing into the dialog and pressing Send does not need the keyboard.
+    private void setKeyboardHidden(final boolean hidden) {
+        handler.post(new Runnable() {
+            @Override public void run() {
+                if (Build.VERSION.SDK_INT < 24) return;
+                try {
+                    SoftKeyboardController c = getSoftKeyboardController();
+                    if (c != null) {
+                        c.setShowMode(hidden ? SHOW_MODE_HIDDEN : SHOW_MODE_AUTO);
+                    }
+                } catch (Exception e) {
+                    Log.d(TAG, "keyboard mode not changed: " + e);
+                }
+            }
+        });
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    private void showPill(final String text) {
+        handler.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (pill == null) {
+                        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+                        TextView tv = new TextView(UssdAccessibilityService.this);
+                        tv.setTextColor(0xFFFFFFFF);
+                        tv.setTextSize(14);
+                        tv.setPadding(dp(18), dp(12), dp(18), dp(12));
+                        GradientDrawable bg = new GradientDrawable();
+                        bg.setColor(0xE6222222);
+                        bg.setCornerRadius(dp(16));
+                        tv.setBackground(bg);
+                        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                            WindowManager.LayoutParams.WRAP_CONTENT,
+                            WindowManager.LayoutParams.WRAP_CONTENT,
+                            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT);
+                        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                        lp.y = dp(56);
+                        wm.addView(tv, lp);
+                        pill = tv;
+                    }
+                    ((TextView) pill).setText(text);
+                } catch (Exception e) {
+                    Log.d(TAG, "pill not shown: " + e);
+                }
+            }
+        });
+    }
+
+    private void hidePill() {
+        handler.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (pill != null) {
+                        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+                        wm.removeView(pill);
+                    }
+                } catch (Exception e) {
+                    // already gone
+                }
+                pill = null;
+            }
+        });
+    }
 
     private boolean isOwnPkg(CharSequence p) {
         return p != null && p.toString().equalsIgnoreCase(getPackageName());
@@ -145,7 +244,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         if (!isPhonePkg(e.getPackageName()) && isOwnPkg(e.getPackageName())) return;
         // Wait a moment so a half-drawn dialog is never read
         handler.removeCallbacks(scan);
-        handler.postDelayed(scan, 100);
+        handler.postDelayed(scan, 70);
     }
 
     private static boolean isButtonWord(String t) {
@@ -268,11 +367,14 @@ public class UssdAccessibilityService extends AccessibilityService {
         return t == null ? "" : t.toString().trim();
     }
 
+    // Typing does not need focus, and focusing the box is what makes the keyboard pop up.
+    // Focus is only used if the plain way is refused.
     private boolean setText(AccessibilityNodeInfo box, String value) {
         try { box.refresh(); } catch (Exception e) { /* keep going */ }
-        box.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
         Bundle b = new Bundle();
         b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        if (box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)) return true;
+        box.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
         if (box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)) return true;
         // Fallback: paste it
         try {
@@ -301,7 +403,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         // Wait only until the text really shows in the box (at most 300ms), then press Send
         long end = System.currentTimeMillis() + 300;
         while (!boxText(box).equals(value) && System.currentTimeMillis() < end) {
-            try { Thread.sleep(30); } catch (InterruptedException e) { break; }
+            try { Thread.sleep(20); } catch (InterruptedException e) { break; }
         }
         if (!boxText(box).equals(value)) {
             setText(box, value);

@@ -176,7 +176,10 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
   const [open, setOpen] = useState({})
   const [when, setWhen] = useState({ date: '', time: '' })
   const [error, setError] = useState('')
-
+  // Space under the fixed greeting header, so the back row on sub-pages is never covered
+  const pageRef = useRef(null)
+  const gapRef = useRef(0)
+  const [gap, setGap] = useState(0)
   // Start / Stop only works on a long press (about one second), never on a tap
   const holdTimer = useRef(null)
   const fired = useRef(false)
@@ -280,7 +283,46 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
 
   const tx = view.id ? txs.find((t) => t.id === view.id) : null
   const screen = tx ? view.name : view.name === 'all' ? 'all' : 'home'
-
+  useEffect(() => {
+    if (screen === 'home') {
+      gapRef.current = 0
+      setGap(0)
+      return undefined
+    }
+    window.scrollTo(0, 0)
+    const measure = () => {
+      const root = pageRef.current
+      const head = root && root.querySelector('.hm-head')
+      if (!head) return
+      // What sits at the very top of the screen, outside this page? Its bottom edge is the header height.
+      let bottom = 0
+      const els = document.elementsFromPoint(Math.round(window.innerWidth / 2), 2)
+      for (const el of els) {
+        if (root.contains(el)) break
+        let n = el
+        while (n && n !== document.body) {
+          const pos = window.getComputedStyle(n).position
+          if (pos === 'fixed' || pos === 'sticky') { bottom = n.getBoundingClientRect().bottom; break }
+          n = n.parentElement
+        }
+        if (bottom) break
+      }
+      const naturalTop = head.getBoundingClientRect().top - gapRef.current
+      const need = bottom > 0 ? Math.max(0, Math.ceil(bottom + 8 - naturalTop)) : 0
+      if (need !== gapRef.current) {
+        gapRef.current = need
+        setGap(need)
+      }
+    }
+    const t1 = setTimeout(measure, 50)
+    const t2 = setTimeout(measure, 400)
+    window.addEventListener('resize', measure)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      window.removeEventListener('resize', measure)
+    }
+  }, [screen])
   // ---- Actions ----
   // The refresh icon asks which SIM to check
   async function openSimPicker() {
@@ -444,10 +486,11 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
   )
 
   return (
-    <div className={`hm-page hm-s-${screen}`}>
+    <div ref={pageRef} className={`hm-page hm-s-${screen}`}>
       <style>{CSS}</style>
       <style>{HOME_EXTRA}</style>
       <UssdSetup />
+      {gap > 0 && <div style={{ height: gap }} aria-hidden="true" />}
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
 

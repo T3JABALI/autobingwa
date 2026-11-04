@@ -1,3 +1,8 @@
+import { registerPlugin } from '@capacitor/core'
+
+// Must match the name in @CapacitorPlugin(name = "...") in AutoBingwaPlugin.java
+const AutoBingwa = registerPlugin('AutoBingwa')
+
 const USSD_PATTERN = /^[*#][0-9*#]*#$/
 
 // Finds the first valid Kenyan number in pasted text and returns it as 07XXXXXXXX.
@@ -22,7 +27,14 @@ export function isValidUssd(code) {
   return code.length >= 3 && USSD_PATTERN.test(code)
 }
 
-// Opens the phone dialer with the code filled in ("#" must be encoded).
-export function dialUssd(code) {
-  window.location.href = `tel:${encodeURIComponent(code)}`
+// Dials directly from native code, with no dialer screen or keyboard.
+// slot: 0 = SIM 1, 1 = SIM 2. Leave it out to use the phone's default SIM.
+// Falls back to the old behavior if the native method isn't available.
+export async function dialUssd(code, slot) {
+  try {
+    const args = slot === undefined || slot === null ? { code } : { code, slot }
+    await AutoBingwa.dialUssd(args)
+  } catch (e) {
+    window.location.href = `tel:${encodeURIComponent(code)}`
+  }
 }

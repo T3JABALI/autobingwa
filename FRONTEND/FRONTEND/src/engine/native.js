@@ -158,7 +158,7 @@ export function startSmsBridge(engine) {
         if (conf) {
           const used = engine.confirm({ ...conf, text: m.body })
           console.log('AB confirmation', conf.status, used ? 'used' : 'no transaction waiting')
-        } else if (total === null && fromMpesa(m.sender)) {
+            } else if (total === null && (isPayment || fromMpesa(m.sender))) {
           engine.ingest(m.body)
         }
         done.push(m.id)
