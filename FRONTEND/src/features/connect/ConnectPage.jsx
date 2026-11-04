@@ -1,7 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { loadConfig, setPortal } from '../../engine/config.js'
 
 const ID_KEY = 'connect:id'
-const LIVE_KEY = 'connect:live'
+  const [live, setLive] = useState(() => Boolean(loadConfig().portal) && Boolean(readText(ID_KEY)))
+
+  // Follows the Settings switch and the portal
+  useEffect(() => {
+    const sync = () => setLive(Boolean(loadConfig().portal) && Boolean(readText(ID_KEY)))
+    window.addEventListener('ab-connect', sync)
+    return () => window.removeEventListener('ab-connect', sync)
+  }, [])
 const ISSUED_KEY = 'connect:issued'
 // No 0/O or 1/I so IDs are easy to read out and type.
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -73,8 +81,8 @@ export default function ConnectPage({ onBack }) {
       return
     }
     const next = !live
+    setPortal(next)
     setLive(next)
-    writeText(LIVE_KEY, next ? '1' : '0')
     setNotice(next ? 'Connect is live' : 'Connect is disabled')
   }
 

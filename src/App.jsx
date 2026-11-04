@@ -1,4 +1,5 @@
- import TokenGate from './features/tokens/TokenGate.jsx'
+import PortalSync from './features/connect/PortalSync.jsx'
+import TokenGate from './features/tokens/TokenGate.jsx'
 import { tokensActive } from './engine/tokens.js'
   import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
@@ -1386,6 +1387,16 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
   }, [])
 
   // The app always opens stopped. Automation only starts when you hold the button.
+    // Start / Stop sent from the AutoBingwa Portal. Same checks and pop-ups as the button on this phone.
+  useEffect(() => {
+    const remote = (e) => {
+      const type = e.detail && e.detail.type
+      if (type === 'start' && !automationRunning) toggleAutomation()
+      if (type === 'stop' && automationRunning) toggleAutomation()
+    }
+    window.addEventListener('ab-remote', remote)
+    return () => window.removeEventListener('ab-remote', remote)
+  })
   useEffect(() => {
     engine.stop()
     setKeepAlive(false)
@@ -1680,6 +1691,7 @@ onToggleAutomation={toggleAutomation}
         )}
       </main>
       <Toaster />
+      <PortalSync />
       <DialogHost />
 {activePage === 'Home' && <UpdatePrompt />}
       <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />

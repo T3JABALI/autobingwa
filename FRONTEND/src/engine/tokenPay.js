@@ -1,15 +1,16 @@
 import { engine } from './index.js'
-import { AutoBingwa, isNative, refreshAirtime } from './native.js'
+import { AutoBingwa, isNative, refreshAirtime, ussdServiceEnabled, dialUssdOnce } from './native.js'
 import { loadConfig } from './config.js'
 import { grantTokens } from './tokens.js'
 import { parsePhone } from '../features/quickdial/ussd.js'
 
 export const AIRTIME_NUMBER = '0143926894'
-// Set this to your Render URL once the server is deployed, e.g. https://autobingwa-tokens.onrender.com
-export    const TOKEN_API = import.meta.env.VITE_TOKEN_API || ''
+// Set VITE_TOKEN_API to your Render URL, e.g. https://autobingwa-payments.onrender.com
+export const TOKEN_API = import.meta.env.VITE_TOKEN_API || ''
 
 const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'
+const SMS_LOG = 'ab:recent-sms'
 const EXPIRE_MS = 10 * 60000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -35,22 +36,50 @@ async function waitIdle() {
   }
 }
 
-// Confirms that the airtime really left the SIM, then (and only then) adds the token
-export async function verifyAirtimePayment({ onStatus = () => {} } = {}) {
+// The confirmation text, on the screen or in an SMS:
+// "You have transferred 5.00 KSH from your account to 0143926894. Your account balance is ..."
+// Only the words and the receiving number matter. The amount and the balance are ignored.
+function confirmsTransfer(text) {
+  const t = String(text || '')
+  if (!/you\s+have\s+transferred/i.test(t)) return false
+  if (/fail|insufficient|not\s+enough|unable|error|invalid/i.test(t)) return false
+  const m = t.match(/from\s+your\s+account\s+to\s+(\+?[\d\s-]{9,15})/i)
+  if (!m) return false
+  const digits = m[1].replace(/\D/g, '')
+  return digits.slice(-9) === AIRTIME_NUMBER.slice(-9) // the right recipient
+}
+
+// Backup: looks through the recent SMS list (filled by native.js, if you added logRecentSms)
+function findAirtimeSms(p) {
+  const list = read(SMS_LOG) || []
+  return list.some((s) => s && s.at >= p.startedAt - 5000 && confirmsTransfer(s.body))
+}
+
+// Adds the token as soon as the transfer confirmation is seen
+export async function verifyAirtimePayment({ onStatus = () => {}, waitMs = 20000 } = {}) {
   const p = pendingAirtimePayment()
   if (!p) throw new Error('There is no payment waiting to be confirmed.')
+
   if (p.status !== 'paid') {
-    onStatus('Confirming the airtime left your SIM...')
-    const after = await refreshAirtime(p.slot)
-    if (!(p.before - after >= p.amount - 0.01)) {
+    let confirmed = confirmsTransfer(p.screen) || findAirtimeSms(p)
+    if (!confirmed) {
+      onStatus('Waiting for the confirmation...')
+      const end = Date.now() + waitMs
+      while (!confirmed && Date.now() < end) {
+        await sleep(2000)
+        confirmed = findAirtimeSms(p)
+      }
+    }
+    if (!confirmed) {
       return {
         status: 'unconfirmed',
-        message: `Your airtime did not drop (KES ${p.before} before, KES ${after} now), so no token was added.`,
+        message: 'The transfer was not confirmed, so no token was added. Press Check payment in a moment.',
       }
     }
     write(PENDING, { ...p, status: 'paid' })
   }
-  grantTokens(p.plan, 'airtime', p.id)
+
+  grantTokens(p.plan, 'airtime', p.id) // the payment id is the reference, so it can never credit twice
   clear(PENDING)
   engine.hold(false)
   return { status: 'paid', message: `Payment confirmed. ${p.plan.label} added.` }
@@ -61,7 +90,7 @@ export function cancelAirtimePayment() {
   engine.hold(false)
 }
 
-// Dials *140*amount*0143926894# silently, checks the balance dropped, then adds the token
+// Dials *140*amount*0143926894# ONCE, reads the confirmation, then adds the token
 export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSlot } = {}) {
   if (!isNative()) throw new Error('Paying with airtime only works inside the Android app.')
   if (pendingAirtimePayment()) throw new Error('A payment is still being confirmed. Confirm or cancel it first.')
@@ -75,19 +104,42 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
   try {
     onStatus('Waiting for running transactions to finish...')
     await waitIdle()
-    onStatus('Checking your airtime balance...')
-    const before = await refreshAirtime(slot)
-    if (before < amount) throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
+
+    // Only a friendly pre-check. If the balance cannot be read, the payment still goes ahead.
+    let before = null
+    try {
+      onStatus('Checking your airtime balance...')
+      before = await refreshAirtime(slot)
+    } catch (e) {
+      console.error('AB airtime pre-check', e)
+    }
+    if (before !== null && before < amount) {
+      throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
+    }
 
     // Saved BEFORE dialing, so a crash can never dial twice
-    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed' })
+    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, startedAt: Date.now(), status: 'dialed', screen: '' })
     onStatus('Sending airtime...')
+    let screen = ''
+    const code = `*140*${amount}*${AIRTIME_NUMBER}#`
     try {
-      await AutoBingwa.runUssd({ code: `*140*${amount}*${AIRTIME_NUMBER}#`, slot, express: true })
+      // One dial only. Never dial the payment a second time.
+      if (await ussdServiceEnabled()) {
+        const res = await dialUssdOnce({ code, slot }) // dials in the dialer and reads the confirmation dialog
+        console.log('AB airtime pay raw', JSON.stringify(res))
+        screen = String((res && (res.text || res.message)) || '')
+      } else {
+        const res = await AutoBingwa.runUssd({ code, slot, express: true })
+        console.log('AB airtime pay raw', JSON.stringify(res))
+        screen = String((res && res.text) || '')
+      }
     } catch (e) {
-      console.error('AB airtime dial', e) // the balance check below decides what really happened
+      console.error('AB airtime dial', e)
+      screen = String((e && e.message) || '')
     }
-    await sleep(6000)
+    write(PENDING, { ...read(PENDING), screen })
+    await sleep(1000)
+
     try {
       const r = await verifyAirtimePayment({ onStatus })
       if (r.status === 'unconfirmed') keepHold = true
@@ -170,6 +222,7 @@ export function recoverTokenPayments() {
   if (p && p.status === 'paid') {
     grantTokens(p.plan, 'airtime', p.id)
     clear(PENDING)
+    engine.hold(false)
   } else if (pendingAirtimePayment()) {
     engine.hold(true) // keep customer transactions away from the SIM until it is confirmed or cancelled
   }

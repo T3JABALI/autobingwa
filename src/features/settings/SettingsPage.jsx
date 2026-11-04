@@ -354,7 +354,7 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
                 <span className="st-row-label">AutoBingwa Portal</span>
                 <p className="st-desc">View and manage transactions remotely</p>
               </span>
-              <Switch on={config.portal} onChange={() => updateConfig({ portal: !config.portal })}
+              <Switch on={config.portal} onChange={() => { updateConfig({ portal: !config.portal }); window.dispatchEvent(new Event('ab-connect')) }}
                 label="AutoBingwa Portal" />
             </div>
             {!config.portal && (

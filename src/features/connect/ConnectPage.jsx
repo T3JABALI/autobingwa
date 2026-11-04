@@ -75,6 +75,7 @@ export default function ConnectPage({ onBack }) {
     const next = !live
     setLive(next)
     writeText(LIVE_KEY, next ? '1' : '0')
+        window.dispatchEvent(new Event('ab-connect'))
     setNotice(next ? 'Connect is live' : 'Connect is disabled')
   }
 

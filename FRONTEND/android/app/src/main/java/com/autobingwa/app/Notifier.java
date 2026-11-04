@@ -20,7 +20,9 @@ public class Notifier {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         NotificationChannel run = new NotificationChannel(CH_RUN, "Automation status", NotificationManager.IMPORTANCE_LOW);
         run.setShowBadge(false);
+        run.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         NotificationChannel alert = new NotificationChannel(CH_ALERT, "Transaction alerts", NotificationManager.IMPORTANCE_HIGH);
+        alert.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(run);
         nm.createNotificationChannel(alert);
     }
@@ -39,6 +41,7 @@ public class Notifier {
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open(c))
             .build();
     }
@@ -46,6 +49,7 @@ public class Notifier {
     // kind: processing | idle (update the ongoing notification) | failed (one heads-up that replaces the last)
     static void alert(Context c, String kind, String title, String text) {
         try {
+            channels(c); // safe to repeat; without it the failed alert can be dropped
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if ("failed".equals(kind)) {
                 Notification n = new NotificationCompat.Builder(c, CH_ALERT)
@@ -54,6 +58,8 @@ public class Notifier {
                     .setContentText(text)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_ERROR)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .setAutoCancel(true)
                     .setContentIntent(open(c))
                     .build();

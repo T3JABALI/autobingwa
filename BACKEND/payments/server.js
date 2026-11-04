@@ -176,7 +176,7 @@ const isOnline = (d) => !!d.portal_enabled && !!d.last_seen && Date.now() - new 
 function cleanSnapshot(s = {}) {
   const recent = (Array.isArray(s.recent) ? s.recent : []).slice(0, 5).map((t) => ({
     id: str(t.id, 64), name: str(t.name, 80), phone: str(t.phone, 20), amt: num(t.amt), offer: str(t.offer, 80),
-    st: ['Completed', 'Failed', 'Pending', 'Scheduled'].includes(t.st) ? t.st : 'Pending',
+    st: ['Completed', 'Failed', 'Pending', 'Processing', 'Scheduled', 'Unmatched', 'Paused', 'Skipped'].includes(t.st) ? t.st : 'Pending',
     ts: Number.isFinite(Date.parse(t.ts)) ? new Date(t.ts).toISOString() : new Date().toISOString(),
     msg: str(t.msg, 600), ussd: str(t.ussd, 200), resp: str(t.resp, 600),
   }))
@@ -237,18 +237,18 @@ app.post('/device/sync',
       if (portalOn && b.snapshot) patch.snapshot = cleanSnapshot(b.snapshot)
       await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
 
-      let commands = []
-      if (portalOn) {
         const cutoff = new Date(Date.now() - 120000).toISOString()
-        await sbAdmin.from('device_commands').update({ status: 'expired' })
-          .eq('device_id', req.dev.id).eq('status', 'pending').lt('created_at', cutoff)
-        const { data } = await sbAdmin.from('device_commands').select('id,type')
-          .eq('device_id', req.dev.id).eq('status', 'pending').order('id').limit(10)
-        commands = data || []
-        if (commands.length)
-          await sbAdmin.from('device_commands').update({ status: 'sent', done_at: new Date().toISOString() })
-            .in('id', commands.map((c) => c.id))
-      }
+      await sbAdmin.from('device_commands').update({ status: 'expired' })
+        .eq('device_id', req.dev.id).eq('status', 'pending').lt('created_at', cutoff)
+      let q = sbAdmin.from('device_commands').select('id,type')
+        .eq('device_id', req.dev.id).eq('status', 'pending').order('id').limit(10)
+      if (!portalOn) q = q.in('type', ['portal_on', 'portal_off']) // while off, only the switch commands go out
+      const { data } = await q
+      const commands = data || []
+      if (commands.length)
+        await sbAdmin.from('device_commands').update({ status: 'sent', done_at: new Date().toISOString() })
+          .in('id', commands.map((c) => c.id))
+  
       res.json({ ok: true, commands })
     } catch (e) {
       console.error('sync', e)
@@ -304,6 +304,7 @@ app.get('/portal/overview', async (req, res) => {
       devices.push({
         id: d.id, name: d.name || d.connect_id, cid: d.connect_id,
         online: isOnline(d), portalOn: !!d.portal_enabled, running: !!s.running,
+                reachable: !!d.last_seen && now - new Date(d.last_seen).getTime() < ONLINE_MS,
         air: s.airBal || 0, used: s.airUsed || 0, tok: s.tokens || 0,
         bat: s.battery || 0, chg: !!s.charging, com: s.commission || 0,
         ok: s.ok || 0, failed: s.failed || 0,
@@ -352,7 +353,27 @@ for (const [path, type] of [['airtime-check', 'airtime_check'], ['start', 'start
     }
   })
 }
-
+// Flip the phone's AutoBingwa Portal switch from the portal. Works while the switch is off,
+// as long as the phone has checked in recently.
+for (const [path, type] of [['portal-on', 'portal_on'], ['portal-off', 'portal_off']]) {
+  app.post(`/portal/devices/:id/${path}`, async (req, res) => {
+    try {
+      const d = await ownedDevice(req, res)
+      if (!d) return
+      if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' })
+      const seen = d.last_seen ? Date.now() - new Date(d.last_seen).getTime() : Infinity
+      if (seen > ONLINE_MS) return res.status(409).json({ error: 'The phone cannot be reached. Open AutoBingwa on it first.' })
+      await sbAdmin.from('device_commands').update({ status: 'expired' })
+        .eq('device_id', d.id).in('type', ['portal_on', 'portal_off']).eq('status', 'pending')
+      const { error } = await sbAdmin.from('device_commands').insert({ device_id: d.id, type })
+      if (error) { console.error('switch', error.message); return res.status(500).json({ error: 'Could not send the command.' }) }
+      res.json({ ok: true })
+    } catch (e) {
+      console.error('switch', e)
+      res.status(500).json({ error: 'Could not send the command.' })
+    }
+  })
+}
 app.post('/portal/devices/:id/unlink', async (req, res) => {
   try {
     const d = await ownedDevice(req, res)

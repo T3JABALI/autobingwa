@@ -272,7 +272,60 @@ public class UssdFlow {
         }
         return r;
     }
-
+    // Dials ONE full code in the dialer window and returns the text of the first dialog that appears.
+    // Used for the airtime transfer: "You have transferred ... from your account to ..."
+    public static JSObject dialOnce(Context ctx, int slot, String code, long waitMs) {
+        synchronized (LOCK) {
+            JSObject out = new JSObject();
+            String status = "error";
+            String message = "";
+            String text = "";
+            PowerManager pm = ctx.getSystemService(PowerManager.class);
+            PowerManager.WakeLock cpu = null;
+            PowerManager.WakeLock screen = null;
+            boolean began = false;
+            try {
+                if (UssdAccessibilityService.instance == null) {
+                    out.put("status", "error");
+                    out.put("message", "Turn on the AutoBingwa accessibility service first");
+                    out.put("text", "");
+                    return out;
+                }
+                cpu = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoBingwa:once");
+                cpu.acquire(waitMs + 15000);
+                if (!pm.isInteractive()) {
+                    screen = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "AutoBingwa:screenOnce");
+                    screen.acquire(waitMs + 15000);
+                }
+                UssdAccessibilityService.begin();
+                began = true;
+                dial(ctx, slot, code);
+                UssdAccessibilityService.Dialog d = UssdAccessibilityService.events.poll(waitMs, TimeUnit.MILLISECONDS);
+                if (d == null) {
+                    status = "no_reply";
+                    message = "The code was dialed but no message appeared.";
+                } else {
+                    status = "complete";
+                    text = d.text;
+                }
+            } catch (Exception e) {
+                status = "error";
+                message = String.valueOf(e.getMessage());
+            } finally {
+                if (began) {
+                    UssdAccessibilityService.end();
+                    UssdAccessibilityService s = UssdAccessibilityService.instance;
+                    if (s != null) s.dismiss(); // taps OK on the confirmation
+                }
+                if (screen != null && screen.isHeld()) screen.release();
+                if (cpu != null && cpu.isHeld()) cpu.release();
+            }
+            out.put("status", status);
+            out.put("message", message);
+            out.put("text", text);
+            return out;
+        }
+    }
     // status: complete | ended_early | timeout (nothing was bought, safe to retry)
     //         | no_reply (last step sent, result unknown) | error | sig_mismatch
     public static JSObject run(Context ctx, int slot, String first, String[] steps,

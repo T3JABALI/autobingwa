@@ -440,7 +440,8 @@ export function createEngine({
       await new Promise((r) => setTimeout(r, retryMs))
     }
 
-    chargeToken() // the app dialed: one token, whatever the outcome
+    // One token per chain: a fallback rides on the token its original already used
+    if (!tx.isFallback) chargeToken()
 
     // Fallback: only after a DEFINITE failure (all retries used) or "already recommended".
     // A timeout or no reply may have sold, so it never triggers a backup.
@@ -489,10 +490,10 @@ export function createEngine({
     try {
       for (;;) {
         // No token or a payment in progress: nothing new starts. Waiting transactions stay Pending.
-        if (held || !hasToken()) break
+        if (held) break
         const next = store
           .list()
-          .filter((t) => t.status === 'Pending' && (running || force || manual.has(t.id)))
+          .filter((t) => t.status === 'Pending' && (running || force || manual.has(t.id)) && (hasToken() || t.isFallback))
           .sort((a, b) => a.createdAt - b.createdAt)[0]
         if (!next) break
         await process(next)

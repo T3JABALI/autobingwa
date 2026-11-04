@@ -399,6 +399,28 @@ public class AutoBingwaPlugin extends Plugin {
     // With "sig", each menu option is found by what it says instead of its number.
     @PluginMethod
     public void runUssdFlow(final PluginCall call) {
+            // Dials one full code in the dialer and returns the first dialog's text
+    @PluginMethod
+    public void dialUssdOnce(final PluginCall call) {
+        if (getPermissionState("phone") != PermissionState.GRANTED) {
+            call.reject("Phone permission not granted");
+            return;
+        }
+        final String code = call.getString("code", "");
+        final Integer slotArg = call.getInt("slot", 0);
+        final int slot = slotArg == null ? 0 : slotArg;
+        final long waitMs = call.getLong("waitMs", 25000L);
+        if (code == null || code.trim().isEmpty()) {
+            call.reject("No USSD code given");
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                call.resolve(UssdFlow.dialOnce(getContext(), slot, code.trim(), waitMs));
+            }
+        }).start();
+    }
         if (getPermissionState("phone") != PermissionState.GRANTED) {
             call.reject("Phone permission not granted");
             return;
