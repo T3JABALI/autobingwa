@@ -39,7 +39,7 @@ plans:[
 {id:'p4',name:'900 MB Midnight',cat:'DATA',price:57,safPrice:55,ussd:'*544*6*8*AB*00*1*0*6*1#',signed:true,on:false}]};
 const PACKS=[['1,000 units',90,'u1000'],['600 units',50,'u600'],['250 units',25,'u250'],['100 units',15,'u100'],['1 day unlimited',30,'d1'],['7 days unlimited',200,'d7'],['30 days unlimited',550,'d30']];
 const SUBS=[{n:'2 devices',p:100,f:['Link 1 or 2 devices','2 days of portal history','30 days of access']},{n:'5 devices',p:200,pop:1,f:['Link up to 5 devices','5 days of portal history','30 days of access']},{n:'Unlimited',p:400,f:['Link unlimited devices','1 week of portal history','30 days of access']}];
-const PICK=['DATA','MINUTES','SMS','TUNUKIWA'],PCATS=['ALL','DATA','TUNUKIWA','MINUTES','SMS'];
+   const PICK=['DATA','MINUTES','SMS','TUNUKIWA','BINGWA'],PCATS=['ALL','DATA','BINGWA','TUNUKIWA','MINUTES','SMS'];
 const DEF_MSG='Hi {name}, your {offer} has been sent. Thank you for buying!';
 const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ls={get(k,d){try{return localStorage.getItem(k)||d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};

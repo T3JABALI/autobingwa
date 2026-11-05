@@ -302,7 +302,7 @@ const normCid = (v) => { const c = String(v || '').trim().toUpperCase(); return 
 const isOnline = (d) => !!d.portal_enabled && !!d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS
 
 /* ---------- Offer (data plan) cleaning, shared by the phone sync and the portal routes ---------- */
-const OFFER_CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA']
+   const OFFER_CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA', 'BINGWA']
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 const normUssd = (v) => String(v || '').replace(/\s+/g, '').replace(/ab/gi, 'AB').slice(0, 200)
 const ussdError = (u) => !u ? 'Enter the USSD code'
