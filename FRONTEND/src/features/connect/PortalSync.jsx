@@ -1,14 +1,15 @@
 // Sends this phone's live state to the AutoBingwa Portal and runs commands sent from it.
+import { useEffect } from 'react'
 import { Device } from '@capacitor/device'
 import { engine } from '../../engine/index.js'
 import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled } from '../../engine/native.js'
 import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
+import { loadConfig, setPortal } from '../../engine/config.js'
 import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
 import { payWithAirtime } from '../../engine/tokenPay.js'
 import { grantTokens } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
 import { subscribe, loadTransactions, loadAirtime, loadWallet } from '../home/dataStore.js'
-import { useEffect } from 'react'
 
 const SERVER = 'https://autobingwa-payments.onrender.com'
 const ID_KEY = 'connect:id'
@@ -70,6 +71,7 @@ async function report(c, auth, ok, msg, data) {
     console.error('portal report', e && e.message ? e.message : e)
   }
 }
+
 // Same rule as the Home screen: an original that has a fallback is hidden, only the fallback shows
 function visibleTxs(txs) {
   const hidden = new Set()
@@ -90,16 +92,21 @@ const responseText = (t) =>
     ? t.responses.map((r, i) => `--- Screen ${i + 1} (input: ${r.input}) ---\n${r.text}`).join('\n\n')
     : 'No response recorded yet.'
 
-const CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA']
+const CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA', 'BINGWA']
 const defTw = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
 const stamp = () => new Date().toLocaleString()
 
+// The app's own offers list comes first; localStorage is only a fallback
 function readOffers() {
+  try {
+    const list = engine.offers ? engine.offers() : null
+    if (Array.isArray(list) && list.length) return list
+  } catch (e) { /* fall through */ }
   try {
     const v = JSON.parse(localStorage.getItem('myOffers') || '[]')
     if (Array.isArray(v)) return v
   } catch (e) { /* fall through */ }
-  try { return engine.offers ? engine.offers() : [] } catch (e) { return [] }
+  return []
 }
 const findOffer = (id) => readOffers().find((o) => String(o.id) === String(id))
 // App.jsx listens for this and runs its own saveOffer / deleteOffer
@@ -112,8 +119,8 @@ function offersForPortal() {
     return readOffers().map((o) => ({
       id: String(o.id),
       name: o.name || '',
-      cat: o.category || '',
-      category: o.category || '',
+      cat: o.category || o.cat || '',
+      category: o.category || o.cat || '',
       price: Number(o.price) || 0,
       safPrice: Number(o.safPrice) || 0,
       ussd: o.ussd || '',
@@ -442,6 +449,7 @@ export function stopPortalSync() {
   window.removeEventListener('ab-balances', soon)
   window.removeEventListener('ab-connect', soon)
 }
+
 // App.jsx renders this once. It shows nothing and keeps the portal sync running.
 export default function PortalSync() {
   useEffect(() => {
