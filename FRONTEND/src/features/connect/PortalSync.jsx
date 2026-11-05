@@ -1,8 +1,8 @@
 // Sends this phone's live state to the AutoBingwa Portal and runs commands sent from it.
 import { Device } from '@capacitor/device'
 import { engine } from '../../engine/index.js'
-import { isNative, refreshAirtime } from '../../engine/native.js'
-import { loadConfig, setPortal } from '../../engine/config.js'
+import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled } from '../../engine/native.js'
+import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
 import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
 import { payWithAirtime } from '../../engine/tokenPay.js'
 import { grantTokens } from '../../engine/tokens.js'
@@ -61,14 +61,15 @@ async function post(path, body, headers = {}) {
 }
 
 // Tells the portal how a command went
-async function report(c, auth, ok, msg) {
+async function report(c, auth, ok, msg, data) {
   try {
-    await post('/device/command-result', { id: c.id, ok: Boolean(ok), msg: String(msg || '').slice(0, 600) }, auth)
+    const body = { id: c.id, ok: Boolean(ok), msg: String(msg || '').slice(0, 600) }
+    if (data !== undefined) body.data = data
+    await post('/device/command-result', body, auth)
   } catch (e) {
     console.error('portal report', e && e.message ? e.message : e)
   }
 }
-
 // Same rule as the Home screen: an original that has a fallback is hidden, only the fallback shows
 function visibleTxs(txs) {
   const hidden = new Set()
@@ -89,19 +90,96 @@ const responseText = (t) =>
     ? t.responses.map((r, i) => `--- Screen ${i + 1} (input: ${r.input}) ---\n${r.text}`).join('\n\n')
     : 'No response recorded yet.'
 
-// The offers the portal's Quick Dial can choose from
+const CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA']
+const defTw = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
+const stamp = () => new Date().toLocaleString()
+
+function readOffers() {
+  try {
+    const v = JSON.parse(localStorage.getItem('myOffers') || '[]')
+    if (Array.isArray(v)) return v
+  } catch (e) { /* fall through */ }
+  try { return engine.offers ? engine.offers() : [] } catch (e) { return [] }
+}
+const findOffer = (id) => readOffers().find((o) => String(o.id) === String(id))
+// App.jsx listens for this and runs its own saveOffer / deleteOffer
+const saveOffer = (offer) => window.dispatchEvent(new CustomEvent('ab-offer-cmd', { detail: { op: 'save', offer } }))
+const dropOffer = (id) => window.dispatchEvent(new CustomEvent('ab-offer-cmd', { detail: { op: 'delete', id } }))
+
+// The offers shown on the portal's Data plans page: every setting the portal can edit
 function offersForPortal() {
   try {
-    return (engine.offers ? engine.offers() : []).map((o) => ({
+    return readOffers().map((o) => ({
       id: String(o.id),
       name: o.name || '',
-      cat: o.category || o.cat || '',
+      cat: o.category || '',
+      category: o.category || '',
       price: Number(o.price) || 0,
+      safPrice: Number(o.safPrice) || 0,
       ussd: o.ussd || '',
       on: o.enabled !== false,
+      enabled: o.enabled !== false,
+      smart: Boolean(o.smart),
+      signature: o.signature || null,
+      sig: o.sig || null,
+      sigLearned: Boolean(o.sigLearned),
+      sigEnabled: Boolean(o.sigEnabled),
+      sigAuto: Boolean(o.sigAuto),
+      autoRetry: Boolean(o.autoRetry),
+      retryCount: Number(o.retryCount) || 1,
+      retryPending: Boolean(o.retryPending),
+      retryFailed: o.retryFailed !== false,
+      autoReschedule: Boolean(o.autoReschedule),
+      rescheduleTime: o.rescheduleTime || '06:00',
+      notifyOn: Boolean(o.notifyOn),
+      notifyMsg: o.notifyMsg || '',
+      tw: { ...defTw(), ...(o.tw || {}), altId: o.tw && o.tw.altId ? String(o.tw.altId) : '' },
     }))
   } catch (e) {
     return []
+  }
+}
+
+// Turns what the portal sent into the phone's offer fields
+function fromPortal(p) {
+  const o = {}
+  ;['name', 'autoRetry', 'retryPending', 'retryFailed', 'autoReschedule', 'rescheduleTime', 'notifyOn', 'notifyMsg'].forEach((k) => {
+    if (p[k] !== undefined) o[k] = p[k]
+  })
+  if (p.name !== undefined) o.name = String(p.name).trim()
+  if (p.notifyMsg !== undefined) o.notifyMsg = String(p.notifyMsg).trim()
+  if (p.ussd !== undefined) o.ussd = normalizeUssd(p.ussd)
+  if (p.price !== undefined) o.price = Number(p.price)
+  if (p.safPrice !== undefined) o.safPrice = Number(p.safPrice) || 0
+  if (p.retryCount !== undefined) o.retryCount = Math.min(10, Math.max(1, Number(p.retryCount) || 1))
+  if (p.tw !== undefined) o.tw = { ...defTw(), ...p.tw, altId: p.tw && p.tw.altId ? String(p.tw.altId) : '' }
+  const cat = String(p.category || p.cat || '').toUpperCase()
+  if (CATS.includes(cat)) o.category = cat
+  if (p.enabled !== undefined) o.enabled = Boolean(p.enabled)
+  else if (p.on !== undefined) o.enabled = Boolean(p.on)
+  return o
+}
+
+// '' when fine, otherwise the message to send back to the portal
+function checkOffer(o) {
+  if (!o.name) return 'Enter the offer name'
+  const bad = checkUssd(o.ussd)
+  if (bad) return bad
+  if (!(Number(o.price) > 0)) return 'Enter the amount'
+  if (o.notifyOn && !o.notifyMsg) return 'Write the SMS message for the customer'
+  return ''
+}
+
+async function runLearn(ussd) {
+  if (!isNative()) throw new Error('Learning only works in the Android app, on a phone with a SIM.')
+  if (!(await ussdServiceEnabled())) throw new Error('Turn on the AutoBingwa accessibility service first.')
+  const slot = loadConfig().bingwaSim === 'SIM 1' ? 0 : 1
+  for (let i = 0; i < 45 && engine.isBusy(); i++) await new Promise((r) => setTimeout(r, 2000))
+  engine.hold(true) // no customer payment dials while the steps are being learned
+  try {
+    return await learnSignature({ ussd, slot })
+  } finally {
+    engine.hold(false)
   }
 }
 
@@ -225,6 +303,68 @@ async function handleCommand(c, auth) {
     if (!plan || !p.paymentId) return report(c, auth, false, 'Unknown token pack or payment.')
     grantTokens(plan, 'mpesa', String(p.paymentId)) // returns null if this payment was already credited
     await report(c, auth, true, `${plan.label} added.`)
+    soon()
+  } else if (c.type === 'offer_add') {
+    const src = p.offer || p
+    const id = src.id || p.offerId || Date.now()
+    if (findOffer(id)) return report(c, auth, true, 'The offer is already on the phone.', { id: String(id) })
+    const f = fromPortal(src)
+    const bad = checkOffer(f)
+    if (bad) return report(c, auth, false, bad)
+    saveOffer({
+      id, name: '', category: 'DATA', ussd: '', price: 0, safPrice: 0,
+      payment: 'Till SIM', execSim: 'SIM 1', notifSim: 'SIM 2', type: 'Advanced',
+      autoRetry: false, retryCount: 1, retryPending: false, retryFailed: true,
+      autoReschedule: false, rescheduleTime: '06:00', notifyOn: false, notifyMsg: '',
+      points: false, enabled: true, tw: defTw(),
+      ...f, updated: stamp(),
+    })
+    await report(c, auth, true, 'Offer added.', { id: String(id) })
+    soon()
+  } else if (c.type === 'offer_update') {
+    const cur = findOffer(p.id || p.offerId)
+    if (!cur) return report(c, auth, false, 'That offer is no longer on the phone.')
+    const { enabled, tw, ...rest } = fromPortal(p.patch || p.offer || p)
+    let next = { ...cur }
+    const changed = Object.keys(rest).some((k) => JSON.stringify(rest[k]) !== JSON.stringify(cur[k]))
+    if (changed) {
+      const bad = checkOffer({ ...cur, ...rest })
+      if (bad) return report(c, auth, false, bad)
+      next = applyEdit(cur, rest) // same rule as the app: a manual offer's signature is switched off
+    }
+    if (tw !== undefined) next = { ...next, tw }
+    if (enabled !== undefined) next = { ...next, enabled }
+    saveOffer({ ...next, updated: stamp() })
+    await report(c, auth, true, 'Offer updated.')
+    soon()
+  } else if (c.type === 'offer_delete') {
+    const cur = findOffer(p.id || p.offerId)
+    if (!cur) return report(c, auth, true, 'The offer was already gone.')
+    readOffers().forEach((o) => {
+      if (o.tw && String(o.tw.altId) === String(cur.id)) saveOffer({ ...o, tw: { ...o.tw, on: false, altId: '' } })
+    })
+    dropOffer(cur.id)
+    await report(c, auth, true, 'Offer deleted.')
+    soon()
+  } else if (c.type === 'sig_learn') {
+    const cur = findOffer(p.id || p.offerId)
+    if (!cur) return report(c, auth, false, 'That offer is no longer on the phone.')
+    const bad = checkUssd(cur.ussd)
+    if (bad) return report(c, auth, false, bad)
+    const res = await runLearn(cur.ussd)
+    await report(c, auth, true, res.signature && res.signature.complete ? 'Signature learned.' : 'Some steps could not be matched.', {
+      signature: res.signature,
+      screens: res.screens || [],
+    })
+  } else if (c.type === 'sig_save') {
+    const cur = findOffer(p.id || p.offerId)
+    if (!cur) return report(c, auth, false, 'That offer is no longer on the phone.')
+    const sig = p.signature || p.sig
+    if (!sig || !sig.complete) return report(c, auth, false, 'The signature is incomplete, so it was not saved.')
+    const smart = Boolean(cur.smart)
+    if (smart && cur.sig && cur.sig.complete && !cur.sigAuto) return report(c, auth, false, 'This Smart plan has a built-in signature that cannot be changed.')
+    saveOffer({ ...cur, sig, sigLearned: true, sigEnabled: smart ? true : Boolean(p.enabled), updated: stamp() })
+    await report(c, auth, true, 'Signature saved.')
     soon()
   }
 }

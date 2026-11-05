@@ -111,7 +111,7 @@ async function daraja(path, body) {
 const app = express()
 app.set('trust proxy', 1) // Render sits behind a proxy; needed for correct rate limiting
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '200kb' }))
 app.use((req, res, next) => { console.log(req.method, req.path); next() })
 app.get('/', (req, res) => res.send('AutoBingwa token server running'))
 
@@ -301,6 +301,48 @@ const str = (v, max = 500) => String(v ?? '').slice(0, max)
 const normCid = (v) => { const c = String(v || '').trim().toUpperCase(); return /^[A-Z0-9-]{5,20}$/.test(c) ? c : '' }
 const isOnline = (d) => !!d.portal_enabled && !!d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS
 
+/* ---------- Offer (data plan) cleaning, shared by the phone sync and the portal routes ---------- */
+const OFFER_CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA']
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+const normUssd = (v) => String(v || '').replace(/\s+/g, '').replace(/ab/gi, 'AB').slice(0, 200)
+const ussdError = (u) => !u ? 'Enter the USSD code'
+  : !u.includes('AB') ? 'The USSD code must contain AB where the phone number goes'
+  : !/^\*[0-9*]+#$/.test(u.replace(/AB/g, '0')) ? 'The USSD code must start with * and end with #, with only numbers and * between'
+  : ''
+// A signature is passed through as the phone built it (small, JSON only), so the phone can read it back
+const cleanSigRaw = (s) => {
+  try {
+    if (!s || typeof s !== 'object' || !Array.isArray(s.steps) || s.steps.length > 30) return null
+    const j = JSON.stringify(s)
+    if (j.length > 20000) return null
+    const o = JSON.parse(j)
+    o.complete = !!o.complete
+    return o
+  } catch { return null }
+}
+const cleanScreens = (a) => (Array.isArray(a) ? a : []).slice(0, 15).map((x) => str(x, 1500))
+const cleanTw = (t) => {
+  t = t && typeof t === 'object' ? t : {}
+  return { on: !!t.on, from: HHMM.test(t.from) ? t.from : '06:00', until: HHMM.test(t.until) ? t.until : '22:00',
+    altId: str(t.altId, 64), notify: !!t.notify, msg: str(t.msg, 300) }
+}
+function cleanOffer(o) {
+  const smart = !!o.smart, signature = !!o.signature, sigLearned = !!o.sigLearned, sigEnabled = !!o.sigEnabled
+  const sig = cleanSigRaw(o.sig)
+  return {
+    id: str(o.id, 64), name: str(o.name, 80), cat: str(o.cat || o.category, 30) || 'DATA',
+    price: num(o.price), safPrice: num(o.safPrice), ussd: str(o.ussd, 200), on: (o.on ?? o.enabled) !== false,
+    smart, signature, locked: smart || signature, sigLearned, sigEnabled, sigAuto: !!o.sigAuto,
+    signed: smart || signature || (sigLearned && sigEnabled),
+    ...(sig ? { sig } : {}),
+    autoRetry: !!o.autoRetry, retryCount: Math.min(10, Math.max(1, Math.round(num(o.retryCount, 1)))),
+    retryPending: !!o.retryPending, retryFailed: o.retryFailed !== false,
+    autoReschedule: !!o.autoReschedule, rescheduleTime: HHMM.test(o.rescheduleTime) ? o.rescheduleTime : '06:00',
+    notifyOn: !!o.notifyOn, notifyMsg: str(o.notifyMsg, 300),
+    tw: cleanTw(o.tw),
+  }
+}
+
 // Only known fields are kept, so a phone can never store anything unexpected
 function cleanSnapshot(s = {}) {
   const recent = (Array.isArray(s.recent) ? s.recent : []).slice(0, 20).map((t) => ({
@@ -314,9 +356,7 @@ function cleanSnapshot(s = {}) {
     airUsed: num(s.airUsed), airBal: num(s.airBal),
     battery: Math.max(0, Math.min(100, Math.round(num(s.battery)))), charging: !!s.charging,
     commission: num(s.commission), running: !!s.running, unlimitedUntil: str(s.unlimitedUntil, 10), recent,
-    offers: (Array.isArray(s.offers) ? s.offers : []).slice(0, 150).map((o) => ({
-      id: str(o.id, 64), name: str(o.name, 80), cat: str(o.cat, 30), price: num(o.price), ussd: str(o.ussd, 200), on: o.on !== false,
-    })).filter((o) => o.id && o.ussd),
+    offers: (Array.isArray(s.offers) ? s.offers : []).slice(0, 150).filter((o) => o && typeof o === 'object').map(cleanOffer).filter((o) => o.id && o.ussd),
   }
 }
 
@@ -422,13 +462,21 @@ app.post('/device/sync',
     }
   })
 
-// The phone reports how a command went (quickdial, buy_tokens, credit_tokens)
+// The phone reports how a command went (quickdial, buy_tokens, credit_tokens, offer and signature commands)
 app.post('/device/command-result', deviceAuth, async (req, res) => {
   try {
-    const b = req.body || {}, id = num(b.id), ok = !!b.ok, msg = str(b.msg, 600)
+    const b = req.body || {}, id = num(b.id), msg = str(b.msg, 600)
+    let ok = !!b.ok
     const { data: c } = await sbAdmin.from('device_commands').select('*').eq('id', id).eq('device_id', req.dev.id).maybeSingle()
     if (!c) return res.status(404).json({ error: 'Unknown command.' })
-    await sbAdmin.from('device_commands').update({ status: 'sent', result: ok ? 'ok' : 'failed', result_msg: msg, done_at: new Date().toISOString() }).eq('id', id)
+    let store = msg
+    if (c.type === 'sig_learn' && ok) {
+      // The learned signature and the screens the phone saw travel back in b.data
+      const sg = cleanSigRaw(b.data && b.data.signature)
+      if (!sg) { ok = false; store = 'The phone returned a signature that could not be read.' }
+      else store = JSON.stringify({ signature: sg, screens: cleanScreens(b.data.screens) })
+    }
+    await sbAdmin.from('device_commands').update({ status: 'sent', result: ok ? 'ok' : 'failed', result_msg: store, done_at: new Date().toISOString() }).eq('id', id)
     const txId = c.payload && c.payload.txId
     if (txId) await pool.query("UPDATE portal_tx SET st=$3, resp=CASE WHEN $4::text='' THEN resp ELSE $4::text END WHERE device_id=$1 AND tx_id=$2",
       [String(req.dev.id), txId, ok ? 'Completed' : 'Failed', msg])
@@ -489,7 +537,7 @@ app.get('/portal/overview', async (req, res) => {
         air: s.airBal || 0, used: s.airUsed || 0, tok: s.tokens || 0,
         bat: s.battery || 0, chg: !!s.charging, com: s.commission || 0,
         ok: s.ok || 0, failed: s.failed || 0,
-        offers: s.offers || [],
+        offers: s.offers || [], // the Data plans page reads each phone's offers from here
         ...(s.unlimitedUntil ? { until: s.unlimitedUntil } : {}),
       })
     }
@@ -636,6 +684,181 @@ app.get('/portal/commands/:id', async (req, res) => {
     const s = c.result === 'ok' ? 'completed' : c.result ? 'failed' : c.status === 'expired' ? 'failed' : c.status === 'sent' ? 'running' : 'pending'
     res.json({ status: s, message: c.result_msg || (c.status === 'expired' ? 'The phone did not respond.' : '') })
   } catch (e) { console.error('command status', e); res.status(500).json({ error: 'Could not check the command.' }) }
+})
+
+/* ================= PORTAL DATA PLANS (the offers on each phone) =================
+   Every change is queued as a command for the phone, and the saved copy of the phone's
+   offers is updated right away so the portal looks instant. The phone's next sync then
+   replaces that copy with what the phone really has, so the app is always the truth.
+   Commands the phone must handle:
+     offer_add     {offer}                      offer_delete  {id}
+     offer_update  {id, mode, patch}            mode = 'edit' | 'toggle' | 'window'
+     sig_learn     {offerId, ussd, testPhone}   (phone replies with data:{signature,screens})
+     sig_save      {offerId, signature, enabled}                                              */
+
+const offersOf = (d) => (d.snapshot || {}).offers || []
+const saveOffers = (d, offers) => sbAdmin.from('devices').update({ snapshot: { ...(d.snapshot || {}), offers } }).eq('id', d.id)
+const isLockedOffer = (o) => !!(o && (o.smart || o.signature || o.locked))
+const verified = (o) => !!(o.smart || o.signature || (o.sigLearned && o.sigEnabled))
+// The phone app names these fields category and enabled
+const toApp = (p) => { const { on, cat, ...r } = p; return { ...r, ...(on !== undefined ? { enabled: on } : {}), ...(cat !== undefined ? { category: cat } : {}) } }
+
+// Finds the phone a plan change is for: the one named in the request, otherwise the only phone that has this offer
+async function planCtx(req, res, offerId) {
+  if (!planInfo(req.acct).active) { res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' }); return null }
+  const { data } = await sbAdmin.from('devices').select('*').eq('owner_id', req.user.id)
+  const devs = data || []
+  const want = str((req.body && req.body.device) || req.query.device, 64)
+  let d = null
+  if (want) d = devs.find((x) => String(x.id) === want) || null
+  else if (offerId) {
+    const hits = devs.filter((x) => offersOf(x).some((o) => o.id === String(offerId)))
+    if (hits.length === 1) d = hits[0]
+  } else if (devs.length === 1) d = devs[0]
+  if (!d) { res.status(404).json({ error: 'Phone not found. Pick the phone first.' }); return null }
+  if (!isOnline(d)) { res.status(409).json({ error: 'The phone is offline. Open AutoBingwa on it and check that AutoBingwa Portal is on.' }); return null }
+  return d
+}
+
+// Turns what the portal sent into a clean patch. A locked (verified Smart) offer keeps its name, category, USSD and Safaricom price.
+function offerPatch(b, cur) {
+  const lock = isLockedOffer(cur), has = (k) => b[k] !== undefined, p = {}
+  if (!lock) {
+    if (has('name')) p.name = str(b.name, 80).trim()
+    if (has('ussd')) p.ussd = normUssd(b.ussd)
+    if (has('category')) { const c = String(b.category).toUpperCase(); if (OFFER_CATS.includes(c)) p.cat = c }
+    if (has('safPrice')) p.safPrice = Math.max(0, num(b.safPrice))
+  }
+  if (has('price')) p.price = num(b.price)
+  for (const k of ['autoRetry', 'retryPending', 'retryFailed', 'autoReschedule', 'notifyOn']) if (has(k)) p[k] = !!b[k]
+  if (has('retryCount')) p.retryCount = Math.min(10, Math.max(1, Math.round(num(b.retryCount, 1))))
+  if (has('rescheduleTime')) p.rescheduleTime = HHMM.test(b.rescheduleTime) ? b.rescheduleTime : '06:00'
+  if (has('notifyMsg')) p.notifyMsg = str(b.notifyMsg, 300).trim()
+  if (has('tw')) p.tw = cleanTw(b.tw)
+  const en = has('enabled') ? b.enabled : b.on
+  if (en !== undefined) p.on = !!en
+  return p
+}
+const twError = (o, offers) => {
+  const t = o.tw
+  if (!t || !t.on) return ''
+  if (t.from === t.until) return 'The start and end time cannot be the same'
+  if (!offers.find((x) => x.id === t.altId && x.id !== o.id && x.on)) return 'Choose an alternative offer for outside the window'
+  return ''
+}
+const offerError = (o, offers) => {
+  if (!o.name) return 'Enter the offer name'
+  const e = ussdError(o.ussd)
+  if (e) return e
+  if (!(o.price > 0) || o.price > 100000) return 'Enter the amount'
+  if (o.notifyOn && !o.notifyMsg) return 'Write the SMS message for the customer'
+  return twError(o, offers)
+}
+
+app.post('/portal/plans', portalLimit(300), async (req, res) => {
+  try {
+    const d = await planCtx(req, res, null)
+    if (!d) return
+    const offers = offersOf(d)
+    if (offers.length >= 150) return res.status(400).json({ error: 'This phone already has the most offers it can hold.' })
+    let id = Date.now()
+    while (offers.some((x) => x.id === String(id))) id++
+    const o = { id: String(id), cat: 'DATA', safPrice: 0, on: true, autoRetry: false, retryCount: 1, retryPending: false, retryFailed: true,
+      autoReschedule: false, rescheduleTime: '06:00', notifyOn: false, notifyMsg: '', tw: cleanTw(), ...offerPatch(req.body || {}, null) }
+    const err = offerError(o, offers)
+    if (err) return res.status(400).json({ error: err })
+    const commandId = await queueCmd(d.id, 'offer_add', { offer: toApp(o) })
+    await saveOffers(d, [...offers, cleanOffer(o)])
+    res.json({ ok: true, id: o.id, commandId })
+  } catch (e) { console.error('plan add', e); res.status(500).json({ error: 'Could not add the plan.' }) }
+})
+
+app.put('/portal/plans/:id', portalLimit(600), async (req, res) => {
+  try {
+    const d = await planCtx(req, res, req.params.id)
+    if (!d) return
+    const offers = offersOf(d), cur = offers.find((o) => o.id === req.params.id)
+    if (!cur) return res.status(404).json({ error: 'That plan is no longer on the phone.' })
+    const p = offerPatch(req.body || {}, cur), keys = Object.keys(p)
+    if (!keys.length) return res.json({ ok: true })
+    const mode = keys.every((k) => k === 'on') ? 'toggle' : keys.every((k) => k === 'tw') ? 'window' : 'edit'
+    const next = { ...cur, ...p }
+    const err = mode === 'toggle' ? '' : mode === 'window' ? twError(next, offers) : offerError(next, offers)
+    if (err) return res.status(400).json({ error: err })
+    const commandId = await queueCmd(d.id, 'offer_update', { id: cur.id, mode, patch: toApp(p) })
+    // A manual offer's signature is switched off by an edit, like in the app
+    if (mode === 'edit' && !isLockedOffer(cur)) next.sigEnabled = false
+    next.signed = verified(next)
+    await saveOffers(d, offers.map((o) => (o.id === cur.id ? next : o)))
+    res.json({ ok: true, commandId })
+  } catch (e) { console.error('plan update', e); res.status(500).json({ error: 'Could not save the plan.' }) }
+})
+
+app.delete('/portal/plans/:id', portalLimit(300), async (req, res) => {
+  try {
+    const d = await planCtx(req, res, req.params.id)
+    if (!d) return
+    const offers = offersOf(d)
+    if (!offers.some((o) => o.id === req.params.id)) return res.status(404).json({ error: 'That plan is no longer on the phone.' })
+    const commandId = await queueCmd(d.id, 'offer_delete', { id: req.params.id })
+    // An offer that used the deleted one as its time-window alternative is no longer restricted
+    await saveOffers(d, offers.filter((o) => o.id !== req.params.id)
+      .map((o) => (o.tw && o.tw.altId === req.params.id ? { ...o, tw: { ...o.tw, on: false, altId: '' } } : o)))
+    res.json({ ok: true, commandId })
+  } catch (e) { console.error('plan delete', e); res.status(500).json({ error: 'Could not delete the plan.' }) }
+})
+
+// Learn the signature: the phone dials every step with a test number and stops before the purchase
+app.post('/portal/plans/:id/learn', portalLimit(60), async (req, res) => {
+  try {
+    const d = await planCtx(req, res, req.params.id)
+    if (!d) return
+    const cur = offersOf(d).find((o) => o.id === req.params.id)
+    if (!cur) return res.status(404).json({ error: 'That plan is no longer on the phone.' })
+    const bad = ussdError(cur.ussd)
+    if (bad) return res.status(400).json({ error: bad })
+    const { data: dup } = await sbAdmin.from('device_commands').select('id').eq('device_id', d.id).eq('type', 'sig_learn')
+      .in('status', ['pending', 'sent']).is('result', null).gte('created_at', new Date(Date.now() - 150000).toISOString()).limit(1)
+    if (dup && dup.length) return res.status(409).json({ error: 'A signature is already being learned on this phone. Wait for it to finish.' })
+    const job = await queueCmd(d.id, 'sig_learn', { offerId: cur.id, ussd: cur.ussd, testPhone: '0700000000' })
+    res.json({ ok: true, job })
+  } catch (e) { console.error('sig learn', e); res.status(500).json({ error: 'Could not start learning.' }) }
+})
+
+app.get('/portal/plans/:id/learn/:job', async (req, res) => {
+  try {
+    const { data: c } = await sbAdmin.from('device_commands').select('*').eq('id', num(req.params.job)).eq('type', 'sig_learn').maybeSingle()
+    if (!c || !(await ownedDev(req, c.device_id))) return res.status(404).json({ error: 'Not found.' })
+    if (c.result === 'ok') {
+      try {
+        const r = JSON.parse(c.result_msg)
+        return res.json({ status: 'done', signature: r.signature, screens: r.screens || [] })
+      } catch { return res.json({ status: 'error', error: 'The phone returned a signature that could not be read.' }) }
+    }
+    if (c.result) return res.json({ status: 'error', error: c.result_msg || 'Learning failed on the phone.' })
+    if (c.status === 'expired') return res.json({ status: 'error', error: 'The phone did not respond. Check that it is online and try again.' })
+    if (Date.now() - new Date(c.created_at).getTime() > 150000) return res.json({ status: 'error', error: 'The phone took too long. Keep it unlocked and try again.' })
+    res.json({ status: 'running' })
+  } catch (e) { console.error('sig status', e); res.status(500).json({ error: 'Could not check the learning.' }) }
+})
+
+// Save the signature on the phone (and switch it on or off)
+app.post('/portal/plans/:id/signature', portalLimit(120), async (req, res) => {
+  try {
+    const d = await planCtx(req, res, req.params.id)
+    if (!d) return
+    const offers = offersOf(d), cur = offers.find((o) => o.id === req.params.id)
+    if (!cur) return res.status(404).json({ error: 'That plan is no longer on the phone.' })
+    if (cur.smart && cur.sig && !cur.sigAuto) return res.status(403).json({ error: 'This verified Smart plan has a built-in signature that cannot be changed.' })
+    const sig = cleanSigRaw(req.body && req.body.signature)
+    if (!sig || !sig.complete) return res.status(400).json({ error: 'This signature is not complete, so it cannot be saved. Learn it again.' })
+    const enabled = cur.smart ? true : !!(req.body && req.body.enabled)
+    const commandId = await queueCmd(d.id, 'sig_save', { offerId: cur.id, signature: sig, enabled })
+    const next = { ...cur, sig, sigLearned: true, sigEnabled: enabled }
+    next.signed = verified(next)
+    await saveOffers(d, offers.map((o) => (o.id === cur.id ? next : o)))
+    res.json({ ok: true, commandId })
+  } catch (e) { console.error('sig save', e); res.status(500).json({ error: 'Could not save the signature.' }) }
 })
 
 async function ownedDevice(req, res) {

@@ -1,12 +1,24 @@
 /* ===== Data layer =====
    USE_MOCK=true runs on sample data. To connect the real server later: set USE_MOCK=false and API_URL.
    The server must provide (Bearer token in the Authorization header):
-   GET  /portal/overview               -> { biz, cid, plan, devices, tx, plans }  (same shape as DB below)
+   GET  /portal/overview               -> { biz, cid, plan, devices, tx, plans }  (plans come from devices[].offers)
    POST /portal/devices/:id/airtime-check | /start | /stop | /portal-on | /portal-off
    POST /portal/tx/:id/retry | /reschedule {at}      DELETE /portal/tx/:id
-   POST /portal/plans   PUT|DELETE /portal/plans/:id   POST /portal/plans/:id/learn
-   POST /portal/quickdial {device,offerId,phone}     POST /portal/tokens/buy {device,pack}
-   POST /portal/subscribe {plan,phone}               POST /portal/password {current,next} */
+   POST /portal/quickdial {device,offerId,phone}
+   POST /portal/tokens/buy {device,packId,method:'airtime'|'mpesa',phone?}
+   POST /portal/subscribe/start {plan,phone,method}  POST /portal/password {current,next}
+   --- Data plans (every change must reach the phone, and phone changes must show in overview.plans) ---
+   POST   /portal/plans                 {name,ussd,price,safPrice,category,autoRetry,retryCount,retryPending,retryFailed,
+                                         autoReschedule,rescheduleTime,notifyOn,notifyMsg,tw,enabled,device} -> {id}
+   PUT    /portal/plans/:id             any of the same fields, plus {on,enabled} for the switch  (tw = time window)
+   DELETE /portal/plans/:id
+   POST   /portal/plans/:id/learn       {device} -> {signature,screens}  OR  {job}
+   GET    /portal/plans/:id/learn/:job  -> {status:'running'|'done'|'error', signature, screens, error}
+   POST   /portal/plans/:id/signature   {device,signature,enabled}  -> saves the signature on the phone
+   A plan in overview.plans looks like:
+   {id,name,cat,price,safPrice,ussd,on,signed,smart,signature,locked,sig,sigLearned,sigEnabled,sigAuto,
+    autoRetry,retryCount,retryPending,retryFailed,autoReschedule,rescheduleTime,notifyOn,notifyMsg,
+    tw:{on,from,until,altId,notify,msg}} */
 const USE_MOCK=false,API_URL='https://autobingwa-payments.onrender.com';
 const DB={biz:'Jabali Bingwa Deals',cid:'AB-1042',plan:{name:'2 devices',max:2,exp:'15 Nov 2026'},
 devices:[
@@ -21,13 +33,14 @@ tx:[
 {id:'t6',dev:'d1',name:'Mutisya Karata Kimani',phone:'0140313621',amt:5,offer:'20SMS 1 DAY',st:'Completed',m:60,msg:'UJV3C1B8YY Confirmed. Ksh5.00 received from 254140313621 MUTISYA KARATA KIMANI.',ussd:'*544*4*1#',resp:'You have successfully purchased 20SMS.'},
 {id:'t7',dev:'d2',name:'Faith Simiyu',phone:'0704590730',amt:20,offer:'250MBS 24HRS',st:'Completed',m:14,msg:'UJV3D2C7XX Confirmed. Ksh20.00 received from 254704590730 FAITH SIMIYU.',ussd:'*180*5*2*0704590730*1*1#',resp:'Your request is being processed.'}],
 plans:[
-{id:'p1',name:'400mbs tunukiwa',cat:'Tunukiwa',price:26,ussd:'*544*6*8*AB*00*1*0*1*1#',signed:true,on:true},
-{id:'p2',name:'400MBS',cat:'Data',price:25,ussd:'*180*5*2*AB*1*1#',signed:true,on:true},
-{id:'p3',name:'1.5GB 3HRS',cat:'Data',price:50,ussd:'*180*5*2*AB*7*1#',signed:false,on:true},
-{id:'p4',name:'900 MB Midnight',cat:'Pata More',price:57,ussd:'*544*6*8*AB*00*1*0*6*1#',signed:true,on:false}]};
-const PACKS=[['1,000 units',90],['600 units',50],['250 units',25],['100 units',15],['1 day unlimited',30],['7 days unlimited',200],['30 days unlimited',550]];
+{id:'p1',name:'400mbs tunukiwa',cat:'TUNUKIWA',price:26,safPrice:25,ussd:'*544*6*8*AB*00*1*0*1*1#',signed:true,smart:true,on:true},
+{id:'p2',name:'400MBS',cat:'DATA',price:25,safPrice:20,ussd:'*180*5*2*AB*1*1#',signed:true,on:true},
+{id:'p3',name:'1.5GB 3HRS',cat:'DATA',price:50,safPrice:49,ussd:'*180*5*2*AB*7*1#',signed:false,on:true,tw:{on:true,from:'06:00',until:'22:00',altId:'p2',notify:false,msg:''}},
+{id:'p4',name:'900 MB Midnight',cat:'DATA',price:57,safPrice:55,ussd:'*544*6*8*AB*00*1*0*6*1#',signed:true,on:false}]};
+const PACKS=[['1,000 units',90,'u1000'],['600 units',50,'u600'],['250 units',25,'u250'],['100 units',15,'u100'],['1 day unlimited',30,'d1'],['7 days unlimited',200,'d7'],['30 days unlimited',550,'d30']];
 const SUBS=[{n:'2 devices',p:100,f:['Link 1 or 2 devices','2 days of portal history','30 days of access']},{n:'5 devices',p:200,pop:1,f:['Link up to 5 devices','5 days of portal history','30 days of access']},{n:'Unlimited',p:400,f:['Link unlimited devices','1 week of portal history','30 days of access']}];
-const CATS=['Data','Minutes','SMS','Tunukiwa','Pata More'];
+const PICK=['DATA','MINUTES','SMS','TUNUKIWA'],PCATS=['ALL','DATA','TUNUKIWA','MINUTES','SMS'];
+const DEF_MSG='Hi {name}, your {offer} has been sent. Thank you for buying!';
 const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ls={get(k,d){try{return localStorage.getItem(k)||d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 async function call(m,p,b){if(USE_MOCK){await sleep(200);return{ok:true}}
@@ -36,24 +49,46 @@ if(r.status===401){window.portalSignOut();throw new Error('Session expired. Plea
 const j=await r.json().catch(()=>({}));
 if(!r.ok)throw new Error(j.error||'The server answered '+r.status);return j}
 /* ===== Helpers ===== */
-const P={home:'M3 11l9-8 9 8M5 10v10h14V10',phone:'M7 2h10v20H7zM11 18h2',list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',db:'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',more:'M5 12h.01M12 12h.01M19 12h.01',chev:'M9 6l6 6-6 6',back:'M19 12H5M12 19l-7-7 7-7',plus:'M12 5v14M5 12h14',refresh:'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',eyeoff:'M3 3l18 18M10.6 6.1A9.6 9.6 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.8M6.5 7.5A17 17 0 0 0 2 12s4 6 10 6c1.4 0 2.7-.3 3.8-.8',bolt:'M13 2L4 14h7l-1 8 9-12h-7z',edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',trash:'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',out:'M9 21H5V3h4M16 17l5-5-5-5M21 12H9',dial:'M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.6 21 3 13.4 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z',card:'M3 6h18v12H3zM3 10h18',coin:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M9.5 9.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4',gear:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3 12h2M19 12h2M12 3v2M12 19v2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4',copy:'M9 9h11v11H9zM5 15V5h10',finger:'M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2'};
+const P={home:'M3 11l9-8 9 8M5 10v10h14V10',phone:'M7 2h10v20H7zM11 18h2',list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',db:'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',more:'M5 12h.01M12 12h.01M19 12h.01',chev:'M9 6l6 6-6 6',back:'M19 12H5M12 19l-7-7 7-7',plus:'M12 5v14M5 12h14',refresh:'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',eyeoff:'M3 3l18 18M10.6 6.1A9.6 9.6 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.8M6.5 7.5A17 17 0 0 0 2 12s4 6 10 6c1.4 0 2.7-.3 3.8-.8',bolt:'M13 2L4 14h7l-1 8 9-12h-7z',edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',trash:'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',out:'M9 21H5V3h4M16 17l5-5-5-5M21 12H9',dial:'M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.6 21 3 13.4 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z',card:'M3 6h18v12H3zM3 10h18',coin:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M9.5 9.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4',gear:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3 12h2M19 12h2M12 3v2M12 19v2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4',copy:'M9 9h11v11H9zM5 15V5h10',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2',finger:'M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2'};
 const ic=(n,s=22)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n]}"/></svg>`;
+const vb=(s=16)=>`<svg class="vb" viewBox="0 0 24 24" width="${s}" height="${s}" role="img" aria-label="Verified"><path d="M12 2l2.6 2 3.2-.2 1 3 2.7 1.8-1 3.1 1 3.1-2.7 1.8-1 3-3.2-.2L12 22l-2.6-2-3.2.2-1-3L2.5 15.4l1-3.1-1-3.1L5.2 7.4l1-3 3.2.2z" fill="currentColor"/><path d="M8.5 12.2l2.4 2.4 4.6-4.9" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const ago=m=>m<1?'Just now':m<60?m+'m ago':m<1440?Math.floor(m/60)+'h ago':Math.floor(m/1440)+'d ago';
 const ini=n=>String(n).trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
 const TONE={Completed:'ok',Failed:'bad',Pending:'wn',Scheduled:'wn',Processing:'wn',Paused:'wn',Skipped:'wn',Unmatched:'bad'};
-const S={page:'home',more:null,dev:'d1',f:'All',hide:false,tx:null,td:null,theme:ls.get('theme','system')};
+const S={page:'home',more:null,dev:'d1',f:'All',hide:false,tx:null,td:null,tp:null,pc:'ALL',pm:null,pf:null,wf:null,sg:null,theme:ls.get('theme','system')};
 const dev=()=>DB.devices.find(d=>d.id===S.dev)||DB.devices[0]||{id:'',name:'No phone connected',online:false,portalOn:false,running:false,air:0,used:0,tok:0,bat:0,chg:false,com:0,ok:0,failed:0};
 const cur=()=>DB.tx.find(x=>x.id===S.tx);
 const mk=t=>S.hide?'••••••':t;
-let R=null,tt=null;
+let R=null,tt=null,HOLD=0;
+const held=()=>{HOLD=Date.now()+10000};
 function toast(m){const t=$('#toast');t.textContent=m;clearTimeout(tt);tt=setTimeout(()=>{t.textContent=''},3500)}
 function modal(h){$('#modal').innerHTML=`<div class="mb" data-a="close"><div class="ms" role="dialog" aria-modal="true">${h}</div></div>`}
 function ask(t,m,ok,danger){return new Promise(res=>{R=res;modal(`<h3>${t}</h3><p class="mu">${m}</p><div class="flex"><button class="btn gh grow" data-a="no">Cancel</button><button class="btn${danger?' bad':''} grow" data-a="yes">${ok}</button></div>`)})}
 function applyTheme(t){S.theme=t;ls.set('theme',t);const r=document.documentElement;t==='system'?r.removeAttribute('data-theme'):r.setAttribute('data-theme',t)}
 const bk=t=>`<div class="flex"><button class="ib" data-a="go" data-p="more" data-m="" aria-label="Back">${ic('back')}</button><h1 class="h2" style="margin:0">${t}</h1></div>`;
 const phoneOk=v=>{const p=String(v).replace(/[\s+-]/g,'').replace(/^254/,'0');return /^0[17]\d{8}$/.test(p)?p:''};
+/* ===== Data plan helpers (same rules as the phone app) ===== */
+const cap=s=>s?s[0]+s.slice(1).toLowerCase():'';
+const catOf=p=>{const c=String(p.cat||p.category||'').toUpperCase();if(PICK.includes(c))return c;const s=((p.name||'')+' '+(p.cat||'')).toLowerCase();if(/sms/.test(s))return'SMS';if(/minutes|mins?(\s|$)/.test(s))return'MINUTES';if(/tunukiwa/.test(s))return'TUNUKIWA';return'DATA'};
+const isVerified=p=>!!(p.smart||p.signature||p.signed||(p.sigLearned&&p.sigEnabled));
+const isLocked=p=>!!(p.smart||p.signature||p.locked);
+const t12=v=>{if(!v)return'';const[h,m]=v.split(':').map(Number);return(h%12||12)+':'+String(m).padStart(2,'0')+' '+(h>=12?'PM':'AM')};
+const defTw=()=>({on:false,from:'06:00',until:'22:00',altId:'',notify:false,msg:''});
+const blankPlan=()=>({id:'',isNew:true,name:'',cat:'DATA',ussd:'',price:'',safPrice:'',autoRetry:false,retryCount:1,retryPending:false,retryFailed:true,autoReschedule:false,rescheduleTime:'06:00',notifyOn:false,notifyMsg:'',on:true,tw:defTw()});
+const normU=u=>String(u||'').replace(/\s+/g,'').replace(/ab/gi,'AB');
+const chkU=u=>{if(!u)return'Enter the USSD code';if(!/AB/.test(u))return'The USSD code must contain AB where the phone number goes';if(!/^\*[0-9*]+#$/.test(u.replace(/AB/g,'0')))return'The USSD code must start with * and end with #, with only numbers and * between';return''};
+const toPatch=(s,lock)=>{const p={name:String(s.name||'').trim(),ussd:normU(s.ussd),price:Number(s.price),safPrice:Number(s.safPrice)||0,autoRetry:!!s.autoRetry,retryCount:Math.min(10,Math.max(1,Number(s.retryCount)||1)),retryPending:!!s.retryPending,retryFailed:s.retryFailed!==false,autoReschedule:!!s.autoReschedule,rescheduleTime:s.rescheduleTime||'06:00',notifyOn:!!s.notifyOn,notifyMsg:String(s.notifyMsg||'').trim()};if(!lock)p.category=catOf(s);return p};
+const parseMenu=s=>String(s||'').split('\n').map(l=>l.match(/^\s*(\d+)\s*[.:)\-]\s*(.+)$/)).filter(Boolean).map(m=>({n:m[1],text:m[2].trim()}));
+const sigRows=(sig,l)=>sig.steps.map((s,i)=>{if(s.kind==='input')return{ok:1,t:"Types the customer's phone number"};if(s.kind==='literal')return s.unmatched?{ok:0,t:`Option ${s.value} was not found on the screen`}:{ok:1,t:`Types ${s.value}`};const raw=l&&l.screens&&l.screens[i]?(parseMenu(l.screens[i]).find(o=>String(o.n)===String(s.hint))||{}).text:'';return{ok:1,t:`Picks "${raw||s.label||s.text||'option'}" (option ${s.hint} today)`}});
+const mockSig=()=>({complete:true,steps:[{kind:'literal',value:'5'},{kind:'literal',value:'2'},{kind:'input'},{kind:'menu',hint:'1',label:'Data'},{kind:'literal',value:'1'}]});
+const sw=(k,on,l,a='pft')=>`<button type="button" class="sw${on?' on':''}" role="switch" aria-checked="${on}" aria-label="${esc(l)}" data-a="${a}" data-k="${k}"><i></i></button>`;
+const srow=(t,s,k,on)=>`<div class="srow"><span class="grow"><b>${t}</b><small>${s}</small></span>${sw(k,on,t)}</div>`;
+const gv=id=>{const e=document.getElementById(id);return e?e.value:undefined},gc=id=>{const e=document.getElementById(id);return e?e.checked:undefined};
+function readPf(){const f=S.pf;if(!f)return;const m={name:'pn',cat:'pc',ussd:'pu',price:'pp',safPrice:'ps',retryCount:'prc',rescheduleTime:'prt',notifyMsg:'pnm'};for(const k in m){const v=gv(m[k]);if(v!==undefined)f[k]=v}
+const a=gc('prp'),b=gc('prf');if(a!==undefined)f.retryPending=a;if(b!==undefined)f.retryFailed=b}
+function readWf(){const w=S.wf;if(!w)return;const m={from:'wf',until:'wu',altId:'wa',msg:'wm'};for(const k in m){const v=gv(m[k]);if(v!==undefined)w[k]=v}}
 /* ===== Pages ===== */
 const devRow=d=>`<button class="card drow${d.id===S.dev?' act':''}" data-a="dev" data-id="${d.id}"><i class="dot${d.online?' on':''}"></i><span class="grow"><b>${esc(d.name)}</b><small>${d.online?'Online':'Offline'}, ${d.running?'running':'stopped'}</small></span>${ic('chev')}</button>`;
 const txRow=t=>`<button class="card tx" data-a="otx" data-id="${t.id}"><span class="av">${esc(ini(t.name))}</span><span class="grow"><b>${esc(t.name)}</b><small>${t.phone}, ${esc(t.offer)}, KES ${t.amt}</small></span><span class="rt"><b class="${TONE[t.st]||''}">${t.st}</b><small>${ago(t.m)}</small></span></button>`;
@@ -84,8 +119,65 @@ return `<div class="flex"><button class="ib" data-a="tback" aria-label="Back">${
 <div class="amt">KES ${t.amt}<span class="pill">${esc(t.offer)}</span></div>
 ${box('M-Pesa message','msg')}${box('Phone number','phone')}${box('USSD','ussd')}${box('USSD response','resp')}
 <div class="flex"><button class="btn gh grow" data-a="retry">${ic('refresh',18)} Retry</button><button class="btn gh grow" data-a="resched">${ic('list',18)} Reschedule</button><button class="btn bad grow" data-a="del">${ic('trash',18)} Delete</button></div>`}
-function plans(){return `<div class="flex"><button class="btn sm" data-a="padd">${ic('plus',18)} Add plan</button></div><h1 class="h2">Data plans</h1>
-${DB.plans.map(p=>`<div class="card"><div class="flex" style="margin:0"><span class="grow"><b>${esc(p.name)}</b><small>${esc(p.cat)}, KES ${p.price}</small></span><button class="tg${p.on?' on':''}" data-a="ptog" data-id="${p.id}" aria-pressed="${p.on}">${p.on?'ON':'OFF'}</button></div><code>${esc(p.ussd)}</code><div style="margin-bottom:10px"><span class="pill" style="--c:var(--${p.signed?'ok':'wn'})">${ic('finger',14)} ${p.signed?'Signed':'Not signed'}</span></div><div class="flex" style="margin:0"><button class="btn gh grow" data-a="pedit" data-id="${p.id}">${ic('edit',18)} Edit</button><button class="ib" data-a="plearn" data-id="${p.id}" aria-label="Learn signature">${ic('finger')}</button><button class="ib bad" data-a="pdel" data-id="${p.id}" aria-label="Delete plan">${ic('trash')}</button></div></div>`).join('')}`}
+/* ----- Data plans dashboard ----- */
+const planCard=p=>{const v=isVerified(p),tw=p.tw&&p.tw.on;
+return `<div class="card pc${p.on?'':' off'}${v?' vf':''}"><div class="flex" style="margin:0"><span class="grow"><b class="pn">${esc(p.name)}${v?vb(17):''}</b><small>${esc(cap(catOf(p)))} · KES ${esc(p.price)}</small></span>${sw(p.id,p.on,(p.on?'Turn off ':'Turn on ')+p.name,'ptog').replace(`data-k="${p.id}"`,`data-id="${p.id}"`)}</div>
+<code>${esc(p.ussd)}</code>
+<div class="pt"><span class="pill" style="--c:var(--${v?'ok':'wn'})">${ic('finger',14)} ${v?'Signed':'Not signed'}</span><span class="pill" style="--c:var(--${p.on?'ok':'bad'})">${p.on?'Enabled':'Disabled'}</span>${tw?`<span class="pill">${ic('clock',14)} ${t12(p.tw.from)} to ${t12(p.tw.until)}</span>`:''}</div>
+<div class="flex" style="margin:0"><button class="btn gh grow" data-a="pmenu" data-id="${p.id}">${ic('edit',18)} Edit</button><button class="ib bad" data-a="pdel" data-id="${p.id}" aria-label="Delete ${esc(p.name)}">${ic('trash')}</button></div></div>`};
+function plans(){const all=DB.plans,list=S.pc==='ALL'?all:all.filter(p=>catOf(p)===S.pc),n=all.filter(p=>p.on).length;
+return `<div class="flex"><h1 class="h2 grow" style="margin:0">Data plans</h1><span class="pill">${n}/${all.length} on</span><button class="ib" data-a="padd" aria-label="Add plan">${ic('plus')}</button></div>
+<p class="mu">${esc(dev().name)} · same plans as the app</p>
+<div class="chips">${PCATS.map(c=>`<button class="chip${S.pc===c?' on':''}" data-a="pcat" data-c="${c}">${cap(c)}</button>`).join('')}</div>
+${list.map(planCard).join('')||'<p class="mu c">No plans here. Tap + to add one.</p>'}`}
+const pmenuHtml=p=>`<h3>${esc(p.name)} ${isVerified(p)?vb(17):''}</h3><p class="mu">${esc(p.ussd)}</p>
+<button class="opt" data-a="psig" data-id="${p.id}">${ic('finger')}<span class="grow"><b>Signature</b><small>Learn on the phone, see the USSD path, save it</small></span>${ic('chev')}</button>
+<button class="opt" data-a="pform" data-id="${p.id}">${ic('edit')}<span class="grow"><b>Edit offer</b><small>Name, price, USSD, retry and SMS settings</small></span>${ic('chev')}</button>
+<button class="opt" data-a="pwin" data-id="${p.id}">${ic('clock')}<span class="grow"><b>Time window</b><small>${p.tw&&p.tw.on?t12(p.tw.from)+' to '+t12(p.tw.until):'Not restricted'}</small></span>${ic('chev')}</button>
+<button class="btn gh full" style="margin-top:12px" data-a="close">Close</button>`;
+function pformHtml(){const f=S.pf,lock=isLocked(f),dis=lock?' disabled':'';
+return `<h3>${f.isNew?'Add offer':'Edit offer'}</h3>
+${lock?'<p class="hint">This is a verified Smart plan. Only the amount and the settings below can be changed.</p>':''}
+${!lock&&!f.isNew&&isVerified(f)?`<p class="hint">Saving a change switches this offer's signature off. You will need to learn it again.</p>`:''}
+<label>Offer name<input id="pn" class="in" value="${esc(f.name)}"${dis} placeholder="1GB 1HR"></label>
+<label>Category<select id="pc" class="in"${dis}>${PICK.map(c=>`<option value="${c}"${catOf(f)===c?' selected':''}>${cap(c)}</option>`).join('')}</select></label>
+<label>USSD code<input id="pu" class="in" value="${esc(f.ussd)}"${dis} placeholder="*180*5*2*AB*1*1#"><small>Use AB where the customer phone number goes.</small></label>
+<div class="two"><label>Amount (KES)<input id="pp" class="in" type="number" inputmode="decimal" value="${esc(f.price)}"></label><label>Safaricom price (KES)<input id="ps" class="in" type="number" inputmode="decimal" value="${esc(f.safPrice)}"${dis}></label></div>
+${srow('Auto retry','Try again if the purchase fails or is pending','autoRetry',!!f.autoRetry)}
+${f.autoRetry?`<div class="two"><label>Retry count<input id="prc" class="in" type="number" min="1" max="10" value="${esc(f.retryCount)}"></label><div class="checks"><label><input id="prp" type="checkbox"${f.retryPending?' checked':''}> Retry pending</label><label><input id="prf" type="checkbox"${f.retryFailed!==false?' checked':''}> Retry failed</label></div></div>${f.retryPending?'<p class="hint">Pending means the last step was sent but nothing confirmed it. Retrying it can buy the offer twice if the first try had already sold.</p>':''}`:''}
+${srow('Auto reschedule to the next day','If a purchase fails, save it for tomorrow and try again then','autoReschedule',!!f.autoReschedule)}
+${f.autoReschedule?`<label>Time the next day<input id="prt" class="in" type="time" value="${esc(f.rescheduleTime||'06:00')}"></label>`:''}
+${srow('Notify the customer','Send an SMS after this offer is bought','notifyOn',!!f.notifyOn)}
+${f.notifyOn?`<label>SMS message<textarea id="pnm" class="in" rows="3">${esc(f.notifyMsg)}</textarea><small>You can use {name}, {offer}, {amount} and {phone}.</small></label>`:''}
+<p id="pe" class="err" role="alert"></p>
+<div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="psave">Save</button></div>`}
+function wformHtml(){const w=S.wf,p=pl(w.pid),alts=DB.plans.filter(x=>String(x.id)!==String(w.pid)&&x.on);
+return `<h3>Time window</h3><p class="hint"><b>${esc(p.name)}</b> · KES ${esc(p.price)}</p>
+${srow('Restrict to a time window','Only sell this offer between the hours below','on',!!w.on)}
+${w.on?`<div class="two"><label>Available from<input id="wf" class="in" type="time" value="${esc(w.from)}"></label><label>Available until<input id="wu" class="in" type="time" value="${esc(w.until)}"></label></div>
+<label>Alternative offer outside this window (required)<select id="wa" class="in"><option value="">Choose an offer</option>${alts.map(x=>`<option value="${esc(x.id)}"${String(w.altId)===String(x.id)?' selected':''}>${esc(x.name)} · KES ${esc(x.price)}</option>`).join('')}</select>${alts.length?'':'<small>Add or enable another offer first.</small>'}</label>
+${srow('Notify the customer','Send an SMS when the alternative offer is used','notify',!!w.notify)}
+${w.notify?`<label>SMS message<textarea id="wm" class="in" rows="3" placeholder="This offer is not available now, so we sent you an alternative.">${esc(w.msg)}</textarea></label>`:''}`:''}
+<p id="we" class="err" role="alert"></p>
+<div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="wsave">Save</button></div>`}
+function sigSheet(){const g=S.sg,p=pl(g.id),smart=!!p.smart,saved=p.sig&&p.sig.steps?p.sig:null,locked=smart&&!!saved&&!p.sigAuto,sig=g.learned?g.learned.signature:saved,
+canSave=!locked&&!g.busy&&((g.learned&&g.learned.signature.complete)||(!g.learned&&saved&&saved.complete&&g.enable!==!!p.sigEnabled)),
+rows=sig?sigRows(sig,g.learned):[],path=esc(String(p.ussd).replace(/AB/g,'0700000000'));
+return `<h3>Signature</h3>
+<p class="hint">The signature remembers what each step of this offer should contain, so it still buys the right plan if Safaricom reorders the menu.</p>
+<p class="hint"><b>${esc(p.name)}</b> ${isVerified(p)?vb(15):''}<br>USSD <code>${esc(p.ussd)}</code></p>
+<p class="hint">USSD path used to learn<br><code>${path}</code></p>
+${locked?`<p class="hint">${vb(15)} This is a verified Smart plan. Its signature is built in and locked.</p>`:`
+${smart&&!saved?'<p class="hint">This plan has no saved signature yet. Learn it once here.</p>':''}
+<div class="srow"><span class="grow"><b>Enable signature</b><small>${sig&&sig.complete?'Turn on to use the saved steps':'Learn the steps first, then enable'}</small></span><button type="button" class="sw${g.enable?' on':''}" role="switch" aria-checked="${g.enable}" aria-label="Enable signature" data-a="sgen"${g.busy||!sig||!sig.complete?' disabled':''}><i></i></button></div>
+<button class="btn gh full" data-a="slearn"${g.busy?' disabled':''}>${ic('finger',18)} ${g.busy?'Learning on the phone…':sig?'Learn again':'Learn signature'}</button>
+<p class="hint">${g.busy?'Running the steps on the phone with the test number 0700000000. This can take up to 90 seconds. Keep the phone unlocked.':'Learning dials every step with the test number 0700000000 and stops before the last step, so nothing is bought. Stop automation first so a customer payment does not wait behind it.'}</p>`}
+${sig?`<b>${g.learned?'Steps found':'Saved steps'}</b><ol class="steps">${rows.map(r=>`<li>${r.ok?'':'⚠ '}${esc(r.t)}</li>`).join('')}</ol>
+${g.learned&&sig.complete?'<p class="hint">The last step is the purchase. It was not sent.</p>':''}
+${g.learned&&!sig.complete?'<p class="hint">Some steps could not be matched, so this signature cannot be saved. Check the USSD code, then learn again.</p>':''}`:''}
+${g.learned&&g.learned.screens?`<details><summary>What the phone showed at each step</summary>${g.learned.screens.map((s,i)=>`<pre class="scr">${esc('Step '+(i+1)+'\n'+s)}</pre>`).join('')}</details>`:''}
+${g.msg?`<p class="hint">${esc(g.msg)}</p>`:''}${g.err?`<p class="err">${esc(g.err)}</p>`:''}
+<div class="flex" style="margin-top:12px">${locked?'<button class="btn grow" data-a="close">Close</button>':`<button class="btn gh grow" data-a="close"${g.busy?' disabled':''}>Cancel</button><button class="btn grow" data-a="ssave"${canSave?'':' disabled'}>Save signature</button>`}</div>`}
 function more(){const m=S.more;if(m)return{quick,sub,tokens,settings}[m]();
 return `<h1 class="h2">More</h1>${[['quick','dial','Quick Dial'],['sub','card','Portal Subscription'],['tokens','coin','Tokens'],['settings','gear','Settings']].map(([k,i,l])=>`<button class="card mrow" data-a="go" data-p="more" data-m="${k}">${ic(i)}<b class="grow">${l}</b>${ic('chev')}</button>`).join('')}<button class="card mrow" data-a="out">${ic('out')}<b class="grow">Sign out</b></button>`}
 function quick(){return `${bk('Quick Dial')}<div class="card"><label>Phone number<input id="qp" class="in" type="tel" inputmode="tel" placeholder="0712345678"></label><label>Plan<select id="qo" class="in">${DB.plans.filter(p=>p.on).map(p=>`<option value="${p.id}">${esc(p.name)}, KES ${p.price}</option>`).join('')}</select></label><p id="qe" class="err" role="alert"></p><button class="btn full" data-a="qdial">${ic('dial',18)} Dial on ${esc(dev().name)}</button></div>`}
@@ -95,14 +187,13 @@ function tokens(){return `${bk('Tokens')}<p class="mu">Balances come from the ph
 function settings(){return `${bk('Settings')}<div class="card"><b>Appearance</b><div class="seg">${['light','dark','system'].map(t=>`<button class="${S.theme===t?'on':''}" data-a="theme" data-t="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></div>
 <div class="card"><b>Change password</b><label>Current password<input id="pw0" class="in" type="password" autocomplete="current-password"></label><label>New password<input id="pw1" class="in" type="password" autocomplete="new-password"></label><label>Confirm new password<input id="pw2" class="in" type="password" autocomplete="new-password"></label><p id="pwe" class="err" role="alert"></p><button class="btn full" data-a="pw">Update password</button></div>`}
 function render(){if(DB.locked){S.page='more';S.more='sub'}const pg=({home,devices,tx:txPage,plans,more})[S.page];if(pg)$('#app').innerHTML=pg();document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.page))}
-const pform=p=>modal(`<h3>${p?'Edit plan':'Add plan'}</h3><label>Plan name<input id="pn" class="in" value="${esc(p&&p.name)}"></label><label>Category<select id="pc" class="in">${CATS.map(c=>`<option${p&&p.cat===c?' selected':''}>${c}</option>`).join('')}</select></label><label>USSD code (use AB for the customer's number)<input id="pu" class="in" value="${esc(p?p.ussd:'*180*5*2*AB*1*1#')}"></label><label>Selling price (KES)<input id="pp" class="in" type="number" inputmode="decimal" value="${p?p.price:''}"></label><p id="pe" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="psave" data-id="${p?p.id:''}">Save plan</button></div>`);
 /* ===== Actions ===== */
-const pl=id=>DB.plans.find(p=>p.id===id),dv=id=>DB.devices.find(d=>d.id===id);
+const pl=id=>DB.plans.find(p=>String(p.id)===String(id)),dv=id=>DB.devices.find(d=>String(d.id)===String(id));
 const A={
-close(){$('#modal').innerHTML='';if(R){R(false);R=null}},
+close(){if(S.sg&&S.sg.busy)return;S.sg=null;$('#modal').innerHTML='';if(R){R(false);R=null}},
 no(){A.close()},yes(){$('#modal').innerHTML='';if(R){R(true);R=null}},
 go(d){S.page=d.p;S.more=d.m||null;S.tx=null;render();scrollTo(0,0)},
-dev(d){S.dev=d.id;S.page='home';S.more=null;S.tx=null;render();scrollTo(0,0)},
+dev(d){S.dev=d.id;HOLD=0;DB.plans=plansOf();S.page='home';S.more=null;S.tx=null;render();scrollTo(0,0)},
 eye(){S.hide=!S.hide;render()},
 async air(){const d=dev();if(!d.online)return toast(d.name+' is offline');toast('Checking airtime on the phone...');await call('POST','/portal/devices/'+d.id+'/airtime-check');toast('Airtime check sent. The balance updates when the phone replies.')},
 async pon(d){const x=dv(d.id);if(!x.reachable)return toast(x.name+' cannot be reached. Open AutoBingwa on the phone.');const on=!x.portalOn;await call('POST','/portal/devices/'+x.id+(on?'/portal-on':'/portal-off'));toast(on?'Switching on... the phone follows in a few seconds':'Switching off... the phone follows in a few seconds')},
@@ -119,31 +210,70 @@ async retry(){const t=cur();await call('POST','/portal/tx/'+t.id+'/retry');t.st=
 resched(){modal(`<h3>Reschedule</h3><label>New date and time<input id="rs" class="in" type="datetime-local"></label><p id="re" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="rsok">Schedule</button></div>`)},
 async rsok(){const v=$('#rs').value;if(!v||new Date(v)<=new Date())return $('#re').textContent='Choose a time in the future';const t=cur();await call('POST','/portal/tx/'+t.id+'/reschedule',{at:v});t.st='Scheduled';A.close();render();toast('Transaction rescheduled')},
 async del(){if(!await ask('Delete transaction?','This transaction will be removed for good.','Delete',1))return;await call('DELETE','/portal/tx/'+S.tx);DB.tx=DB.tx.filter(x=>x.id!==S.tx);S.tx=null;render();toast('Transaction deleted')},
-padd(){pform(null)},pedit(d){pform(pl(d.id))},
-async psave(d){const n=$('#pn').value.trim(),u=$('#pu').value.trim(),pr=Number($('#pp').value),e=$('#pe');
-if(!n)return e.textContent='Enter the plan name';if(!/AB/i.test(u))return e.textContent='The USSD code must contain AB where the phone number goes';if(!(pr>0))return e.textContent='Enter the selling price';
-const p=d.id?pl(d.id):null;await call(p?'PUT':'POST','/portal/plans'+(p?'/'+p.id:''),{n,u,pr});
-if(p){if(p.ussd!==u)p.signed=false;Object.assign(p,{name:n,cat:$('#pc').value,ussd:u,price:pr})}else DB.plans.push({id:'p'+Date.now(),name:n,cat:$('#pc').value,ussd:u,price:pr,signed:false,on:true});
-A.close();render();toast('Plan saved')},
-ptog(d){const p=pl(d.id);p.on=!p.on;render()},
-async pdel(d){const p=pl(d.id);if(!await ask('Delete plan?',esc(p.name)+' will be removed for good.','Delete',1))return;await call('DELETE','/portal/plans/'+p.id);DB.plans=DB.plans.filter(x=>x.id!==p.id);render();toast('Plan deleted')},
-async plearn(d){const p=pl(d.id),x=dev();if(!x.online)return toast(x.name+' is offline. Learning needs the phone online.');toast('Learning "'+p.name+'" on '+x.name+'. Keep the phone unlocked.');await call('POST','/portal/plans/'+p.id+'/learn');if(USE_MOCK)await sleep(1500);p.signed=true;render();toast('Signature saved for '+p.name)},
+/* ----- Data plans ----- */
+pcat(d){S.pc=d.c;render()},
+async ptog(d){const p=pl(d.id),v=!p.on;p.on=v;held();render();try{await call('PUT','/portal/plans/'+p.id,{on:v,enabled:v})}catch(e){p.on=!v;render();throw e}},
+pmenu(d){S.pm=d.id;modal(pmenuHtml(pl(d.id)))},
+padd(){S.pf=blankPlan();modal(pformHtml())},
+pform(d){S.pf=JSON.parse(JSON.stringify(pl(d.id)));modal(pformHtml())},
+pft(d){readPf();const f=S.pf,k=d.k;f[k]=!f[k];if(k==='notifyOn'&&f[k]&&!f.notifyMsg)f.notifyMsg=DEF_MSG;modal(pformHtml())},
+async psave(){readPf();const f=S.pf,lock=isLocked(f),patch=toPatch(f,lock),e=$('#pe');
+if(!patch.name)return e.textContent='Enter the offer name';
+const bad=chkU(patch.ussd);if(bad)return e.textContent=bad;
+if(!(patch.price>0))return e.textContent='Enter the amount';
+if(patch.notifyOn&&!patch.notifyMsg)return e.textContent='Write the SMS message for the customer';
+const p=f.isNew?null:pl(f.id);
+if(p&&JSON.stringify(patch)===JSON.stringify(toPatch(p,lock)))return A.close();
+const{category,...rest}=patch;
+if(p){await call('PUT','/portal/plans/'+p.id,{...patch,device:dev().id});Object.assign(p,rest);if(category)p.cat=category;if(!lock){p.signed=false;p.sigEnabled=false}}
+else{const r=await call('POST','/portal/plans',{...patch,enabled:true,tw:defTw(),device:dev().id});const n=blankPlan();delete n.isNew;DB.plans.push({...n,...rest,cat:category||'DATA',id:(r&&r.id)||'p'+Date.now(),signed:false,on:true})}
+held();A.close();render();toast('Plan saved')},
+pwin(d){S.wf={...defTw(),...(pl(d.id).tw||{}),pid:d.id};modal(wformHtml())},
+wft(d){readWf();S.wf[d.k]=!S.wf[d.k];modal(wformHtml())},
+async wsave(){readWf();const{pid,...w}=S.wf,e=$('#we');
+if(w.on){if(!w.from||!w.until)return e.textContent='Choose the start and end time';if(w.from===w.until)return e.textContent='The start and end time cannot be the same';if(!w.altId)return e.textContent='Choose an alternative offer for outside the window'}
+const p=pl(pid),alt=w.altId?pl(w.altId):null,tw={...w,altId:alt?alt.id:''};
+await call('PUT','/portal/plans/'+p.id,{tw});p.tw=tw;held();S.wf=null;A.close();render();toast('Time window saved')},
+psig(d){const p=pl(d.id);S.sg={id:d.id,learned:null,enable:p.smart?true:!!(p.sigEnabled??p.signed),busy:false,err:'',msg:''};modal(sigSheet())},
+sgen(){const g=S.sg;g.enable=!g.enable;modal(sigSheet())},
+async slearn(){const g=S.sg,p=pl(g.id),x=dev();
+if(!x.online){g.err=x.name+' is offline. Learning needs the phone online.';return modal(sigSheet())}
+g.busy=true;g.err='';g.msg='';modal(sigSheet());
+try{let r;
+if(USE_MOCK){await sleep(1500);r={signature:mockSig(),screens:['Screen 1\n1.Data\n2.Minutes','Screen 2\n1.Bundles']}}
+else{r=await call('POST','/portal/plans/'+p.id+'/learn',{device:x.id});
+if(!r.signature){const job=r.job;for(let i=0;i<50&&!r.signature;i++){await sleep(2000);const s=await call('GET','/portal/plans/'+p.id+'/learn/'+job);if(s.status==='error')throw new Error(s.error||'Learning failed');if(s.status==='done')r=s}
+if(!r.signature)throw new Error('The phone took too long. Check it is online and unlocked, then try again.')}}
+g.learned={signature:r.signature,screens:r.screens||[]};g.enable=!!r.signature.complete}
+catch(e){g.err=e.message||'Learning failed'}
+g.busy=false;if(S.sg===g)modal(sigSheet())},
+async ssave(){const g=S.sg,p=pl(g.id),x=dev(),sig=g.learned?g.learned.signature:p.sig,en=p.smart?true:g.enable;
+g.busy=true;g.err='';modal(sigSheet());
+try{await call('POST','/portal/plans/'+p.id+'/signature',{device:x.id,signature:sig,enabled:en});
+Object.assign(p,{sig,sigLearned:true,sigEnabled:en,signed:en});held();g.busy=false;A.close();render();toast('Signature saved on the phone')}
+catch(e){g.busy=false;g.err=e.message||'Could not save the signature';modal(sigSheet())}},
+async pdel(d){const p=pl(d.id);if(!await ask('Delete plan?',esc(p.name)+' will be removed for good.','Delete',1))return;await call('DELETE','/portal/plans/'+p.id);DB.plans=DB.plans.filter(x=>x!==p);DB.plans.forEach(x=>{if(x.tw&&String(x.tw.altId)===String(p.id))x.tw={...x.tw,on:false,altId:''}});held();render();toast('Plan deleted')},
 async qdial(){const ph=phoneOk($('#qp').value),id=$('#qo').value;if(!ph)return $('#qe').textContent='Enter a valid phone number, for example 0712345678';if(!id)return $('#qe').textContent='Switch on a plan first';
 const p=pl(id),x=dev();await call('POST','/portal/quickdial',{device:x.id,offerId:id,phone:ph});DB.tx.unshift({id:'q'+Date.now(),dev:x.id,name:ph,phone:ph,amt:p.price,offer:p.name,st:'Pending',m:0,msg:'Started from Quick Dial',ussd:p.ussd.replace(/AB/gi,ph),resp:'No response recorded yet.'});toast('Quick Dial sent to '+x.name+'. See the result in Transactions.');A.go({p:'tx'})},
 subbuy(d){modal(`<h3>${d.n}</h3><p class="mu">Enter the M-Pesa number to pay with. You will get a payment prompt.</p><label>M-Pesa number<input id="sp" class="in" type="tel" inputmode="tel"></label><p id="se" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="subpay" data-n="${d.n}">Pay</button></div>`)},
-async subpay(d){const ph=phoneOk($('#sp').value);if(!ph)return $('#se').textContent='Enter a valid phone number';await call('POST','/portal/subscribe',{plan:d.n,phone:ph});A.close();toast('M-Pesa prompt sent to '+ph+'. Your plan updates once it is paid.')},
+async subpay(d){const ph=phoneOk($('#sp').value);if(!ph)return $('#se').textContent='Enter a valid phone number';await call('POST','/portal/subscribe/start',{plan:d.n,phone:ph,method:'mpesa'});A.close();toast('M-Pesa prompt sent to '+ph+'. Your plan updates once it is paid.')},
 tbuy(d){S.td=d.id;modal(`<h3>Buy tokens for ${esc(dv(d.id).name)}</h3>${PACKS.map((p,i)=>`<button class="pk" data-a="tpick" data-i="${i}"><b>${p[0]}</b><span>KES ${p[1]}</span></button>`).join('')}<button class="btn gh full" style="margin-top:14px" data-a="close">Close</button>`)},
-async tpick(d){const p=PACKS[d.i],x=dv(S.td);A.close();await call('POST','/portal/tokens/buy',{device:x.id,pack:p[0]});toast(p[0]+' (KES '+p[1]+') request sent to '+x.name+'. It is paid with airtime on the phone.')},
+tpick(d){S.tp=d.i;const p=PACKS[d.i],x=dv(S.td);modal(`<h3>${p[0]} · KES ${p[1]}</h3><p class="mu">Choose how to pay for ${esc(x.name)}.</p><button class="btn full" data-a="tpay" data-m="airtime">${ic('coin',18)} Pay with airtime on the phone</button><label style="margin-top:14px">M-Pesa number (only for M-Pesa)<input id="tph" class="in" type="tel" inputmode="tel" placeholder="0712345678"></label><p id="tpe" class="err" role="alert"></p><button class="btn gh full" data-a="tpay" data-m="mpesa">${ic('card',18)} Pay with M-Pesa</button><button class="btn gh full" style="margin-top:8px" data-a="close">Cancel</button>`)},
+async tpay(d){const p=PACKS[S.tp],x=dv(S.td),m=d.m;let ph='';
+if(m==='mpesa'){ph=phoneOk($('#tph').value);if(!ph)return $('#tpe').textContent='Enter a valid M-Pesa number'}
+A.close();await call('POST','/portal/tokens/buy',{device:x.id,packId:p[2],method:m,phone:ph||undefined});
+toast(m==='mpesa'?'M-Pesa prompt sent to '+ph+'. The tokens are added once it is paid.':p[0]+' (KES '+p[1]+') request sent to '+x.name+'. It is paid with airtime on the phone.')},
 theme(d){applyTheme(d.t);render()},
 async pw(){const a=$('#pw0').value,b=$('#pw1').value,c=$('#pw2').value,e=$('#pwe');if(!a)return e.textContent='Enter your current password';if(b.length<8)return e.textContent='The new password must be at least 8 characters';if(b!==c)return e.textContent='The new passwords do not match';
 await window.portalChangePin(a,b);render();toast('Password updated')},
 out(){window.portalSignOut()}};
 document.addEventListener('click',e=>{const t=e.target.closest('[data-a]');if(!t)return;if(t.classList.contains('mb')&&e.target!==t)return;const f=A[t.dataset.a];if(f)Promise.resolve(f(t.dataset)).catch(err=>toast(err.message||'Something went wrong'))});
 /* ===== Live data ===== */
-async function refresh(){const o=await call('GET','/portal/overview');DB.locked=false;Object.assign(DB,o);if(!DB.devices.find(d=>d.id===S.dev))S.dev=(DB.devices[0]||{}).id||''}
-async function poll(){if(document.hidden)return;const b=JSON.stringify([DB.devices,DB.tx]);
+const plansOf=()=>{const d=DB.devices.find(x=>x.id===S.dev)||DB.devices[0];return d&&Array.isArray(d.offers)?d.offers:[]};
+async function refresh(){const o=await call('GET','/portal/overview');DB.locked=false;const keep=Date.now()<HOLD?DB.plans:null;Object.assign(DB,o);if(!DB.devices.find(d=>d.id===S.dev))S.dev=(DB.devices[0]||{}).id||'';DB.plans=keep||plansOf()}
+async function poll(){if(document.hidden)return;const b=JSON.stringify([DB.devices,DB.tx,DB.plans]);
 try{await refresh()}catch(e){return}
-if(JSON.stringify([DB.devices,DB.tx])===b)return;
+if(JSON.stringify([DB.devices,DB.tx,DB.plans])===b)return;
 const f=document.activeElement,typing=f&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName);
 if($('#modal').innerHTML||typing||(S.page==='more'&&(S.more==='quick'||S.more==='settings')))return;render()}
 /* ===== Start ===== */

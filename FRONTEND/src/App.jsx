@@ -131,7 +131,16 @@ function App() {
     window.addEventListener('ab-offer-learned', learned)
     return () => window.removeEventListener('ab-offer-learned', learned)
   }, [])
-
+  // Offer changes sent from the AutoBingwa Portal (see PortalSync.jsx)
+  useEffect(() => {
+    const onCmd = (e) => {
+      const d = e.detail || {}
+      if (d.op === 'save' && d.offer) saveOffer(d.offer)
+      if (d.op === 'delete') deleteOffer(d.id)
+    }
+    window.addEventListener('ab-offer-cmd', onCmd)
+    return () => window.removeEventListener('ab-offer-cmd', onCmd)
+  }, [])
   // Start / Stop sent from the AutoBingwa Portal. Same checks and pop-ups as the button on this phone.
   useEffect(() => {
     const remote = (e) => {
