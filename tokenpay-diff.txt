@@ -1,0 +1,128 @@
+﻿diff --git a/src/engine/tokenPay.js "b/C:\\Users\\Administrator\\Desktop\\supabase-bad-backup.js"
+index 8fd92c6..104b76b 100644
+--- a/src/engine/tokenPay.js
++++ "b/C:\\Users\\Administrator\\Desktop\\supabase-bad-backup.js"
+@@ -10,6 +10,7 @@ export const TOKEN_API = 'https://YOUR-SERVER'
+ 
+ const PENDING = 'tokens:pending'
+ const MPESA_PENDING = 'tokens:mpesaPending'
++const SMS_LOG = 'ab:recent-sms'
+ const EXPIRE_MS = 10 * 60000
+ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+ 
+@@ -35,22 +36,46 @@ async function waitIdle() {
+   }
+ }
+ 
+-// Confirms that the airtime really left the SIM, then (and only then) adds the token
+-export async function verifyAirtimePayment({ onStatus = () => {} } = {}) {
++// Looks through the recent SMS list (filled by native.js) for the airtime-sent confirmation
++function findAirtimeSms(p) {
++  const list = read(SMS_LOG) || []
++  const need9 = AIRTIME_NUMBER.slice(-9)
++  const amountRe = new RegExp('(?:ksh|kes)\\.?' + p.amount + '(?:\\.00)?(?!\\d|\\.\\d)', 'i')
++  for (const s of list) {
++    if (!s || s.at < p.startedAt - 5000) continue
++    const flat = String(s.body || '').replace(/[\s,]/g, '')
++    if (!flat.includes(need9)) continue
++    if (!amountRe.test(flat)) continue
++    if (/fail|insufficient|unable|not\s+success|error/i.test(s.body)) continue
++    const code = (String(s.body).match(/\b(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]{10}\b/) || [])[0]
++    return { ref: code || 'sms-' + s.id }
++  }
++  return null
++}
++
++// Credits the token as soon as the "money was sent" SMS is seen
++export async function verifyAirtimePayment({ onStatus = () => {}, waitMs = 60000 } = {}) {
+   const p = pendingAirtimePayment()
+   if (!p) throw new Error('There is no payment waiting to be confirmed.')
++  let ref = p.ref || ''
+   if (p.status !== 'paid') {
+-    onStatus('Confirming the airtime left your SIM...')
+-    const after = await refreshAirtime(p.slot)
+-    if (!(p.before - after >= p.amount - 0.01)) {
++    onStatus('Waiting for the confirmation SMS...')
++    const end = Date.now() + waitMs
++    let hit = findAirtimeSms(p)
++    while (!hit && Date.now() < end) {
++      await sleep(2000)
++      hit = findAirtimeSms(p)
++    }
++    if (!hit) {
+       return {
+         status: 'unconfirmed',
+-        message: `Your airtime did not drop (KES ${p.before} before, KES ${after} now), so no token was added.`,
++        message: 'No confirmation SMS yet, so no token was added. Press Check payment in a moment.',
+       }
+     }
+-    write(PENDING, { ...p, status: 'paid' })
++    ref = hit.ref
++    write(PENDING, { ...p, status: 'paid', ref })
+   }
+-  grantTokens(p.plan, 'airtime', p.id)
++  grantTokens(p.plan, 'airtime', ref || p.id)
+   clear(PENDING)
+   engine.hold(false)
+   return { status: 'paid', message: `Payment confirmed. ${p.plan.label} added.` }
+@@ -61,7 +86,7 @@ export function cancelAirtimePayment() {
+   engine.hold(false)
+ }
+ 
+-// Dials *140*amount*0143926894# silently, checks the balance dropped, then adds the token
++// Dials *140*amount*0143926894# silently, then adds the token once the confirmation SMS arrives
+ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSlot } = {}) {
+   if (!isNative()) throw new Error('Paying with airtime only works inside the Android app.')
+   if (pendingAirtimePayment()) throw new Error('A payment is still being confirmed. Confirm or cancel it first.')
+@@ -70,24 +95,33 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
+   const cfgSlot = /2/.test(String(loadConfig().bingwaSim || '')) ? 1 : 0
+   const slot = pickedSlot === 0 || pickedSlot === 1 ? pickedSlot : cfgSlot
+ 
+-  engine.hold(true) // no customer transaction may use the SIM or the airtime meanwhile
++  engine.hold(true) // no customer transaction may use the SIM meanwhile
+   let keepHold = false
+   try {
+     onStatus('Waiting for running transactions to finish...')
+     await waitIdle()
+-    onStatus('Checking your airtime balance...')
+-    const before = await refreshAirtime(slot)
+-    if (before < amount) throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
++
++    // Only a friendly pre-check. If it cannot read the balance, the payment still goes ahead.
++    let before = null
++    try {
++      onStatus('Checking your airtime balance...')
++      before = await refreshAirtime(slot)
++    } catch (e) {
++      console.error('AB airtime pre-check', e)
++    }
++    if (before !== null && before < amount) {
++      throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
++    }
+ 
+     // Saved BEFORE dialing, so a crash can never dial twice
+-    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed' })
++    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, startedAt: Date.now(), status: 'dialed' })
+     onStatus('Sending airtime...')
+     try {
+       await AutoBingwa.runUssd({ code: `*140*${amount}*${AIRTIME_NUMBER}#`, slot, express: true })
+     } catch (e) {
+-      console.error('AB airtime dial', e) // the balance check below decides what really happened
++      console.error('AB airtime dial', e) // the confirmation SMS decides what really happened
+     }
+-    await sleep(6000)
++    await sleep(3000)
+     try {
+       const r = await verifyAirtimePayment({ onStatus })
+       if (r.status === 'unconfirmed') keepHold = true
+@@ -168,8 +202,9 @@ export async function waitForMpesaPayment({ onStatus = () => {}, timeoutMs = 120
+ export function recoverTokenPayments() {
+   const p = read(PENDING)
+   if (p && p.status === 'paid') {
+-    grantTokens(p.plan, 'airtime', p.id)
++    grantTokens(p.plan, 'airtime', p.ref || p.id)
+     clear(PENDING)
++    engine.hold(false)
+   } else if (pendingAirtimePayment()) {
+     engine.hold(true) // keep customer transactions away from the SIM until it is confirmed or cancelled
+   }
