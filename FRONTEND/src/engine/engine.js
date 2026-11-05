@@ -579,15 +579,21 @@ export function createEngine({
 
   // ---------- Quick Dial ----------
   // Same path as a customer payment. Resolves with { ok, status, text } when the result is known.
-  function quickDial({ offerId, phone }) {
+  // id (optional): the portal's transaction id, so the portal and the app show ONE transaction.
+  function quickDial({ offerId, phone, id }) {
     const offer = getOffers().find((o) => sameId(o.id, offerId))
     if (!offer) return Promise.resolve({ ok: false, status: 'Failed', text: 'That offer no longer exists.' })
     if (!phone) return Promise.resolve({ ok: false, status: 'Failed', text: 'Enter a valid phone number.' })
     if (!hasToken()) return Promise.resolve({ ok: false, status: 'Failed', text: 'You have no active token. Buy a token to continue.' })
 
-    const tx = store.add(directTx(offer, phone, {
-      tag: 'QD', status: 'Pending', source: 'quickdial', responses: [],
-    }))
+    // The portal may send the same command again on the next sync. Never dial twice for one id.
+    if (id && store.list().some((t) => sameId(t.id, id))) {
+      return Promise.resolve({ ok: false, status: 'Duplicate', text: 'This transaction was already received.' })
+    }
+
+    const extra = { tag: 'QD', status: 'Pending', source: 'quickdial', responses: [] }
+    if (id) extra.id = String(id) // only when given, so a missing id never wipes the generated one
+    const tx = store.add(directTx(offer, phone, extra))
     manual.add(tx.id)
 
     const result = new Promise((resolve) => {
@@ -627,6 +633,7 @@ export function createEngine({
     pump,
     tick,
     quickDial,
+    offers: () => getOffers(), // lets the portal sync list the offers for Quick Dial
     hold(on) { held = Boolean(on); if (!held) pump() },
     isBusy: () => working,
     on: onEvent,
