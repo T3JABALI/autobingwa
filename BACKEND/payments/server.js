@@ -111,7 +111,7 @@ async function daraja(path, body) {
 const app = express()
 app.set('trust proxy', 1) // Render sits behind a proxy; needed for correct rate limiting
 app.use(cors())
-app.use(express.json({ limit: '200kb' }))
+app.use(express.json({ limit: '1mb' }))
 app.use((req, res, next) => { console.log(req.method, req.path); next() })
 app.get('/', (req, res) => res.send('AutoBingwa token server running'))
 
