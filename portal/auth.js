@@ -36,25 +36,25 @@
   /* ---- Look ---- */
   const css = document.createElement('style')
   css.textContent = `
-  #auth{position:fixed;inset:0;z-index:100;overflow:auto;background:radial-gradient(120% 60% at 50% 0,#162466,#0a0f26 60%,#070b1c);color:#fff;font-family:system-ui,sans-serif;padding:28px 18px}
-  #auth .box{max-width:420px;margin:0 auto}
-  #auth .logo{display:flex;align-items:center;gap:14px;margin:18px 0 28px}
-  #auth .mark{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#4361e0,#6a85ff);display:grid;place-items:center;font-size:26px}
-  #auth .t1{letter-spacing:4px;font-weight:700;font-size:20px}
-  #auth .t2{letter-spacing:6px;font-size:12px;color:#7f93ff;margin-top:4px}
-  #auth .card{background:#131a3a;border:1px solid #27306a;border-radius:24px;padding:26px 22px}
-  #auth h2{margin:0 0 6px;font-size:26px}
-  #auth p{color:#8e9ad6;font-size:14px;margin:0 0 16px;line-height:1.5}
-  #auth label{display:block;font-size:13px;color:#8e9ad6;margin-top:12px}
-  #auth input{width:100%;box-sizing:border-box;margin-top:6px;padding:14px;border-radius:12px;border:1px solid #27306a;background:#0c1230;color:#fff;font-size:16px}
+  #auth{position:fixed;inset:0;z-index:100;overflow:auto;background:radial-gradient(120% 60% at 50% 0,#162466,#0a0f26 60%,#070b1c);color:#fff;font-family:system-ui,sans-serif;padding:14px 14px;font-size:13px}
+  #auth .box{max-width:400px;margin:0 auto}
+  #auth .logo{display:flex;align-items:center;gap:10px;margin:6px 0 14px}
+  #auth .mark{width:44px;height:44px;border-radius:12px;object-fit:contain;background:#fff}
+  #auth .t1{letter-spacing:3px;font-weight:700;font-size:16px}
+  #auth .t2{letter-spacing:5px;font-size:10px;color:#7f93ff;margin-top:3px}
+  #auth .card{background:#131a3a;border:1px solid #27306a;border-radius:18px;padding:16px 16px}
+  #auth h2{margin:0 0 4px;font-size:20px}
+  #auth p{color:#8e9ad6;font-size:12px;margin:0 0 8px;line-height:1.4}
+  #auth label{display:block;font-size:12px;color:#8e9ad6;margin-top:8px}
+  #auth input{width:100%;box-sizing:border-box;margin-top:4px;padding:10px 12px;border-radius:10px;border:1px solid #27306a;background:#0c1230;color:#fff;font-size:14px}
   #auth .pw{position:relative}
-  #auth .pw button{position:absolute;right:6px;top:10px;background:none;border:0;color:#8e9ad6;padding:8px;font-size:13px;cursor:pointer}
-  #auth .go{width:100%;margin-top:18px;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:600;color:#fff;background:linear-gradient(90deg,#4361e0,#5f7df5);cursor:pointer}
+  #auth .pw button{position:absolute;right:4px;top:5px;background:none;border:0;color:#8e9ad6;padding:6px;font-size:12px;cursor:pointer}
+  #auth .go{width:100%;margin-top:12px;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:600;color:#fff;background:linear-gradient(90deg,#4361e0,#5f7df5);cursor:pointer}
   #auth .go:disabled{opacity:.6}
-  #auth .alt{background:none;border:0;color:#8e9ad6;width:100%;margin-top:14px;font-size:14px;cursor:pointer}
+  #auth .alt{background:none;border:0;color:#8e9ad6;width:100%;margin-top:10px;font-size:12.5px;cursor:pointer}
   #auth .alt b{color:#7f93ff}
-  #auth .ok{background:#0f2a22;border:1px solid #1f6b4f;color:#8ff0c4;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:14px}
-  #auth .er{color:#ff8a8a;font-size:14px;min-height:18px;margin-top:10px}`
+  #auth .ok{background:#0f2a22;border:1px solid #1f6b4f;color:#8ff0c4;padding:8px 10px;border-radius:10px;font-size:12px;margin-bottom:8px}
+  #auth .er{color:#ff8a8a;font-size:12px;min-height:16px;margin-top:6px}`
   document.head.appendChild(css)
 
   const nav = document.getElementById('nav')
@@ -75,7 +75,7 @@
     if (!o) { o = document.createElement('div'); o.id = 'auth'; document.body.appendChild(o) }
     const login = mode === 'login'
     o.innerHTML = `<div class="box">
-      <div class="logo"><div class="mark">&#128246;</div><div><div class="t1">AUTOBINGWA</div><div class="t2">PORTAL</div></div></div>
+      <div class="logo"><img class="mark" src="/logo.png" alt="" onerror="this.style.display='none'"><div><div class="t1">AUTOBINGWA</div><div class="t2">PORTAL</div></div></div>
       <div class="card">
         <h2>${login ? 'Sign in' : 'Create account'}</h2>
         <p>${login ? 'Log in with your phone number and password.' : 'Use your phone number and choose a password of at least 8 characters.'}</p>
