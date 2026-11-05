@@ -395,7 +395,7 @@ app.post('/portal/devices/connect',
 
       const { data: dev } = await sbAdmin.from('devices').select('*').eq('connect_id', cid).maybeSingle()
       if (!dev || !dev.portal_enabled)
-        return res.status(404).json({ error: 'No device found with that ID. In the app, switch on AutoBingwa Portal and make sure the phone is online.' })
+return res.status(404).json({ error: 'That phone is not showing as Connected. Open AutoBingwa on it, switch on AutoBingwa Portal, wait for the status to say Connected, then try again.' })
       if (dev.owner_id && dev.owner_id !== req.user.id)
         return res.status(409).json({ error: 'This phone is already connected to another portal account.' })
 

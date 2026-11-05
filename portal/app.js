@@ -77,11 +77,11 @@ const connectCard=first=>`<h1 class="h1">AUTOBINGWA PORTAL</h1><p class="sub">${
 function home(){if(!DB.devices.length)return connectCard(true);const d=dev();
 const w=d.portalOn===false?'AutoBingwa Portal is switched off on this phone. Switch it on in the app to see live activity.':!d.online?'Showing the last values this phone sent. Open AutoBingwa on the phone to see live activity.':'';
 return (w?`<div class="card warn"><b>${esc(d.name)} is ${d.portalOn===false?'disconnected':'offline'}</b><p class="mu">${w}</p></div>`:'')+homeMain()}
-function devices(){const n=DB.devices.length,m=DB.plan.max,full=n>=m;
-return `<div class="flex"><h1 class="h2 grow" style="margin:0">Devices</h1>${full?'':`<button class="ib" data-a="adddev" aria-label="Add device">${ic('plus')}</button>`}</div>
-<div class="card"><div class="flex"><b class="grow">${n}/${m>=1000?'unlimited':m} devices paired</b><span class="pill" style="--c:var(--${full?'bad':'ok'})">${full?'Limit reached':'Space available'}</span></div><div class="bar"><i style="width:${Math.min(100,n/m*100)}%"></i></div></div>
-${full?`<div class="card warn"><b>You've reached your device limit</b><p class="mu">${esc(DB.plan.name)} allows ${m} devices. Upgrade to pair more.</p><button class="btn" data-a="go" data-p="more" data-m="sub">${ic('card',18)} Upgrade plan</button></div>`:''}
-${DB.devices.map(d=>`<div class="card"><button class="drow plain" data-a="dev" data-id="${d.id}"><i class="dot${d.online?' on':''}"></i><span class="grow"><b>${esc(d.name)}</b><small>Paired phone, ${d.online?'online':'offline'}, ${d.running?'running':'stopped'}</small></span>${ic('chev')}</button><div class="two"><div><small>Airtime</small><b>KES ${money(d.air)}</b></div><div><small>Tokens</small><b>${d.tok}</b></div></div><button class="btn${d.running?' bad':''} full" style="margin-top:12px" data-a="run" data-id="${d.id}">${d.running?'Stop automation':'Start automation'}</button></div>`).join('')}
+function devices(){const n=DB.devices.length,m=DB.plan.max,full=n>=m,unl=m>=1000;
+return `<h1 class="h2" style="margin-bottom:2px">Devices</h1><p class="mu">${n?'Your linked phones.':'Link your first phone to start seeing its live activity.'}</p>
+<div class="card"><div class="flex"><b class="grow">${n}/${unl?'unlimited':m} devices linked</b><span class="pill" style="--c:var(--${full?'bad':'ok'})">${full?'Limit reached':'Space available'}</span></div>${unl?'':`<div class="bar"><i style="width:${Math.min(100,m?n/m*100:0)}%"></i></div>`}<small>${esc(DB.plan.name)} plan</small></div>
+${full?`<div class="card warn"><b>You've reached your device limit</b><p class="mu">${esc(DB.plan.name)} allows ${m} devices. Upgrade to link more.</p><button class="btn" data-a="go" data-p="more" data-m="sub">${ic('card',18)} Upgrade plan</button></div>`:`<div class="card"><b>Link a phone</b><p class="mu">In the AutoBingwa app, switch on <b>AutoBingwa Portal</b> and wait until it shows <b>Connected</b>. Then enter the Connect ID shown there and give the phone a name.</p>${connectForm()}</div>`}
+${DB.devices.map(d=>`<div class="card"><button class="drow plain" data-a="dev" data-id="${d.id}"><i class="dot${d.online?' on':''}"></i><span class="grow"><b>${esc(d.name)}</b><small>Linked phone, ${d.online?'online':'offline'}, ${d.running?'running':'stopped'}</small></span>${ic('chev')}</button><div class="two"><div><small>Airtime</small><b>KES ${money(d.air)}</b></div><div><small>Tokens</small><b>${d.tok}</b></div></div><button class="btn${d.running?' bad':''} full" style="margin-top:12px" data-a="run" data-id="${d.id}">${d.running?'Stop automation':'Start automation'}</button></div>`).join('')}
 <p class="mu">Only devices linked to your account appear here.</p>`}
 function txPage(){if(S.tx&&cur())return txDetail();const t=DB.tx.filter(x=>x.dev===dev().id&&(S.f==='All'||x.st===S.f));
 return `<h1 class="h2" style="margin-bottom:2px">Transactions</h1><p class="mu">${esc(dev().name)}</p><div class="chips">${['All','Completed','Pending','Scheduled','Failed'].map(f=>`<button class="chip${S.f===f?' on':''}" data-a="f" data-f="${f}">${f}</button>`).join('')}</div>${t.map(txRow).join('')||'<p class="mu c">No transactions here.</p>'}`}
@@ -106,6 +106,7 @@ function settings(){return `${bk('Settings')}<div class="card"><b>Appearance</b>
 function render(){
 /* No active subscription: the subscription page is the only page, and the menu is hidden */
 if(DB.locked){S.page='more';S.more='sub'}
+else if(S.page==='home'&&!DB.devices.length){S.page='devices';S.more=null}
 $('#nav').style.display=DB.locked?'none':'';
 const pg=({home,devices,tx:txPage,plans,more})[S.page];if(pg)$('#app').innerHTML=pg();document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.page))}
 const pform=p=>modal(`<h3>${p?'Edit plan':'Add plan'}</h3><label>Plan name<input id="pn" class="in" value="${esc(p&&p.name)}"></label><label>Category<select id="pc" class="in">${CATS.map(c=>`<option${p&&p.cat===c?' selected':''}>${c}</option>`).join('')}</select></label><label>USSD code (use AB for the customer's number)<input id="pu" class="in" value="${esc(p?p.ussd:'*180*5*2*AB*1*1#')}"></label><label>Selling price (KES)<input id="pp" class="in" type="number" inputmode="decimal" value="${p?p.price:''}"></label><p id="pe" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="psave" data-id="${p?p.id:''}">Save plan</button></div>`);
@@ -178,7 +179,7 @@ async function poll(){if(document.hidden)return;const b=JSON.stringify([DB.devic
 try{await refresh()}catch(e){return}
 if(JSON.stringify([DB.devices,DB.tx,DB.plan,DB.locked])===b)return;
 const f=document.activeElement,typing=f&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName);
-if($('#modal').innerHTML||typing||(S.page==='more'&&(S.more==='quick'||S.more==='settings')))return;render()}
+if($('#modal').innerHTML||typing||(S.page==='more'&&(S.more==='quick'||S.more==='settings'))||($('#cid')&&($('#cid').value||$('#cnm').value)))return;render()}
 /* ===== Start ===== */
 $('#nav').innerHTML=[['home','home','Home'],['devices','phone','Devices'],['tx','list','Transactions'],['plans','db','Data plans'],['more','more','More']].map(([p,i,l])=>`<button data-a="go" data-p="${p}">${ic(i)}<span>${l}</span></button>`).join('');
 applyTheme(S.theme);
