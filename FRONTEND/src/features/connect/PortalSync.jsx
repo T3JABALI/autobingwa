@@ -128,7 +128,7 @@ async function buildSnapshot() {
 
   const recent = [...visible]
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 5)
+    .slice(0, 20)
     .map((t) => ({
       id: t.id,
       name: t.name || t.phone || '',
