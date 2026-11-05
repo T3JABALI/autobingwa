@@ -55,6 +55,13 @@ async function initDb() {
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, phone TEXT NOT NULL, plan_id TEXT NOT NULL,
       amount INT NOT NULL, checkout_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
       receipt TEXT, message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+    await pool.query(`CREATE TABLE IF NOT EXISTS portal_tx (
+      device_id TEXT NOT NULL, tx_id TEXT NOT NULL, name TEXT, phone TEXT, amt INT NOT NULL DEFAULT 0,
+      offer TEXT, st TEXT NOT NULL DEFAULT 'Pending', ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+      msg TEXT, ussd TEXT, resp TEXT, qd BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (device_id, tx_id))`)
+    await pool.query('CREATE INDEX IF NOT EXISTS portal_tx_dev_ts ON portal_tx (device_id, ts DESC)')
+    await pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS credited BOOLEAN NOT NULL DEFAULT false')
     dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -296,7 +303,7 @@ const isOnline = (d) => !!d.portal_enabled && !!d.last_seen && Date.now() - new 
 
 // Only known fields are kept, so a phone can never store anything unexpected
 function cleanSnapshot(s = {}) {
-  const recent = (Array.isArray(s.recent) ? s.recent : []).slice(0, 5).map((t) => ({
+  const recent = (Array.isArray(s.recent) ? s.recent : []).slice(0, 20).map((t) => ({
     id: str(t.id, 64), name: str(t.name, 80), phone: str(t.phone, 20), amt: num(t.amt), offer: str(t.offer, 80),
     st: ['Completed', 'Failed', 'Pending', 'Processing', 'Scheduled', 'Unmatched', 'Paused', 'Skipped'].includes(t.st) ? t.st : 'Pending',
     ts: Number.isFinite(Date.parse(t.ts)) ? new Date(t.ts).toISOString() : new Date().toISOString(),
@@ -307,7 +314,40 @@ function cleanSnapshot(s = {}) {
     airUsed: num(s.airUsed), airBal: num(s.airBal),
     battery: Math.max(0, Math.min(100, Math.round(num(s.battery)))), charging: !!s.charging,
     commission: num(s.commission), running: !!s.running, unlimitedUntil: str(s.unlimitedUntil, 10), recent,
+    offers: (Array.isArray(s.offers) ? s.offers : []).slice(0, 150).map((o) => ({
+      id: str(o.id, 64), name: str(o.name, 80), cat: str(o.cat, 30), price: num(o.price), ussd: str(o.ussd, 200), on: o.on !== false,
+    })).filter((o) => o.id && o.ussd),
   }
+}
+
+/* ---------- Transaction history + command helpers ---------- */
+const EAT = 3 * 3600000, DAY = 86400000
+const dayStart = (back) => new Date(Math.floor((Date.now() + EAT) / DAY) * DAY - EAT - back * DAY) // start of Nairobi day
+const TOKEN_LABELS = { u1000: '1,000 units', u600: '600 units', u250: '250 units', u100: '100 units', d1: '1 day unlimited', d7: '7 days unlimited', d30: '30 days unlimited' }
+const TXCOLS = 'device_id,tx_id,name,phone,amt,offer,st,ts,msg,ussd,resp,qd'
+const txOut = (r, now = Date.now()) => ({
+  id: r.device_id + ':' + r.tx_id, dev: r.device_id, name: r.name || '', phone: r.phone || '', amt: r.amt, offer: r.offer || '',
+  st: r.st, ts: new Date(r.ts).toISOString(), m: Math.max(0, Math.floor((now - new Date(r.ts).getTime()) / 60000)),
+  msg: r.msg || '', ussd: r.ussd || '', resp: r.resp || '', qd: !!r.qd,
+})
+async function saveTx(devId, list) {
+  for (const t of list || []) {
+    if (!t.id) continue
+    await pool.query(
+      `INSERT INTO portal_tx (device_id,tx_id,name,phone,amt,offer,st,ts,msg,ussd,resp) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (device_id,tx_id) DO UPDATE SET name=EXCLUDED.name,phone=EXCLUDED.phone,amt=EXCLUDED.amt,offer=EXCLUDED.offer,
+       st=EXCLUDED.st,msg=EXCLUDED.msg,ussd=EXCLUDED.ussd,resp=EXCLUDED.resp`,
+      [String(devId), t.id, t.name, t.phone, Math.round(t.amt), t.offer, t.st, t.ts, t.msg, t.ussd, t.resp])
+  }
+}
+// A paid portal token purchase queues one command for the phone, exactly once
+async function creditPortal(p) {
+  if (!p || !String(p.device_id).startsWith('portal:')) return
+  const r = await pool.query("UPDATE payments SET credited=true WHERE id=$1 AND credited=false AND status='paid'", [p.id])
+  if (!r.rowCount) return
+  await sbAdmin.from('device_commands').insert({
+    device_id: String(p.device_id).slice(7), type: 'credit_tokens',
+    payload: { packId: p.plan_id, paymentId: p.id, receipt: p.receipt || '' } })
 }
 
 /* ---------- Phone side (authenticated with the device key, not a login) ---------- */
@@ -358,18 +398,22 @@ app.post('/device/sync',
       const patch = { portal_enabled: portalOn, last_seen: new Date().toISOString() }
       if (portalOn && b.snapshot) patch.snapshot = cleanSnapshot(b.snapshot)
       await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
+      if (portalOn && patch.snapshot) { try { await saveTx(req.dev.id, patch.snapshot.recent) } catch (e) { console.error('saveTx', e.message) } }
 
       const cutoff = new Date(Date.now() - 120000).toISOString()
       await sbAdmin.from('device_commands').update({ status: 'expired' })
-        .eq('device_id', req.dev.id).eq('status', 'pending').lt('created_at', cutoff)
-      let q = sbAdmin.from('device_commands').select('id,type')
+        .eq('device_id', req.dev.id).eq('status', 'pending').neq('type', 'credit_tokens').lt('created_at', cutoff)
+      let q = sbAdmin.from('device_commands').select('id,type,payload')
         .eq('device_id', req.dev.id).eq('status', 'pending').order('id').limit(10)
       if (!portalOn) q = q.in('type', ['portal_on', 'portal_off']) // while off, only the switch commands go out
       const { data } = await q
       const commands = data || []
-      if (commands.length)
-        await sbAdmin.from('device_commands').update({ status: 'sent', done_at: new Date().toISOString() })
-          .in('id', commands.map((c) => c.id))
+      // credit_tokens (money already paid) is re-sent until the phone confirms it
+      const mark = commands.filter((c) => c.type !== 'credit_tokens').map((c) => c.id)
+      if (mark.length)
+        await sbAdmin.from('device_commands').update({ status: 'sent', done_at: new Date().toISOString() }).in('id', mark)
+      const qds = commands.filter((c) => c.type === 'quickdial' && c.payload && c.payload.txId).map((c) => c.payload.txId)
+      if (qds.length) await pool.query("UPDATE portal_tx SET st='Processing' WHERE device_id=$1 AND tx_id=ANY($2::text[]) AND st='Pending'", [String(req.dev.id), qds])
 
       res.json({ ok: true, commands })
     } catch (e) {
@@ -377,6 +421,20 @@ app.post('/device/sync',
       res.status(500).json({ error: 'Sync failed.' })
     }
   })
+
+// The phone reports how a command went (quickdial, buy_tokens, credit_tokens)
+app.post('/device/command-result', deviceAuth, async (req, res) => {
+  try {
+    const b = req.body || {}, id = num(b.id), ok = !!b.ok, msg = str(b.msg, 600)
+    const { data: c } = await sbAdmin.from('device_commands').select('*').eq('id', id).eq('device_id', req.dev.id).maybeSingle()
+    if (!c) return res.status(404).json({ error: 'Unknown command.' })
+    await sbAdmin.from('device_commands').update({ status: 'sent', result: ok ? 'ok' : 'failed', result_msg: msg, done_at: new Date().toISOString() }).eq('id', id)
+    const txId = c.payload && c.payload.txId
+    if (txId) await pool.query("UPDATE portal_tx SET st=$3, resp=CASE WHEN $4::text='' THEN resp ELSE $4::text END WHERE device_id=$1 AND tx_id=$2",
+      [String(req.dev.id), txId, ok ? 'Completed' : 'Failed', msg])
+    res.json({ ok: true })
+  } catch (e) { console.error('command-result', e); res.status(500).json({ error: 'Could not save the result.' }) }
+})
 
 /* ---------- Portal side (logged-in portal user) ---------- */
 app.post('/portal/devices/connect',
@@ -395,7 +453,7 @@ app.post('/portal/devices/connect',
 
       const { data: dev } = await sbAdmin.from('devices').select('*').eq('connect_id', cid).maybeSingle()
       if (!dev || !dev.portal_enabled)
-return res.status(404).json({ error: 'That phone is not showing as Connected. Open AutoBingwa on it, switch on AutoBingwa Portal, wait for the status to say Connected, then try again.' })
+        return res.status(404).json({ error: 'That phone is not showing as Connected. Open AutoBingwa on it, switch on AutoBingwa Portal, wait for the status to say Connected, then try again.' })
       if (dev.owner_id && dev.owner_id !== req.user.id)
         return res.status(409).json({ error: 'This phone is already connected to another portal account.' })
 
@@ -431,16 +489,18 @@ app.get('/portal/overview', async (req, res) => {
         air: s.airBal || 0, used: s.airUsed || 0, tok: s.tokens || 0,
         bat: s.battery || 0, chg: !!s.charging, com: s.commission || 0,
         ok: s.ok || 0, failed: s.failed || 0,
+        offers: s.offers || [],
         ...(s.unlimitedUntil ? { until: s.unlimitedUntil } : {}),
       })
-      for (const t of s.recent || []) {
-        tx.push({
-          id: d.id + ':' + t.id, dev: d.id, name: t.name, phone: t.phone, amt: t.amt, offer: t.offer, st: t.st,
-          m: Math.max(0, Math.floor((now - Date.parse(t.ts)) / 60000)), msg: t.msg, ussd: t.ussd, resp: t.resp,
-        })
-      }
     }
-    tx.sort((a, b) => a.m - b.m)
+    try {
+      const ids = (rows || []).map((d) => String(d.id))
+      if (ids.length) {
+        const r = await pool.query(`SELECT ${TXCOLS} FROM portal_tx WHERE device_id=ANY($1::text[]) AND ts>=$2 ORDER BY ts DESC LIMIT 60`,
+          [ids, dayStart(plan.history - 1).toISOString()])
+        for (const x of r.rows) tx.push(txOut(x, now))
+      }
+    } catch (e) { console.error('overview tx', e.message) }
     res.json({
       biz: req.acct.biz || 'My business', cid: req.acct.phone || '',
       plan,
@@ -450,6 +510,132 @@ app.get('/portal/overview', async (req, res) => {
     console.error('overview', e)
     res.status(500).json({ error: 'Could not load your portal.' })
   }
+})
+
+app.get('/portal/transactions', async (req, res) => {
+  try {
+    const plan = planInfo(req.acct)
+    if (!plan.active) return res.json({ tx: [], history: 0 })
+    const { data: rows } = await sbAdmin.from('devices').select('id').eq('owner_id', req.user.id)
+    let ids = (rows || []).map((r) => String(r.id))
+    const want = str(req.query.device, 64)
+    if (want && want !== 'all') ids = ids.filter((i) => i === want)
+    if (!ids.length) return res.json({ tx: [], history: plan.history })
+    const earliest = dayStart(plan.history - 1)
+    let from = earliest, to = new Date(Date.now() + DAY)
+    if (req.query.range === 'today') from = dayStart(0)
+    else if (req.query.range === 'yest') { from = dayStart(1); to = dayStart(0) }
+    if (from < earliest) from = earliest // the plan's history limit is enforced here, not in the page
+    const params = [ids, from.toISOString(), to.toISOString()]
+    let where = 'device_id=ANY($1::text[]) AND ts>=$2 AND ts<$3'
+    const q = str(req.query.q, 60).trim()
+    if (q) {
+      const lk = (s) => '%' + s.replace(/[\\%_]/g, '\\$&') + '%'
+      params.push(lk(q))
+      let cond = 'name ILIKE $4 OR phone ILIKE $4 OR msg ILIKE $4 OR offer ILIKE $4'
+      const digits = q.replace(/[\s+-]/g, '')
+      if (/^\d{4,}$/.test(digits)) { params.push(lk(digits.replace(/^(254|0)/, ''))); cond += ' OR phone ILIKE $5 OR msg ILIKE $5' }
+      where += ` AND (${cond})`
+    }
+    const r = await pool.query(`SELECT ${TXCOLS} FROM portal_tx WHERE ${where} ORDER BY ts DESC LIMIT 500`, params)
+    res.json({ tx: r.rows.map((x) => txOut(x)), history: plan.history })
+  } catch (e) { console.error('transactions', e); res.status(500).json({ error: 'Could not load transactions.' }) }
+})
+
+async function ownedDev(req, id) {
+  const { data } = await sbAdmin.from('devices').select('*').eq('id', str(id, 64)).eq('owner_id', req.user.id).maybeSingle()
+  return data
+}
+async function queueCmd(deviceId, type, payload) {
+  const { data, error } = await sbAdmin.from('device_commands').insert({ device_id: deviceId, type, payload }).select('id').single()
+  if (error) throw new Error(error.message)
+  return data.id
+}
+const portalLimit = (n) => rateLimit({ windowMs: 60 * 60 * 1000, max: n, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => (req.user ? req.user.id : 'none') })
+
+app.post('/portal/quickdial', portalLimit(200), async (req, res) => {
+  try {
+    if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' })
+    const d = await ownedDev(req, req.body && req.body.device)
+    if (!d) return res.status(404).json({ error: 'Device not found.' })
+    if (!isOnline(d)) return res.status(409).json({ error: 'The phone is offline. Open AutoBingwa on it and check that AutoBingwa Portal is on.' })
+    const offer = ((d.snapshot || {}).offers || []).find((o) => o.id === str(req.body.offerId, 64))
+    if (!offer || !offer.on) return res.status(400).json({ error: 'That offer is not available on the phone.' })
+    const p = normalizePhone(req.body.phone)
+    if (!p) return res.status(400).json({ error: 'Enter a valid phone number, for example 0712345678.' })
+    const phone = '0' + p.slice(3), txId = 'qd-' + crypto.randomBytes(6).toString('hex'), ussd = offer.ussd.replace(/AB/g, phone)
+    await queueCmd(d.id, 'quickdial', { txId, offerId: offer.id, offer: offer.name, phone, ussd, amt: offer.price })
+    await pool.query(`INSERT INTO portal_tx (device_id,tx_id,name,phone,amt,offer,st,msg,ussd,resp,qd) VALUES ($1,$2,'Quick Dial',$3,$4,$5,'Pending','Started from the portal Quick Dial',$6,'',true)`,
+      [String(d.id), txId, phone, Math.round(offer.price), offer.name, ussd])
+    res.json({ ok: true, txId: d.id + ':' + txId, ussd })
+  } catch (e) { console.error('quickdial', e); res.status(500).json({ error: 'Could not send Quick Dial.' }) }
+})
+
+app.post('/portal/tokens/buy', portalLimit(30), async (req, res) => {
+  try {
+    if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired.' })
+    const b = req.body || {}, amount = PLANS[b.packId]
+    if (!amount) return res.status(400).json({ error: 'Unknown token pack.' })
+    const d = await ownedDev(req, b.device)
+    if (!d) return res.status(404).json({ error: 'Device not found.' })
+    if (b.method === 'airtime') {
+      if (!isOnline(d)) return res.status(409).json({ error: 'The phone is offline. Open AutoBingwa on it and check that AutoBingwa Portal is on.' })
+      const { data: dup } = await sbAdmin.from('device_commands').select('id').eq('device_id', d.id).eq('type', 'buy_tokens')
+        .in('status', ['pending', 'sent']).is('result', null).gte('created_at', new Date(Date.now() - 60000).toISOString()).limit(1)
+      if (dup && dup.length) return res.status(409).json({ error: 'A token purchase is already in progress on this phone.' })
+      const id = await queueCmd(d.id, 'buy_tokens', { packId: b.packId, amount, label: TOKEN_LABELS[b.packId] })
+      return res.json({ commandId: id })
+    }
+    if (b.method !== 'mpesa') return res.status(400).json({ error: 'Choose M-Pesa or airtime.' })
+    if (!dbReady) return res.status(503).json({ error: 'Server is starting, try again in a few seconds.' })
+    const phone = normalizePhone(b.phone)
+    if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number, for example 0712345678.' })
+    const ts = stamp()
+    const r = await daraja('/mpesa/stkpush/v1/processrequest', {
+      BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts,
+      TransactionType: LIVE ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+      Amount: amount, PartyA: phone, PartyB: LIVE ? TILL_NUMBER : SHORTCODE, PhoneNumber: phone,
+      CallBackURL: `${CALLBACK_BASE}/tokens/mpesa/callback/${CALLBACK_SECRET}`,
+      AccountReference: 'AutoBingwa', TransactionDesc: `Tokens ${b.packId}` })
+    if (r.ResponseCode !== '0') return res.status(502).json({ error: r.errorMessage || r.ResponseDescription || 'M-Pesa refused the request.' })
+    const id = crypto.randomUUID()
+    await pool.query('INSERT INTO payments (id, device_id, phone, plan_id, amount, checkout_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [id, 'portal:' + d.id, phone, b.packId, amount, r.CheckoutRequestID])
+    res.json({ paymentId: id })
+  } catch (e) { console.error('portal tokens', e); res.status(500).json({ error: 'Could not start the purchase.' }) }
+})
+
+app.get('/portal/tokens/mpesa/status/:id', async (req, res) => {
+  try {
+    let p = (await pool.query('SELECT * FROM payments WHERE id=$1', [req.params.id])).rows[0]
+    if (!p || !String(p.device_id).startsWith('portal:') || !(await ownedDev(req, p.device_id.slice(7)))) return res.status(404).json({ error: 'Not found.' })
+    if (p.status === 'pending' && Date.now() - new Date(p.created_at).getTime() > 40000) {
+      const ts = stamp()
+      const q = await daraja('/mpesa/stkpushquery/v1/query', { BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts, CheckoutRequestID: p.checkout_id })
+      if (q.ResultCode !== undefined) {
+        const code = Number(q.ResultCode)
+        if (code === 0) await pool.query("UPDATE payments SET status='paid', receipt=COALESCE(receipt,$2) WHERE id=$1 AND status='pending'", [p.id, p.checkout_id])
+        else if (code !== 4999) await pool.query("UPDATE payments SET status=$2, message=$3 WHERE id=$1 AND status='pending'", [p.id, code === 1032 ? 'cancelled' : 'failed', q.ResultDesc || ''])
+        p = (await pool.query('SELECT * FROM payments WHERE id=$1', [p.id])).rows[0]
+      }
+    }
+    let commandId = null
+    if (p.status === 'paid') {
+      await creditPortal(p)
+      const { data: c } = await sbAdmin.from('device_commands').select('id').eq('payload->>paymentId', p.id).maybeSingle()
+      commandId = c ? c.id : null
+    }
+    res.json({ status: p.status, message: p.message || '', commandId })
+  } catch (e) { console.error('portal token status', e); res.status(500).json({ error: 'Could not check the payment.' }) }
+})
+
+app.get('/portal/commands/:id', async (req, res) => {
+  try {
+    const { data: c } = await sbAdmin.from('device_commands').select('id,device_id,status,result,result_msg').eq('id', num(req.params.id)).maybeSingle()
+    if (!c || !(await ownedDev(req, c.device_id))) return res.status(404).json({ error: 'Not found.' })
+    const s = c.result === 'ok' ? 'completed' : c.result ? 'failed' : c.status === 'expired' ? 'failed' : c.status === 'sent' ? 'running' : 'pending'
+    res.json({ status: s, message: c.result_msg || (c.status === 'expired' ? 'The phone did not respond.' : '') })
+  } catch (e) { console.error('command status', e); res.status(500).json({ error: 'Could not check the command.' }) }
 })
 
 async function ownedDevice(req, res) {
@@ -575,6 +761,7 @@ app.post('/tokens/mpesa/callback/:secret', async (req, res) => {
         return
       }
       await pool.query("UPDATE payments SET status='paid', receipt=$2 WHERE id=$1 AND status='pending'", [p.id, receipt])
+      await creditPortal({ ...p, receipt })
     } else {
       const status = Number(cb.ResultCode) === 1032 ? 'cancelled' : 'failed'
       await pool.query('UPDATE payments SET status=$2, message=$3 WHERE id=$1 AND status=$4', [p.id, status, cb.ResultDesc || '', 'pending'])
@@ -614,4 +801,9 @@ app.get('/tokens/mpesa/status/:id', async (req, res) => {
 app.listen(PORT, () => {
   console.log('Token server on', PORT)
   initDb()
+  setInterval(() => {
+    if (!dbReady) return
+    pool.query("UPDATE portal_tx SET st='Failed', resp='The phone did not pick up the request.' WHERE qd AND ((st='Pending' AND created_at<now()-interval '3 minutes') OR (st='Processing' AND created_at<now()-interval '10 minutes'))").catch(() => {})
+    pool.query("DELETE FROM portal_tx WHERE ts<now()-interval '8 days'").catch(() => {})
+  }, 60000)
 })
