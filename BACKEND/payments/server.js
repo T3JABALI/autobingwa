@@ -16,6 +16,21 @@ const BASE = LIVE ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.c
 // Prices live here, never trusted from the app
 const PLANS = { u1000: 90, u600: 50, u250: 25, u100: 15, d1: 30, d7: 200, d30: 550 }
 
+// Portal subscription plans. Everyone must subscribe; there is no free plan.
+const SUB_PLANS = {
+  d2:  { name: '2 Devices',      price: 100, max: 2,    history: 3, days: 31 },
+  d4:  { name: '4 Devices',      price: 200, max: 4,    history: 5, days: 31 },
+  unl: { name: 'Unlimited Plan', price: 400, max: 1000, history: 7, days: 31 },
+}
+const planList = () => Object.entries(SUB_PLANS).map(([id, p]) => ({ id, ...p }))
+function planInfo(acct) {
+  const exp = acct.plan_exp ? new Date(acct.plan_exp) : null
+  const def = SUB_PLANS[acct.plan]
+  if (def && exp && exp.getTime() > Date.now())
+    return { id: acct.plan, name: def.name, max: def.max, history: def.history, exp: exp.toISOString().slice(0, 10), active: true }
+  return { id: '', name: 'None', max: 0, history: 0, exp: '', active: false }
+}
+
 for (const [k, v] of Object.entries({ CONSUMER_KEY, CONSUMER_SECRET, PASSKEY, SHORTCODE, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_KEY })) {
   if (!v) console.error(`MISSING ENV VAR: ${k}`)
 }
@@ -36,6 +51,10 @@ async function initDb() {
       id TEXT PRIMARY KEY, device_id TEXT NOT NULL, phone TEXT NOT NULL, plan_id TEXT NOT NULL,
       amount INT NOT NULL, checkout_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
       receipt TEXT UNIQUE, message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+    await pool.query(`CREATE TABLE IF NOT EXISTS portal_payments (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, phone TEXT NOT NULL, plan_id TEXT NOT NULL,
+      amount INT NOT NULL, checkout_id TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
+      receipt TEXT, message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
     dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -132,8 +151,15 @@ async function requireUser(req, res, next) {
     if (!token) return res.status(401).json({ error: 'No token' })
     const { data, error } = await sbAdmin.auth.getUser(token)
     if (error || !data.user) return res.status(401).json({ error: 'Invalid token' })
-    const { data: acct } = await sbAdmin.from('portal_accounts').select('*').eq('user_id', data.user.id).maybeSingle()
+
+    let acct = (await sbAdmin.from('portal_accounts').select('*').eq('user_id', data.user.id).maybeSingle()).data
+    // A genuine portal user whose row is missing gets one created automatically
+    if (!acct && data.user.app_metadata && data.user.app_metadata.portal) {
+      await sbAdmin.from('portal_accounts').insert({ user_id: data.user.id, phone: (data.user.user_metadata || {}).phone || null })
+      acct = (await sbAdmin.from('portal_accounts').select('*').eq('user_id', data.user.id).maybeSingle()).data
+    }
     if (!acct) return res.status(403).json({ error: 'No portal account' })
+
     req.user = data.user
     req.acct = acct // biz, plan, plan_exp and phone for this portal user
     next()
@@ -149,17 +175,113 @@ app.get('/portal/me', (req, res) => {
   res.json({ userId: req.user.id, phone: req.acct.phone || null, biz: req.acct.biz || null, plan: req.acct.plan || null })
 })
 
+/* ================= PORTAL SUBSCRIPTION (M-Pesa) ================= */
+
+app.get('/portal/plans', (req, res) =>
+  res.json({ plans: planList(), current: planInfo(req.acct), phone: req.acct.phone || '' }))
+
+async function finishSubPayment(id, receipt) {
+  const { rows } = await pool.query(
+    "UPDATE portal_payments SET status='paid', receipt=$2 WHERE id=$1 AND status='pending' RETURNING *", [id, receipt || null])
+  const pay = rows[0]
+  if (!pay) return // already handled, so a repeated callback cannot extend twice
+  const def = SUB_PLANS[pay.plan_id]
+  const { data: acct } = await sbAdmin.from('portal_accounts').select('plan_exp').eq('user_id', pay.user_id).maybeSingle()
+  const cur = acct && acct.plan_exp ? new Date(acct.plan_exp).getTime() : 0
+  const from = Math.max(cur, Date.now()) // renewing early adds on top of the remaining time
+  await sbAdmin.from('portal_accounts')
+    .update({ plan: pay.plan_id, plan_exp: new Date(from + def.days * 86400000).toISOString() })
+    .eq('user_id', pay.user_id)
+}
+
+app.post('/portal/subscribe/start',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => (req.user ? req.user.id : 'none') }),
+  async (req, res) => {
+    try {
+      if (!dbReady) return res.status(503).json({ error: 'Server is starting, try again in a few seconds.' })
+      const plan = SUB_PLANS[req.body && req.body.planId]
+      if (!plan) return res.status(400).json({ error: 'Unknown plan.' })
+      const phone = normalizePhone((req.body && req.body.phone) || req.acct.phone)
+      if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number, for example 0712345678.' })
+      const ts = stamp()
+      const d = await daraja('/mpesa/stkpush/v1/processrequest', {
+        BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts,
+        TransactionType: LIVE ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+        Amount: plan.price, PartyA: phone, PartyB: LIVE ? TILL_NUMBER : SHORTCODE, PhoneNumber: phone,
+        CallBackURL: `${CALLBACK_BASE}/pay/portal/callback/${CALLBACK_SECRET}`,
+        AccountReference: 'AutoBingwaPortal', TransactionDesc: `Portal ${plan.name}`,
+      })
+      if (d.ResponseCode !== '0') {
+        console.error('portal stk refused', d)
+        return res.status(502).json({ error: d.errorMessage || d.ResponseDescription || 'M-Pesa refused the request.' })
+      }
+      const id = crypto.randomUUID()
+      await pool.query(
+        'INSERT INTO portal_payments (id, user_id, phone, plan_id, amount, checkout_id) VALUES ($1,$2,$3,$4,$5,$6)',
+        [id, req.user.id, phone, req.body.planId, plan.price, d.CheckoutRequestID])
+      res.json({ paymentId: id })
+    } catch (e) {
+      console.error('subscribe start', e)
+      res.status(500).json({ error: 'Could not start the payment.' })
+    }
+  })
+
+app.get('/portal/subscribe/status/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM portal_payments WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id])
+    let p = rows[0]
+    if (!p) return res.status(404).json({ error: 'Not found.' })
+    // If the callback never arrived, ask Safaricom directly after 40 seconds
+    if (p.status === 'pending' && Date.now() - new Date(p.created_at).getTime() > 40000) {
+      const ts = stamp()
+      const q = await daraja('/mpesa/stkpushquery/v1/query', {
+        BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts, CheckoutRequestID: p.checkout_id })
+      if (q.ResultCode !== undefined) {
+        const code = Number(q.ResultCode)
+        if (code === 0) await finishSubPayment(p.id, null)
+        else if (code !== 4999)
+          await pool.query("UPDATE portal_payments SET status=$2, message=$3 WHERE id=$1 AND status='pending'",
+            [p.id, code === 1032 ? 'cancelled' : 'failed', q.ResultDesc || ''])
+      }
+      p = (await pool.query('SELECT * FROM portal_payments WHERE id=$1', [p.id])).rows[0]
+    }
+    res.json({ status: p.status, message: p.message || '' })
+  } catch (e) {
+    console.error('subscribe status', e)
+    res.status(500).json({ error: 'Could not check the payment.' })
+  }
+})
+
+// Safaricom calls this (no login), so it lives outside /portal
+app.post('/pay/portal/callback/:secret', async (req, res) => {
+  res.json({ ResultCode: 0, ResultDesc: 'Accepted' }) // always answer Safaricom quickly
+  if (req.params.secret !== CALLBACK_SECRET) return
+  try {
+    const cb = req.body && req.body.Body && req.body.Body.stkCallback
+    if (!cb) return
+    const { rows } = await pool.query('SELECT * FROM portal_payments WHERE checkout_id=$1', [cb.CheckoutRequestID])
+    const p = rows[0]
+    if (!p || p.status !== 'pending') return
+    if (Number(cb.ResultCode) === 0) {
+      const items = (cb.CallbackMetadata && cb.CallbackMetadata.Item) || []
+      const get = (n) => (items.find((i) => i.Name === n) || {}).Value
+      if (Number(get('Amount')) < p.amount) {
+        await pool.query("UPDATE portal_payments SET status='failed', message='Amount did not match.' WHERE id=$1", [p.id])
+        return
+      }
+      await finishSubPayment(p.id, String(get('MpesaReceiptNumber') || ''))
+    } else {
+      await pool.query("UPDATE portal_payments SET status=$2, message=$3 WHERE id=$1 AND status='pending'",
+        [p.id, Number(cb.ResultCode) === 1032 ? 'cancelled' : 'failed', cb.ResultDesc || ''])
+    }
+  } catch (e) {
+    console.error('portal callback', e)
+  }
+})
+
 /* ================= PORTAL DEVICES (connect ID, live data, commands) ================= */
 
-// Subscription plans: how many phones each one allows. Everyone must subscribe; there is no free plan.
-const SUB_PLANS = { '2 devices': { max: 2 }, '5 devices': { max: 5 }, 'Unlimited': { max: 1000 } }
-function planInfo(acct) {
-  const exp = acct.plan_exp ? new Date(acct.plan_exp) : null
-  const def = SUB_PLANS[acct.plan]
-  if (def && exp && exp.getTime() > Date.now())
-    return { name: acct.plan, max: def.max, exp: exp.toISOString().slice(0, 10), active: true }
-  return { name: 'None', max: 0, exp: '', active: false }
-}
 const ONLINE_MS = 40000 // a phone counts as online if it synced in the last 40 seconds
 
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex')
@@ -237,7 +359,7 @@ app.post('/device/sync',
       if (portalOn && b.snapshot) patch.snapshot = cleanSnapshot(b.snapshot)
       await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
 
-        const cutoff = new Date(Date.now() - 120000).toISOString()
+      const cutoff = new Date(Date.now() - 120000).toISOString()
       await sbAdmin.from('device_commands').update({ status: 'expired' })
         .eq('device_id', req.dev.id).eq('status', 'pending').lt('created_at', cutoff)
       let q = sbAdmin.from('device_commands').select('id,type')
@@ -248,7 +370,7 @@ app.post('/device/sync',
       if (commands.length)
         await sbAdmin.from('device_commands').update({ status: 'sent', done_at: new Date().toISOString() })
           .in('id', commands.map((c) => c.id))
-  
+
       res.json({ ok: true, commands })
     } catch (e) {
       console.error('sync', e)
@@ -264,7 +386,7 @@ app.post('/portal/devices/connect',
     try {
       const plan = planInfo(req.acct)
       if (!plan.active)
-        return res.status(403).json({ error: 'Subscribe first to connect a phone. Go to More, then Portal Subscription.' })
+        return res.status(403).json({ error: 'Subscribe first to connect a phone. Choose a plan on the subscription page.' })
 
       const cid = normCid(req.body && req.body.connectId)
       const name = str(req.body && req.body.name, 40).trim()
@@ -290,11 +412,12 @@ app.post('/portal/devices/connect',
       res.status(500).json({ error: 'Could not connect the phone.' })
     }
   })
+
 app.get('/portal/overview', async (req, res) => {
   try {
-        const plan = planInfo(req.acct)
+    const plan = planInfo(req.acct)
     if (!plan.active)
-      return res.json({ biz: req.acct.biz || 'My business', cid: req.acct.phone || '', plan, locked: true, devices: [], tx: [], plans: [] })
+      return res.json({ biz: req.acct.biz || 'My business', cid: req.acct.phone || '', plan, locked: true, devices: [], tx: [], plans: planList() })
     const { data: rows, error } = await sbAdmin.from('devices').select('*').eq('owner_id', req.user.id).order('created_at')
     if (error) return res.status(500).json({ error: 'Could not load your devices.' })
     const now = Date.now()
@@ -304,7 +427,7 @@ app.get('/portal/overview', async (req, res) => {
       devices.push({
         id: d.id, name: d.name || d.connect_id, cid: d.connect_id,
         online: isOnline(d), portalOn: !!d.portal_enabled, running: !!s.running,
-                reachable: !!d.last_seen && now - new Date(d.last_seen).getTime() < ONLINE_MS,
+        reachable: !!d.last_seen && now - new Date(d.last_seen).getTime() < ONLINE_MS,
         air: s.airBal || 0, used: s.airUsed || 0, tok: s.tokens || 0,
         bat: s.battery || 0, chg: !!s.charging, com: s.commission || 0,
         ok: s.ok || 0, failed: s.failed || 0,
@@ -320,7 +443,7 @@ app.get('/portal/overview', async (req, res) => {
     tx.sort((a, b) => a.m - b.m)
     res.json({
       biz: req.acct.biz || 'My business', cid: req.acct.phone || '',
-      plan: planInfo(req.acct),
+      plan,
       devices, tx, plans: [],
     })
   } catch (e) {
@@ -340,7 +463,7 @@ for (const [path, type] of [['airtime-check', 'airtime_check'], ['start', 'start
     try {
       const d = await ownedDevice(req, res)
       if (!d) return
-            if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' })
+      if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' })
       if (!isOnline(d)) return res.status(409).json({ error: 'The phone is offline. Open AutoBingwa on it and check that AutoBingwa Portal is on.' })
       const since = new Date(Date.now() - 20000).toISOString()
       const { data: dup } = await sbAdmin.from('device_commands').select('id')
@@ -353,6 +476,7 @@ for (const [path, type] of [['airtime-check', 'airtime_check'], ['start', 'start
     }
   })
 }
+
 // Flip the phone's AutoBingwa Portal switch from the portal. Works while the switch is off,
 // as long as the phone has checked in recently.
 for (const [path, type] of [['portal-on', 'portal_on'], ['portal-off', 'portal_off']]) {
@@ -374,6 +498,7 @@ for (const [path, type] of [['portal-on', 'portal_on'], ['portal-off', 'portal_o
     }
   })
 }
+
 app.post('/portal/devices/:id/unlink', async (req, res) => {
   try {
     const d = await ownedDevice(req, res)

@@ -1,14 +1,17 @@
 /* ===== Data layer =====
    USE_MOCK=true runs on sample data. To connect the real server later: set USE_MOCK=false and API_URL.
    The server must provide (Bearer token in the Authorization header):
-   GET  /portal/overview               -> { biz, cid, plan, devices, tx, plans }  (same shape as DB below)
+   GET  /portal/overview               -> { biz, cid, plan, devices, tx, plans, locked }
+   GET  /portal/plans                  -> { plans, current, phone }
+   POST /portal/subscribe/start {planId,phone} -> { paymentId }
+   GET  /portal/subscribe/status/:id   -> { status, message }
    POST /portal/devices/:id/airtime-check | /start | /stop
    POST /portal/tx/:id/retry | /reschedule {at}      DELETE /portal/tx/:id
    POST /portal/plans   PUT|DELETE /portal/plans/:id   POST /portal/plans/:id/learn
    POST /portal/quickdial {device,offerId,phone}     POST /portal/tokens/buy {device,pack}
-   POST /portal/subscribe {plan,phone}               POST /portal/password {current,next} */
+   POST /portal/password {current,next} */
 const USE_MOCK=false,API_URL='https://autobingwa-payments.onrender.com';
-const DB={biz:'Jabali Bingwa Deals',cid:'AB-1042',plan:{name:'2 devices',max:2,exp:'15 Nov 2026'},
+const DB={biz:'Jabali Bingwa Deals',cid:'AB-1042',plan:{id:'d2',name:'2 Devices',max:2,exp:'15 Nov 2026',active:true},
 devices:[
 {id:'d1',name:'Bundles Store Mtaani',online:true,running:true,air:1422,used:310,tok:112,bat:71,chg:true,com:1153.5},
 {id:'d2',name:'Jabali Bingwa Deals',online:true,running:true,air:8459.24,used:540,tok:0,until:'2026-11-15',bat:48,chg:false,com:310}],
@@ -26,7 +29,11 @@ plans:[
 {id:'p3',name:'1.5GB 3HRS',cat:'Data',price:50,ussd:'*180*5*2*AB*7*1#',signed:false,on:true},
 {id:'p4',name:'900 MB Midnight',cat:'Pata More',price:57,ussd:'*544*6*8*AB*00*1*0*6*1#',signed:true,on:false}]};
 const PACKS=[['1,000 units',90],['600 units',50],['250 units',25],['100 units',15],['1 day unlimited',30],['7 days unlimited',200],['30 days unlimited',550]];
-const SUBS=[{n:'2 devices',p:100,f:['Link 1 or 2 devices','2 days of portal history','30 days of access']},{n:'5 devices',p:200,pop:1,f:['Link up to 5 devices','5 days of portal history','30 days of access']},{n:'Unlimited',p:400,f:['Link unlimited devices','1 week of portal history','30 days of access']}];
+/* Portal subscription plans. The ids must match SUB_PLANS on the server. */
+const SUBS=[
+{id:'d2',n:'2 Devices',p:100,f:['Link up to 2 devices','3 days of portal history','Valid for 31 days']},
+{id:'d4',n:'4 Devices',p:200,pop:1,f:['Link up to 4 devices','5 days of portal history','Valid for 31 days']},
+{id:'unl',n:'Unlimited Plan',p:400,f:['Link unlimited devices','7 days of portal history','31 days of access']}];
 const CATS=['Data','Minutes','SMS','Tunukiwa','Pata More'];
 const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ls={get(k,d){try{return localStorage.getItem(k)||d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
@@ -47,7 +54,7 @@ const S={page:'home',more:null,dev:'d1',f:'All',hide:false,tx:null,td:null,theme
 const dev=()=>DB.devices.find(d=>d.id===S.dev)||DB.devices[0]||{id:'',name:'No phone connected',online:false,portalOn:false,running:false,air:0,used:0,tok:0,bat:0,chg:false,com:0,ok:0,failed:0};
 const cur=()=>DB.tx.find(x=>x.id===S.tx);
 const mk=t=>S.hide?'••••••':t;
-let R=null,tt=null;
+let R=null,tt=null,payRun=0;
 function toast(m){const t=$('#toast');t.textContent=m;clearTimeout(tt);tt=setTimeout(()=>{t.textContent=''},3500)}
 function modal(h){$('#modal').innerHTML=`<div class="mb" data-a="close"><div class="ms" role="dialog" aria-modal="true">${h}</div></div>`}
 function ask(t,m,ok,danger){return new Promise(res=>{R=res;modal(`<h3>${t}</h3><p class="mu">${m}</p><div class="flex"><button class="btn gh grow" data-a="no">Cancel</button><button class="btn${danger?' bad':''} grow" data-a="yes">${ok}</button></div>`)})}
@@ -89,17 +96,23 @@ ${DB.plans.map(p=>`<div class="card"><div class="flex" style="margin:0"><span cl
 function more(){const m=S.more;if(m)return{quick,sub,tokens,settings}[m]();
 return `<h1 class="h2">More</h1>${[['quick','dial','Quick Dial'],['sub','card','Portal Subscription'],['tokens','coin','Tokens'],['settings','gear','Settings']].map(([k,i,l])=>`<button class="card mrow" data-a="go" data-p="more" data-m="${k}">${ic(i)}<b class="grow">${l}</b>${ic('chev')}</button>`).join('')}<button class="card mrow" data-a="out">${ic('out')}<b class="grow">Sign out</b></button>`}
 function quick(){return `${bk('Quick Dial')}<div class="card"><label>Phone number<input id="qp" class="in" type="tel" inputmode="tel" placeholder="0712345678"></label><label>Plan<select id="qo" class="in">${DB.plans.filter(p=>p.on).map(p=>`<option value="${p.id}">${esc(p.name)}, KES ${p.price}</option>`).join('')}</select></label><p id="qe" class="err" role="alert"></p><button class="btn full" data-a="qdial">${ic('dial',18)} Dial on ${esc(dev().name)}</button></div>`}
-function sub(){const n=DB.devices.length,m=DB.plan.max,act=DB.plan.active!==false;return `${bk('Portal Subscription')}${act?'':'<div class="card warn"><b>Subscribe to use the portal</b><p class="mu">Choose a plan below to connect your phones and see their live activity.</p></div>'}<div class="card"><div class="flex"><b class="grow">${act?n+(m>=1000?'':' of '+m)+' devices paired':'No active subscription'}</b><small>${DB.plan.exp?'Expires '+DB.plan.exp:''}</small></div>${act?`<div class="bar"><i style="width:${Math.min(100,n/m*100)}%"></i></div>`:''}</div>
-${SUBS.map(s=>{const c=act&&s.n===DB.plan.name;return `<div class="card sp${s.pop?' pop':''}">${s.pop?'<span class="tag">Most popular</span>':''}<h3>${s.n}</h3><div class="price">KES ${s.p}<small> / 30 days</small></div><ul>${s.f.map(f=>`<li>${f}</li>`).join('')}</ul><button class="btn${c?' gh':''} full" data-a="subbuy" data-n="${s.n}">${c?'Extend 30 days':'Choose '+s.n}</button></div>`}).join('')}`}
+function sub(){const n=DB.devices.length,m=DB.plan.max,act=DB.plan.active!==false&&!DB.locked,lock=!!DB.locked;
+const head=lock?'<h1 class="h2">Portal Subscription</h1>':bk('Portal Subscription');
+return `${head}${act?'':'<div class="card warn"><b>Subscribe to use the portal</b><p class="mu">Choose a plan below and pay with M-Pesa. Once the payment goes through, you can connect your phones and see their live activity.</p></div>'}<div class="card"><div class="flex"><b class="grow">${act?n+(m>=1000?'':' of '+m)+' devices paired':'No active subscription'}</b><small>${act&&DB.plan.exp?'Expires '+esc(DB.plan.exp):''}</small></div>${act?`<div class="bar"><i style="width:${Math.min(100,m?n/m*100:0)}%"></i></div>`:''}</div>
+${SUBS.map(s=>{const c=act&&s.id===DB.plan.id;return `<div class="card sp${s.pop?' pop':''}">${s.pop?'<span class="tag">Most popular</span>':''}<h3>${s.n}</h3><div class="price">KES ${s.p}<small> / 31 days</small></div><ul>${s.f.map(f=>`<li>${f}</li>`).join('')}</ul><button class="btn${c?' gh':''} full" data-a="subbuy" data-id="${s.id}">${c?'Extend 31 days':'Choose '+s.n}</button></div>`}).join('')}${lock?`<button class="btn gh full" style="margin-top:6px" data-a="out">${ic('out',18)} Sign out</button>`:''}`}
 function tokens(){return `${bk('Tokens')}<p class="mu">Balances come from the phone. Buying sends an airtime purchase to that device.</p>${DB.devices.map(d=>`<div class="card"><div class="flex"><i class="dot${d.online?' on':''}"></i><b class="grow">${esc(d.name)}</b></div><div class="flex" style="margin:0"><span class="big grow">${d.tok}<small> tokens</small></span><button class="btn" data-a="tbuy" data-id="${d.id}">${ic('coin',18)} Buy</button></div>${d.until?`<span class="pill" style="margin-top:10px">Unlimited until ${d.until}</span>`:''}</div>`).join('')}`}
 function settings(){return `${bk('Settings')}<div class="card"><b>Appearance</b><div class="seg">${['light','dark','system'].map(t=>`<button class="${S.theme===t?'on':''}" data-a="theme" data-t="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></div>
 <div class="card"><b>Change password</b><label>Current password<input id="pw0" class="in" type="password" autocomplete="current-password"></label><label>New password<input id="pw1" class="in" type="password" autocomplete="new-password"></label><label>Confirm new password<input id="pw2" class="in" type="password" autocomplete="new-password"></label><p id="pwe" class="err" role="alert"></p><button class="btn full" data-a="pw">Update password</button></div>`}
-function render(){if(DB.locked){S.page='more';S.more='sub'}const pg=({home,devices,tx:txPage,plans,more})[S.page];if(pg)$('#app').innerHTML=pg();document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.page))}
+function render(){
+/* No active subscription: the subscription page is the only page, and the menu is hidden */
+if(DB.locked){S.page='more';S.more='sub'}
+$('#nav').style.display=DB.locked?'none':'';
+const pg=({home,devices,tx:txPage,plans,more})[S.page];if(pg)$('#app').innerHTML=pg();document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.page))}
 const pform=p=>modal(`<h3>${p?'Edit plan':'Add plan'}</h3><label>Plan name<input id="pn" class="in" value="${esc(p&&p.name)}"></label><label>Category<select id="pc" class="in">${CATS.map(c=>`<option${p&&p.cat===c?' selected':''}>${c}</option>`).join('')}</select></label><label>USSD code (use AB for the customer's number)<input id="pu" class="in" value="${esc(p?p.ussd:'*180*5*2*AB*1*1#')}"></label><label>Selling price (KES)<input id="pp" class="in" type="number" inputmode="decimal" value="${p?p.price:''}"></label><p id="pe" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="psave" data-id="${p?p.id:''}">Save plan</button></div>`);
 /* ===== Actions ===== */
 const pl=id=>DB.plans.find(p=>p.id===id),dv=id=>DB.devices.find(d=>d.id===id);
 const A={
-close(){$('#modal').innerHTML='';if(R){R(false);R=null}},
+close(){payRun++;$('#modal').innerHTML='';if(R){R(false);R=null}},
 no(){A.close()},yes(){$('#modal').innerHTML='';if(R){R(true);R=null}},
 go(d){S.page=d.p;S.more=d.m||null;S.tx=null;render();scrollTo(0,0)},
 dev(d){S.dev=d.id;S.page='home';S.more=null;S.tx=null;render();scrollTo(0,0)},
@@ -129,8 +142,26 @@ async pdel(d){const p=pl(d.id);if(!await ask('Delete plan?',esc(p.name)+' will b
 async plearn(d){const p=pl(d.id),x=dev();if(!x.online)return toast(x.name+' is offline. Learning needs the phone online.');toast('Learning "'+p.name+'" on '+x.name+'. Keep the phone unlocked.');await call('POST','/portal/plans/'+p.id+'/learn');if(USE_MOCK)await sleep(1500);p.signed=true;render();toast('Signature saved for '+p.name)},
 async qdial(){const ph=phoneOk($('#qp').value),id=$('#qo').value;if(!ph)return $('#qe').textContent='Enter a valid phone number, for example 0712345678';if(!id)return $('#qe').textContent='Switch on a plan first';
 const p=pl(id),x=dev();await call('POST','/portal/quickdial',{device:x.id,offerId:id,phone:ph});DB.tx.unshift({id:'q'+Date.now(),dev:x.id,name:ph,phone:ph,amt:p.price,offer:p.name,st:'Pending',m:0,msg:'Started from Quick Dial',ussd:p.ussd.replace(/AB/gi,ph),resp:'No response recorded yet.'});toast('Quick Dial sent to '+x.name+'. See the result in Transactions.');A.go({p:'tx'})},
-subbuy(d){modal(`<h3>${d.n}</h3><p class="mu">Enter the M-Pesa number to pay with. You will get a payment prompt.</p><label>M-Pesa number<input id="sp" class="in" type="tel" inputmode="tel"></label><p id="se" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="subpay" data-n="${d.n}">Pay</button></div>`)},
-async subpay(d){const ph=phoneOk($('#sp').value);if(!ph)return $('#se').textContent='Enter a valid phone number';await call('POST','/portal/subscribe',{plan:d.n,phone:ph});A.close();toast('M-Pesa prompt sent to '+ph+'. Your plan updates once it is paid.')},
+/* ---- Portal subscription: pay with M-Pesa ---- */
+subbuy(d){const s=SUBS.find(x=>x.id===d.id);if(!s)return;
+modal(`<h3>${s.n}, KES ${s.p}</h3><p class="mu">Enter the M-Pesa number to pay with. You will get a payment prompt on your phone.</p><label>M-Pesa number<input id="sp" class="in" type="tel" inputmode="tel" placeholder="0712345678" value="${esc(phoneOk(DB.cid))}"></label><p id="se" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="subpay" data-id="${s.id}">Pay KES ${s.p}</button></div>`)},
+async subpay(d){const s=SUBS.find(x=>x.id===d.id),ph=phoneOk($('#sp').value),e=$('#se');
+if(!ph)return e.textContent='Enter a valid phone number, for example 0712345678';
+e.textContent='';const me=++payRun;
+modal(`<h3>${s.n}, KES ${s.p}</h3><p class="mu" id="pst">Sending the M-Pesa prompt to ${esc(ph)}...</p><button class="btn gh full" data-a="close">Close</button>`);
+const say=t=>{const el=$('#pst');if(el&&me===payRun)el.textContent=t};
+try{
+const r=await call('POST','/portal/subscribe/start',{planId:s.id,phone:ph});
+say('Check your phone and enter your M-Pesa PIN to pay KES '+s.p+'.');
+for(let i=0;i<45;i++){await sleep(3000);if(me!==payRun)return;
+const x=await call('GET','/portal/subscribe/status/'+r.paymentId);
+if(me!==payRun)return;
+if(x.status==='paid'){say('Payment received. Opening your portal...');await refresh();await sleep(900);if(me!==payRun)return;
+A.close();S.page='home';S.more=null;S.tx=null;render();scrollTo(0,0);toast('Subscription active. Now connect your phone.');return}
+if(x.status==='failed'||x.status==='cancelled')throw new Error(x.status==='cancelled'?'The payment was cancelled.':(x.message||'The payment failed.'))}
+throw new Error('Still waiting for the payment. If money left your M-Pesa, reopen the portal in a minute.')
+}catch(err){if(me!==payRun)return;
+modal(`<h3>${s.n}, KES ${s.p}</h3><p class="err">${esc(err.message)}</p><div class="flex"><button class="btn gh grow" data-a="close">Close</button><button class="btn grow" data-a="subbuy" data-id="${s.id}">Try again</button></div>`)}},
 tbuy(d){S.td=d.id;modal(`<h3>Buy tokens for ${esc(dv(d.id).name)}</h3>${PACKS.map((p,i)=>`<button class="pk" data-a="tpick" data-i="${i}"><b>${p[0]}</b><span>KES ${p[1]}</span></button>`).join('')}<button class="btn gh full" style="margin-top:14px" data-a="close">Close</button>`)},
 async tpick(d){const p=PACKS[d.i],x=dv(S.td);A.close();await call('POST','/portal/tokens/buy',{device:x.id,pack:p[0]});toast(p[0]+' (KES '+p[1]+') request sent to '+x.name+'. It is paid with airtime on the phone.')},
 theme(d){applyTheme(d.t);render()},
@@ -139,10 +170,13 @@ await window.portalChangePin(a,b);render();toast('Password updated')},
 out(){window.portalSignOut()}};
 document.addEventListener('click',e=>{const t=e.target.closest('[data-a]');if(!t)return;if(t.classList.contains('mb')&&e.target!==t)return;const f=A[t.dataset.a];if(f)Promise.resolve(f(t.dataset)).catch(err=>toast(err.message||'Something went wrong'))});
 /* ===== Live data ===== */
-async function refresh(){const o=await call('GET','/portal/overview');DB.locked=false;Object.assign(DB,o);if(!DB.devices.find(d=>d.id===S.dev))S.dev=(DB.devices[0]||{}).id||''}
-async function poll(){if(document.hidden)return;const b=JSON.stringify([DB.devices,DB.tx]);
+async function refresh(){const o=await call('GET','/portal/overview');
+/* When locked, the server sends the subscription plans in "plans"; never let them replace the data plans */
+if(o.locked)delete o.plans;
+DB.locked=false;Object.assign(DB,o);if(!DB.devices.find(d=>d.id===S.dev))S.dev=(DB.devices[0]||{}).id||''}
+async function poll(){if(document.hidden)return;const b=JSON.stringify([DB.devices,DB.tx,DB.plan,DB.locked]);
 try{await refresh()}catch(e){return}
-if(JSON.stringify([DB.devices,DB.tx])===b)return;
+if(JSON.stringify([DB.devices,DB.tx,DB.plan,DB.locked])===b)return;
 const f=document.activeElement,typing=f&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName);
 if($('#modal').innerHTML||typing||(S.page==='more'&&(S.more==='quick'||S.more==='settings')))return;render()}
 /* ===== Start ===== */
