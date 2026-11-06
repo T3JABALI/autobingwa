@@ -143,3 +143,6 @@ export function removeDemoData() {
     console.error('demo cleanup', e)
   }
 }
+// The old sample data was removed (see removeDemoData above), so this no longer adds anything.
+// It stays exported because HomePage.jsx still imports it.
+export function seedDemo() {}

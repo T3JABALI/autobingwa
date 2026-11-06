@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import UssdSetup from './UssdSetup.jsx'
 import {
   subscribe, loadTransactions, loadAirtime, loadWallet,
-  updateTransaction, deleteTransaction, seedDemo,
+  updateTransaction, deleteTransaction,
 } from './dataStore.js'
 import { CSS } from './homeStyles.js'
 import { confirmDialog } from '../ui/dialog.js'
@@ -151,7 +151,7 @@ function unlimitedLeft(until, now) {
   return `${d}d ${h}h ${m}m left`
 }
 
-export default function HomePage({ offers = [], onOpenTokens, automationRunning = false, onToggleAutomation }) {
+export default function HomePage({ onOpenTokens, automationRunning = false, onToggleAutomation }) {
   const [txs, setTxs] = useState(loadTransactions)
   const [airtime, setAirtime] = useState(readAirtime)
   const [wallet, setWallet] = useState(loadWallet)
@@ -372,11 +372,6 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
     goBack()
   }
 
-  function loadDemo() {
-    seedDemo(offers)
-    setNotice('Demo transactions loaded')
-  }
-
   const toggle = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }))
 
   const responseText = (t) =>
@@ -547,10 +542,7 @@ export default function HomePage({ offers = [], onOpenTokens, automationRunning 
             {recent.length === 0 ? (
               <div className="hm-card hm-empty">
                 {txs.length === 0 ? (
-                  <>
-                    <p>No transactions yet. They appear here automatically after each purchase.</p>
-                    <button className="hm-btn" onClick={loadDemo}>Load demo transactions</button>
-                  </>
+                  <p>No transactions yet. They appear here automatically after each purchase.</p>
                 ) : (
                   <p>No {filter.toLowerCase()} transactions.</p>
                 )}

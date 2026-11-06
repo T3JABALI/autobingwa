@@ -93,3 +93,10 @@ export function isBlacklisted(phone) {
   if (key.length < 9) return false
   return readJson(CLIENTS_KEY, []).some((c) => c.blacklisted && last9(c.phone) === key)
 }
+// Switches AutoBingwa Portal on or off and saves it in the settings
+export function setPortal(on) {
+  const cfg = readJson(CONFIG_KEY, {})
+  writeJson(CONFIG_KEY, { ...cfg, portal: Boolean(on) })
+  try { window.dispatchEvent(new Event('autobingwa-data')) } catch (e) { /* ignore */ }
+  return Boolean(on)
+}

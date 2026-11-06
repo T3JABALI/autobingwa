@@ -178,3 +178,6 @@ export function seedDemo(offers = []) {
   write(TX_KEY, list)
   if (loadAirtime() === 0) write(AIRTIME_KEY, 11274.24)
 }
+// The old sample data was removed (see removeDemoData above), so this no longer adds anything.
+// It stays exported because HomePage.jsx still imports it.
+export function seedDemo() {}
