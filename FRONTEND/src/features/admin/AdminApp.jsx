@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { adminFetch } from './adminApi';
+import TokensAdmin from './TokensAdmin';
 import './admin.css';
-
-// Your server address, no slash at the end
-const API = 'https://autobingwa-payments.onrender.com';
 
 const NAV = [
   ['home', 'Home', '⌂'],
@@ -23,16 +21,16 @@ const TITLES = {
 
 // SAMPLE DATA: replaced by real numbers when the backend is built
 const SAMPLE_STATS = [
-  { icon: '⇄', label: 'Transactions', value: '1,284', change: '+12.8%' },
-  { icon: '✔', label: 'Completed', value: '1,196', change: '93.1%' },
-  { icon: '▣', label: 'Income', value: 'KSh 84,650', change: '+15.4%' },
+  { icon: '☎', label: 'Airtime', num: '18,200', change: '+8.2%' },
+  { icon: '▤', label: 'M-Pesa', num: '66,450', change: '+16.9%' },
+  { icon: '▣', label: 'Total Income', num: '84,650', change: '+15.4%' },
 ];
 const SAMPLE_TX = [
-  { kind: 'token', title: 'Token Subscription', id: 'TXN-20481', time: '09:15 AM', amt: 500, how: 'M-PESA' },
-  { kind: 'portal', title: 'Portal Subscription', id: 'TXN-20480', time: '08:52 AM', amt: 1000, how: 'Airtime' },
-  { kind: 'token', title: 'Token Subscription', id: 'TXN-20479', time: '08:40 AM', amt: 250, how: 'M-PESA' },
-  { kind: 'portal', title: 'Portal Subscription', id: 'TXN-20478', time: '08:20 AM', amt: 750, how: 'M-PESA' },
-  { kind: 'token', title: 'Token Subscription', id: 'TXN-20477', time: '08:05 AM', amt: 300, how: 'Airtime' },
+  { kind: 'token', title: 'Token Subscription', id: 'TXN-20481', time: '09:15 AM', amt: '500', how: 'M-PESA' },
+  { kind: 'portal', title: 'Portal Subscription', id: 'TXN-20480', time: '08:52 AM', amt: '1,000', how: 'Airtime' },
+  { kind: 'token', title: 'Token Subscription', id: 'TXN-20479', time: '08:40 AM', amt: '250', how: 'M-PESA' },
+  { kind: 'portal', title: 'Portal Subscription', id: 'TXN-20478', time: '08:20 AM', amt: '750', how: 'M-PESA' },
+  { kind: 'token', title: 'Token Subscription', id: 'TXN-20477', time: '08:05 AM', amt: '300', how: 'Airtime' },
 ];
 const QUICK = [
   ['users', 'Users', 'Manage app users', '♙'],
@@ -41,7 +39,6 @@ const QUICK = [
 ];
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
-const money = (n) => 'KSh ' + n.toLocaleString();
 
 function Home({ name, go }) {
   const h = new Date().getHours();
@@ -51,25 +48,26 @@ function Home({ name, go }) {
       <div className="ad-hello">
         <div className="ad-hello-row">
           <span className="ad-sun">☼</span>
-          <span>{greet}, {name}</span>
+          <span className="ad-greet">{greet}, {name}</span>
           <span className="ad-badge">★ SUPER ADMIN</span>
         </div>
-        <h1>Home Dashboard</h1>
-        <p className="ad-sample">Sample data until the backend is connected</p>
+        <div className="ad-title-row">
+          <h1>Home Dashboard</h1>
+          <span className="ad-sample">sample data</span>
+        </div>
       </div>
 
       <div className="ad-stats">
         {SAMPLE_STATS.map((s) => (
           <div className="ad-stat" key={s.label}>
-            <div className="ad-stat-icon">{s.icon}</div>
-            <div className="ad-stat-label">{s.label}</div>
-            <div className="ad-stat-value">{s.value}</div>
+            <div className="ad-stat-top"><span className="ad-stat-icon">{s.icon}</span><span className="ad-stat-label">{s.label}</span></div>
+            <div className="ad-stat-value"><small>KSh</small> {s.num}</div>
             <div className="ad-stat-change">↑ {s.change}</div>
           </div>
         ))}
       </div>
 
-      <div className="ad-card">
+      <div className="ad-card ad-txcard">
         <div className="ad-card-head">
           <span className="ad-clock">◷</span>
           <div>
@@ -78,20 +76,22 @@ function Home({ name, go }) {
           </div>
           <button className="ad-link" onClick={() => go('income')}>View All →</button>
         </div>
-        {SAMPLE_TX.map((t) => (
-          <div className="ad-tx" key={t.id}>
-            <div className="ad-tx-icon">{t.kind === 'token' ? '◉' : '◎'}</div>
-            <div className="ad-tx-main">
-              <b>{t.title}</b>
-              <small>{t.id} • {t.time}</small>
+        <div className="ad-tx-list">
+          {SAMPLE_TX.map((t) => (
+            <div className="ad-tx" key={t.id}>
+              <div className="ad-tx-icon">{t.kind === 'token' ? '◉' : '◎'}</div>
+              <div className="ad-tx-main">
+                <b>{t.title}</b>
+                <small>{t.id} • {t.time}</small>
+              </div>
+              <div className="ad-tx-amt">
+                <b>KSh {t.amt}</b>
+                <small>{t.how}</small>
+              </div>
+              <span className="ad-pill">✔ Completed</span>
             </div>
-            <div className="ad-tx-amt">
-              <b>{money(t.amt)}</b>
-              <small>{t.how}</small>
-            </div>
-            <span className="ad-pill">✔ Completed</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div className="ad-quick-title">▦ Quick Access</div>
@@ -126,15 +126,10 @@ function Settings({ email, logout }) {
     setBusy(true);
     setResult('');
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session ? data.session.access_token : '';
-      const r = await fetch(API + '/admin/ping', { headers: { Authorization: 'Bearer ' + token } });
-      const j = await r.json().catch(() => ({}));
-      if (r.ok) setResult('Server says: you are admin (' + j.admin + ')');
-      else if (r.status === 404) setResult('Server refused: 404. The server does not have the admin route yet. Redeploy it.');
-      else setResult('Server refused: ' + r.status + ' ' + (j.error || ''));
+      const j = await adminFetch('/admin/ping');
+      setResult('Server says: you are admin (' + j.admin + ')');
     } catch (e) {
-      setResult('Could not reach the server.');
+      setResult(e.status === 404 ? 'Server refused: 404. The server does not have the admin route yet. Redeploy it.' : e.message);
     }
     setBusy(false);
   };
@@ -160,6 +155,7 @@ export default function AdminApp({ email, logout }) {
 
   let body;
   if (page === 'home') body = <Home name={name} go={go} />;
+  else if (page === 'tokens') body = <TokensAdmin />;
   else if (page === 'settings') body = <Settings email={email} logout={logout} />;
   else body = <Placeholder title={TITLES[page]} />;
 
@@ -191,7 +187,7 @@ export default function AdminApp({ email, logout }) {
         <div className="ad-avatar">{name.charAt(0)}</div>
       </header>
 
-      <main className="ad-main">
+      <main className={'ad-main' + (page === 'home' ? ' home' : '')}>
         {page !== 'home' && (
           <div className="ad-pagehead">
             {isQuick && <button className="ad-link" onClick={() => go('home')}>← Home</button>}
@@ -199,7 +195,7 @@ export default function AdminApp({ email, logout }) {
           </div>
         )}
         {body}
-        <footer className="ad-foot">AutoBingwa Admin • v1.0</footer>
+        {page !== 'home' && <footer className="ad-foot">AutoBingwa Admin • v1.0</footer>}
       </main>
     </div>
   );

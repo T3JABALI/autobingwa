@@ -4,7 +4,7 @@ import pg from 'pg'
 import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import rateLimit from 'express-rate-limit'
-
+import { initTokenTables, getTokenPlan, mountTokenRoutes } from './tokenAdmin.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -62,6 +62,7 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (device_id, tx_id))`)
     await pool.query('CREATE INDEX IF NOT EXISTS portal_tx_dev_ts ON portal_tx (device_id, ts DESC)')
     await pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS credited BOOLEAN NOT NULL DEFAULT false')
+       await initTokenTables(pool)
     dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -143,6 +144,7 @@ app.use('/admin', rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: tru
 app.get('/admin/ping', requireAdmin, (req, res) => {
   res.json({ ok: true, admin: req.adminUser.email })
 })
+mountTokenRoutes({ app, pool, requireAdmin })
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.
@@ -660,7 +662,9 @@ app.post('/portal/quickdial', portalLimit(200), async (req, res) => {
 app.post('/portal/tokens/buy', portalLimit(30), async (req, res) => {
   try {
     if (!planInfo(req.acct).active) return res.status(403).json({ error: 'Your subscription has expired.' })
-    const b = req.body || {}, amount = PLANS[b.packId]
+    const b = req.body || {}
+    const pack = await getTokenPlan(pool, b.packId)
+    const amount = pack ? pack.price : 0
     if (!amount) return res.status(400).json({ error: 'Unknown token pack.' })
     const d = await ownedDev(req, b.device)
     if (!d) return res.status(404).json({ error: 'Device not found.' })
@@ -669,7 +673,7 @@ app.post('/portal/tokens/buy', portalLimit(30), async (req, res) => {
       const { data: dup } = await sbAdmin.from('device_commands').select('id').eq('device_id', d.id).eq('type', 'buy_tokens')
         .in('status', ['pending', 'sent']).is('result', null).gte('created_at', new Date(Date.now() - 60000).toISOString()).limit(1)
       if (dup && dup.length) return res.status(409).json({ error: 'A token purchase is already in progress on this phone.' })
-      const id = await queueCmd(d.id, 'buy_tokens', { packId: b.packId, amount, label: TOKEN_LABELS[b.packId] })
+      const id = await queueCmd(d.id, 'buy_tokens', { packId: b.packId, amount, label: pack.label})
       return res.json({ commandId: id })
     }
     if (b.method !== 'mpesa') return res.status(400).json({ error: 'Choose M-Pesa or airtime.' })
@@ -1015,7 +1019,8 @@ app.post('/tokens/mpesa/start', async (req, res) => {
     if (!dbReady) return res.status(503).json({ error: 'Server is starting, try again in a few seconds.' })
     const { planId, deviceId } = req.body || {}
     const phone = normalizePhone(req.body && req.body.phone)
-    const amount = PLANS[planId]
+       const pack = await getTokenPlan(pool, planId)
+    const amount = pack ? pack.price : 0
     if (!amount) return res.status(400).json({ error: 'Unknown plan.' })
     if (!phone) return res.status(400).json({ error: 'Invalid phone number.' })
     if (!deviceId) return res.status(400).json({ error: 'Missing device.' })
