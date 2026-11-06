@@ -5,8 +5,8 @@ import { grantTokens } from './tokens.js'
 import { parsePhone } from '../features/quickdial/ussd.js'
 
 export const AIRTIME_NUMBER = '0143926894'
-// Set this to your Render URL once the server is deployed, e.g. https://autobingwa-tokens.onrender.com
-export const TOKEN_API = 'https://YOUR-SERVER'
+// Your Render server address, no slash at the end
+export const TOKEN_API = 'https://autobingwa-payments.onrender.com'
 
 const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'
@@ -102,7 +102,8 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
 }
 
 // ---------------- M-Pesa (needs the payment server) ----------------
-function deviceId() {
+// Exported so the contact sync can identify this phone to the server
+export function deviceId() {
   let id = localStorage.getItem('device:id')
   if (!id) { id = 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('device:id', id) }
   return id
@@ -147,10 +148,10 @@ export async function waitForMpesaPayment({ onStatus = () => {}, timeoutMs = 120
   while (Date.now() < end) {
     const d = await api(`/tokens/mpesa/status/${encodeURIComponent(p.paymentId)}?deviceId=${deviceId()}`)
     if (d.status === 'paid') {
-      if (d.planId !== p.plan.id || Number(d.amount) !== Number(p.plan.price)) {
+      if (d.planId !== p.plan.id) {
         throw new Error('The payment does not match the plan. Contact support.')
       }
-      grantTokens(p.plan, 'mpesa', d.receipt || p.paymentId)
+      grantTokens({ ...p.plan, price: Number(d.amount) || p.plan.price }, 'mpesa', d.receipt || p.paymentId)
       clear(MPESA_PENDING)
       return { status: 'paid', message: `Payment received. ${p.plan.label} added.` }
     }
@@ -173,4 +174,53 @@ export function recoverTokenPayments() {
   } else if (pendingAirtimePayment()) {
     engine.hold(true) // keep customer transactions away from the SIM until it is confirmed or cancelled
   }
+}
+// ---------------- Live token plans and coupons (set by the admin) ----------------
+const PLANS_CACHE = 'tokens:plans'
+
+// The last token list the server gave us (null if there is none yet)
+export function cachedTokenPlans() {
+  const v = read(PLANS_CACHE)
+  return Array.isArray(v) ? v : null
+}
+
+// The live token list from the admin. Saved on the phone so it still shows offline.
+export async function fetchTokenPlans() {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 8000)
+  try {
+    const res = await fetch(TOKEN_API + '/tokens/plans', { signal: ctl.signal })
+    if (!res.ok) throw new Error(`The server answered ${res.status}`)
+    const d = await res.json()
+    if (!Array.isArray(d.plans)) throw new Error('Unexpected answer from the server')
+    write(PLANS_CACHE, d.plans)
+    return d.plans
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Sends a coupon code to the server. If it is valid, the gift is added to the wallet.
+export async function redeemCoupon(codeText) {
+  const code = String(codeText || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (code.length !== 8) throw new Error('A coupon code has 8 letters and numbers.')
+  let res
+  try {
+    res = await fetch(TOKEN_API + '/tokens/coupon/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, deviceId: deviceId() }),
+    })
+  } catch (e) {
+    throw new Error('Could not reach the server. Check your internet and try again.')
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.ok) throw new Error(data.error || `The server answered ${res.status}`)
+  const amount = Number(data.amount) || 0
+  const plan = {
+    id: 'coupon-' + code, label: data.label || 'Gift', price: 0,
+    ...(data.kind === 'days' ? { days: amount } : { units: amount }),
+  }
+  const entry = grantTokens(plan, 'coupon', data.receipt || 'COUPON-' + code)
+  return entry || { label: plan.label }
 }

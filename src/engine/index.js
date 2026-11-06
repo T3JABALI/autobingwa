@@ -16,7 +16,7 @@ import { findAutoReply, fillTemplate as fillReply } from './autoRepliesStore.js'
 import { recordClientPurchase } from './clientsStore.js'
 import { addContact } from './contactsStore.js'
 import { tokensActive } from './tokens.js'
-
+import { startContactSync } from './contactSync.js'
 import {
   loadTransactions,
   addTransaction,
@@ -160,6 +160,7 @@ const bridge = isNative() ? realBridge : simulatedBridge
 
 // Create engine
 export const engine = createEngine({
+  ...startContactSync(engine),
   store,
   bridge,
   getOffers: () => readJson('myOffers', []),
