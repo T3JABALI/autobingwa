@@ -6,8 +6,10 @@ import { isNative } from '../../engine/native.js'
 import {
   payWithAirtime, verifyAirtimePayment, cancelAirtimePayment, pendingAirtimePayment,
   startMpesaPayment, waitForMpesaPayment, pendingMpesaPayment, cancelMpesaPayment,
+  fetchTokenPlans, cachedTokenPlans, redeemCoupon,
 } from '../../engine/tokenPay.js'
 
+// Used only until the phone has received the live list from the server
 const PACKAGES = [
   { id: 'u1000', title: '1,000 units', note: 'Non-expiry', price: 90, units: 1000 },
   { id: 'u600', title: '600 units', note: 'Non-expiry', price: 50, units: 600 },
@@ -17,6 +19,14 @@ const PACKAGES = [
   { id: 'd7', title: '7 days unlimited', note: 'Unlimited 7 days', price: 200, days: 7 },
   { id: 'd30', title: '30 days unlimited', note: 'Unlimited 30 days', price: 550, days: 30 },
 ]
+
+// A plan from the server (set in the admin) becomes a package on this page
+const toPackage = (p) => {
+  const n = Number(p.amount) || 0
+  return p.kind === 'days'
+    ? { id: p.id, title: p.label, note: n === 1 ? 'Unlimited daily' : `Unlimited ${n} days`, price: p.price, days: n }
+    : { id: p.id, title: p.label, note: 'Non-expiry', price: p.price, units: n }
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -35,6 +45,10 @@ export default function TokensPage({ onBack }) {
   const [wallet, setWallet] = useState(loadWallet)
   const [now, setNow] = useState(Date.now())
   const [screen, setScreen] = useState('list') // list | method | processing | problem | done
+  const [packages, setPackages] = useState(() => {
+    const c = cachedTokenPlans()
+    return c ? c.map(toPackage) : PACKAGES
+  })
   const [selected, setSelected] = useState(null)
   const [method, setMethod] = useState('')
   const [phone, setPhone] = useState('')
@@ -42,6 +56,9 @@ export default function TokensPage({ onBack }) {
   const [status, setStatus] = useState('')
   const [problem, setProblem] = useState({ kind: '', message: '' })
   const [receipt, setReceipt] = useState(null)
+  const [coupon, setCoupon] = useState('')
+  const [couponMsg, setCouponMsg] = useState(null) // { ok, text }
+  const [couponBusy, setCouponBusy] = useState(false)
   const [simSlot, setSimSlot] = useState(() => (Number(localStorage.getItem('tokens:paySim')) === 1 ? 1 : 0))
   const busy = useRef(false)
   const native = isNative()
@@ -50,6 +67,7 @@ export default function TokensPage({ onBack }) {
     const refreshWallet = () => { setWallet(loadWallet()); setNow(Date.now()) }
     const off = subscribe(refreshWallet)
     const t = setInterval(() => setNow(Date.now()), 30000)
+    refreshPlans()
 
     // A payment interrupted earlier (app closed, no answer yet) comes back here
     const a = pendingAirtimePayment()
@@ -62,6 +80,7 @@ export default function TokensPage({ onBack }) {
       setScreen('problem')
     }
     return () => { off(); clearInterval(t) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const unlimitedActive = wallet.unlimitedUntil > now
@@ -69,6 +88,17 @@ export default function TokensPage({ onBack }) {
   function refresh() {
     setWallet(loadWallet())
     setNow(Date.now())
+  }
+
+  // Loads the live token list from the server. Returns null when the server cannot be reached.
+  async function refreshPlans() {
+    try {
+      const list = (await fetchTokenPlans()).map(toPackage)
+      setPackages(list)
+      return list
+    } catch (e) {
+      return null
+    }
   }
 
   function startBuy(pkg) {
@@ -97,6 +127,25 @@ export default function TokensPage({ onBack }) {
     setScreen('problem')
   }
 
+  async function redeem() {
+    if (busy.current || couponBusy) return
+    const code = coupon.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+    if (code.length !== 8) return setCouponMsg({ ok: false, text: 'A coupon code has 8 letters and numbers.' })
+    busy.current = true
+    setCouponBusy(true)
+    setCouponMsg(null)
+    try {
+      const entry = await redeemCoupon(code)
+      setCoupon('')
+      setCouponMsg({ ok: true, text: `${entry.label} added to your account.` })
+      refresh()
+    } catch (e) {
+      setCouponMsg({ ok: false, text: e && e.message ? e.message : String(e) })
+    }
+    setCouponBusy(false)
+    busy.current = false
+  }
+
   async function pay() {
     if (busy.current) return
     if (!method) return setError('Choose how you want to pay')
@@ -105,7 +154,30 @@ export default function TokensPage({ onBack }) {
     setError('')
     busy.current = true
     setScreen('processing')
-    const plan = toPlan(selected)
+
+    // The admin may have changed this package a moment ago, so check the latest before any money moves
+    setStatus('Checking the latest price...')
+    const fresh = await refreshPlans()
+    let chosen = selected
+    if (fresh) {
+      const latest = fresh.find((p) => p.id === selected.id)
+      if (!latest) {
+        busy.current = false
+        setSelected(null)
+        setError('That package is no longer available.')
+        setScreen('list')
+        return
+      }
+      if (latest.price !== selected.price || (latest.units || 0) !== (selected.units || 0) || (latest.days || 0) !== (selected.days || 0)) {
+        busy.current = false
+        setSelected(latest)
+        setError('This package changed. Check the new price and press Pay again.')
+        setScreen('method')
+        return
+      }
+      chosen = latest
+    }
+    const plan = toPlan(chosen)
 
     if (method === 'airtime') {
       setStatus('Starting the payment...')
@@ -172,6 +244,7 @@ export default function TokensPage({ onBack }) {
     setReceipt(null)
     setError('')
     refresh()
+    refreshPlans()
   }
 
   const canGoBack = screen !== 'processing'
@@ -250,13 +323,23 @@ export default function TokensPage({ onBack }) {
         .tk-card .tk-price { grid-column: 2; grid-row: 1 / span 2; font-size: 13px; white-space: nowrap; }
         .tk-card .tk-buy { grid-column: 3; grid-row: 1 / span 2; min-width: 64px; padding: 9px 16px; font-size: 13px; border-radius: 10px; }
         .tk-status { font-weight: 600; margin: 14px 0 0; }
+        .tk-coupon { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--tk-border); border-radius: 14px; background: var(--tk-card); }
+        .tk-coupon h3 { margin: 0 0 8px; font-size: 14px; }
+        .tk-coupon-row { display: flex; gap: 8px; }
+        .tk-coupon-row input { flex: 1; min-width: 0; box-sizing: border-box; padding: 11px 12px; border: 2px solid var(--tk-border); border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 16px; letter-spacing: 2px; text-transform: uppercase; outline: none; }
+        .tk-coupon-row input:focus { border-color: var(--tk-accent); }
+        .tk-coupon-row button { padding: 0 18px; border: 0; border-radius: 10px; background: var(--tk-accent); color: var(--tk-on); font: inherit; font-weight: 700; cursor: pointer; }
+        .tk-coupon-row button:disabled { opacity: .6; cursor: default; }
+        .tk-coupon-msg { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
+        .tk-coupon-msg.ok { color: var(--tk-ok); }
+        .tk-coupon-msg.bad { color: var(--danger, #D32F2F); }
       `}</style>
 
       <div className="tk-inner">
         <div className="tk-head">
           <button className="tk-icon-btn" onClick={screen === 'list' ? onBack : finish} aria-label="Go back" disabled={!canGoBack}>←</button>
           <h1>Token Top Up</h1>
-          <button className="tk-icon-btn" onClick={refresh} aria-label="Refresh balance">↻</button>
+          <button className="tk-icon-btn" onClick={() => { refresh(); refreshPlans() }} aria-label="Refresh balance">↻</button>
         </div>
 
         {screen === 'list' && (
@@ -272,9 +355,25 @@ export default function TokensPage({ onBack }) {
               </div>
             </div>
 
+            {error && <p className="tk-err" role="alert">{error}</p>}
+
+            <div className="tk-coupon">
+              <h3>Have a coupon?</h3>
+              <div className="tk-coupon-row">
+                <input
+                  type="text" inputMode="text" autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false}
+                  placeholder="8-character code" maxLength={8} value={coupon} aria-label="Coupon code"
+                  onChange={(e) => { setCoupon(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8)); setCouponMsg(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') redeem() }}
+                />
+                <button onClick={redeem} disabled={couponBusy || coupon.length !== 8}>{couponBusy ? 'Please wait…' : 'Redeem'}</button>
+              </div>
+              {couponMsg && <p className={`tk-coupon-msg ${couponMsg.ok ? 'ok' : 'bad'}`} role="status">{couponMsg.text}</p>}
+            </div>
+
             <h2 className="tk-sub">Available Packages</h2>
             <div className="tk-list">
-              {PACKAGES.map((pkg) => (
+              {packages.map((pkg) => (
                 <article className="tk-card" key={pkg.id}>
                   <div>
                     <h3>{pkg.title}</h3>
@@ -284,6 +383,7 @@ export default function TokensPage({ onBack }) {
                   <button className="tk-buy" onClick={() => startBuy(pkg)}>Buy</button>
                 </article>
               ))}
+              {packages.length === 0 && <p className="tk-wait">No packages are available right now. Please check again later.</p>}
             </div>
           </>
         )}

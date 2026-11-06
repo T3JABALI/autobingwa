@@ -16,13 +16,14 @@ import { findAutoReply, fillTemplate as fillReply } from './autoRepliesStore.js'
 import { recordClientPurchase } from './clientsStore.js'
 import { addContact } from './contactsStore.js'
 import { tokensActive } from './tokens.js'
-import { chargeToken } from '../features/home/dataStore.js'
-
+import { startContactSync } from './contactSync.js'
 import {
   loadTransactions,
   addTransaction,
   updateTransaction,
   deleteTransaction,
+  chargeToken,
+  removeDemoData,
 } from '../features/home/dataStore.js'
 
 function readJson(key, fallback) {
@@ -130,19 +131,6 @@ const realBridge = {
             return runFlow({ ussd, phone, slot, express: false, ...timeouts })
           }
         }
-        // The phone refused the silent request (code -1 or -2): try once more, then use the dialer window
-        if (/USSD failed, code -[12]\b/.test(msg) || /USSD error/.test(msg)) {
-          try {
-            await new Promise((r) => setTimeout(r, 1500))
-            const again = await AutoBingwa.runUssd({ code, slot, express: true })
-            return { ok: true, status: 'complete', responses: [{ input: code, text: again.text || '' }] }
-          } catch (err2) {
-            console.error('AB express retry', err2)
-          }
-          if (await ussdServiceEnabled()) {
-            return runFlow({ ussd, phone, slot, express: false, ...timeouts })
-          }
-        }
         // A timeout means the request went out but no answer came back. The plan may have sold,
         // so report "no reply" (unknown) instead of a definite failure. That blocks retries and fallbacks.
         if (/timed out/i.test(msg)) {
@@ -172,6 +160,7 @@ const bridge = isNative() ? realBridge : simulatedBridge
 
 // Create engine
 export const engine = createEngine({
+  ...startContactSync(engine),
   store,
   bridge,
   getOffers: () => readJson('myOffers', []),
@@ -180,6 +169,7 @@ export const engine = createEngine({
   chargeToken,
 })
 
+removeDemoData() // one-time: clears the old sample transactions
 engine.recover()
 
 // A bought token releases anything that was waiting for one

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { adminFetch } from './adminApi';
 import TokensAdmin from './TokensAdmin';
 import './admin.css';
-
+import PortalAdmin from './PortalAdmin';
+import ContactsAdmin from './ContactsAdmin';
 const NAV = [
   ['home', 'Home', '⌂'],
   ['smart', 'Smart plans', '✦'],
@@ -157,6 +158,8 @@ export default function AdminApp({ email, logout }) {
   if (page === 'home') body = <Home name={name} go={go} />;
   else if (page === 'tokens') body = <TokensAdmin />;
   else if (page === 'settings') body = <Settings email={email} logout={logout} />;
+    else if (page === 'portal') body = <PortalAdmin />;
+  else if (page === 'contacts') body = <ContactsAdmin />;
   else body = <Placeholder title={TITLES[page]} />;
 
   return (

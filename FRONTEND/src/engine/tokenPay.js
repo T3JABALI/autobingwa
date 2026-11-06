@@ -1,16 +1,15 @@
 import { engine } from './index.js'
-import { AutoBingwa, isNative, refreshAirtime, ussdServiceEnabled, dialUssdOnce } from './native.js'
+import { AutoBingwa, isNative, refreshAirtime } from './native.js'
 import { loadConfig } from './config.js'
 import { grantTokens } from './tokens.js'
 import { parsePhone } from '../features/quickdial/ussd.js'
 
 export const AIRTIME_NUMBER = '0143926894'
-// Set VITE_TOKEN_API to your Render URL, e.g. https://autobingwa-payments.onrender.com
-export const TOKEN_API = import.meta.env.VITE_TOKEN_API || ''
+// Your Render server address, no slash at the end
+export const TOKEN_API = 'https://autobingwa-payments.onrender.com'
 
 const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'
-const SMS_LOG = 'ab:recent-sms'
 const EXPIRE_MS = 10 * 60000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -36,62 +35,22 @@ async function waitIdle() {
   }
 }
 
-// The confirmation text, on the screen or in an SMS:
-// "You have transferred 5.00 KSH from your account to 0143926894. Your account balance is ..."
-// Only the words and the receiving number matter. The amount and the balance are ignored.
-function confirmsTransfer(text) {
-  const t = String(text || '')
-  if (!/you\s+have\s+transferred/i.test(t)) return false
-  if (/fail|insufficient|not\s+enough|unable|error|invalid/i.test(t)) return false
-  const m = t.match(/from\s+your\s+account\s+to\s+(\+?[\d\s-]{9,15})/i)
-  if (!m) return false
-  const digits = m[1].replace(/\D/g, '')
-  return digits.slice(-9) === AIRTIME_NUMBER.slice(-9) // the right recipient
-}
-
-// Backup: looks through the recent SMS list (filled by native.js, if you added logRecentSms)
-function findAirtimeSms(p) {
-  const list = read(SMS_LOG) || []
-  return list.some((s) => s && s.at >= p.startedAt - 5000 && confirmsTransfer(s.body))
-}
-
-// Second proof of payment: the airtime really dropped by at least the amount
-async function airtimeDropped(p) {
-  if (p.before === null || p.before === undefined) return false
-  try {
-    const now = await refreshAirtime(p.slot)
-    return now !== null && p.before - now >= p.amount
-  } catch (e) {
-    return false
-  }
-}
-
-// Adds the token as soon as the transfer confirmation is seen
-export async function verifyAirtimePayment({ onStatus = () => {}, waitMs = 20000 } = {}) {
+// Confirms that the airtime really left the SIM, then (and only then) adds the token
+export async function verifyAirtimePayment({ onStatus = () => {} } = {}) {
   const p = pendingAirtimePayment()
   if (!p) throw new Error('There is no payment waiting to be confirmed.')
-
   if (p.status !== 'paid') {
-    let confirmed = confirmsTransfer(p.screen) || findAirtimeSms(p)
-    if (!confirmed) {
-      onStatus('Waiting for the confirmation...')
-      const end = Date.now() + waitMs
-      while (!confirmed && Date.now() < end) {
-        await sleep(2000)
-        confirmed = findAirtimeSms(p)
-      }
-    }
-    if (!confirmed) confirmed = await airtimeDropped(p)
-    if (!confirmed) {
+    onStatus('Confirming the airtime left your SIM...')
+    const after = await refreshAirtime(p.slot)
+    if (!(p.before - after >= p.amount - 0.01)) {
       return {
         status: 'unconfirmed',
-        message: 'The transfer was not confirmed, so no token was added. Press Check payment in a moment.',
+        message: `Your airtime did not drop (KES ${p.before} before, KES ${after} now), so no token was added.`,
       }
     }
     write(PENDING, { ...p, status: 'paid' })
   }
-
-  grantTokens(p.plan, 'airtime', p.id) // the payment id is the reference, so it can never credit twice
+  grantTokens(p.plan, 'airtime', p.id)
   clear(PENDING)
   engine.hold(false)
   return { status: 'paid', message: `Payment confirmed. ${p.plan.label} added.` }
@@ -102,7 +61,7 @@ export function cancelAirtimePayment() {
   engine.hold(false)
 }
 
-// Dials *140*amount*0143926894# ONCE, reads the confirmation, then adds the token
+// Dials *140*amount*0143926894# silently, checks the balance dropped, then adds the token
 export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSlot } = {}) {
   if (!isNative()) throw new Error('Paying with airtime only works inside the Android app.')
   if (pendingAirtimePayment()) throw new Error('A payment is still being confirmed. Confirm or cancel it first.')
@@ -116,47 +75,19 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
   try {
     onStatus('Waiting for running transactions to finish...')
     await waitIdle()
-
-    // Only a friendly pre-check. If the balance cannot be read, the payment still goes ahead.
-    let before = null
-    try {
-      onStatus('Checking your airtime balance...')
-      before = await refreshAirtime(slot)
-    } catch (e) {
-      console.error('AB airtime pre-check', e)
-    }
-    if (before !== null && before < amount) {
-      throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
-    }
+    onStatus('Checking your airtime balance...')
+    const before = await refreshAirtime(slot)
+    if (before < amount) throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
 
     // Saved BEFORE dialing, so a crash can never dial twice
-    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed', screen: '' })
+    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed' })
     onStatus('Sending airtime...')
-    let screen = ''
-    const code = `*140*${amount}*${AIRTIME_NUMBER}#`
-
-    // Errors that mean nothing was sent yet, so trying the dialer afterwards cannot pay twice
-    const NOT_SENT = /permission not granted|cannot run USSD silently|No SIM found|No USSD code/i
     try {
-      const res = await AutoBingwa.runUssd({ code, slot }) // silent: no dialer, no window, no keyboard
-      console.log('AB airtime pay raw', JSON.stringify(res))
-      screen = String((res && res.text) || '')
+      await AutoBingwa.runUssd({ code: `*140*${amount}*${AIRTIME_NUMBER}#`, slot, express: true })
     } catch (e) {
-      const msg = String((e && e.message) || '')
-      console.error('AB airtime silent dial', e)
-      screen = msg
-      if (NOT_SENT.test(msg) && (await ussdServiceEnabled())) {
-        try {
-          const res = await dialUssdOnce({ code, slot })
-          screen = String((res && (res.text || res.message)) || '')
-        } catch (e2) {
-          screen = String((e2 && e2.message) || msg)
-        }
-      }
+      console.error('AB airtime dial', e) // the balance check below decides what really happened
     }
-    write(PENDING, { ...read(PENDING), screen })
-    await sleep(1000)
-
+    await sleep(6000)
     try {
       const r = await verifyAirtimePayment({ onStatus })
       if (r.status === 'unconfirmed') keepHold = true
@@ -171,7 +102,8 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
 }
 
 // ---------------- M-Pesa (needs the payment server) ----------------
-function deviceId() {
+// Exported so the contact sync can identify this phone to the server
+export function deviceId() {
   let id = localStorage.getItem('device:id')
   if (!id) { id = 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('device:id', id) }
   return id
@@ -216,10 +148,10 @@ export async function waitForMpesaPayment({ onStatus = () => {}, timeoutMs = 120
   while (Date.now() < end) {
     const d = await api(`/tokens/mpesa/status/${encodeURIComponent(p.paymentId)}?deviceId=${deviceId()}`)
     if (d.status === 'paid') {
-      if (d.planId !== p.plan.id || Number(d.amount) !== Number(p.plan.price)) {
+      if (d.planId !== p.plan.id) {
         throw new Error('The payment does not match the plan. Contact support.')
       }
-      grantTokens(p.plan, 'mpesa', d.receipt || p.paymentId)
+      grantTokens({ ...p.plan, price: Number(d.amount) || p.plan.price }, 'mpesa', d.receipt || p.paymentId)
       clear(MPESA_PENDING)
       return { status: 'paid', message: `Payment received. ${p.plan.label} added.` }
     }
@@ -239,8 +171,56 @@ export function recoverTokenPayments() {
   if (p && p.status === 'paid') {
     grantTokens(p.plan, 'airtime', p.id)
     clear(PENDING)
-    engine.hold(false)
   } else if (pendingAirtimePayment()) {
     engine.hold(true) // keep customer transactions away from the SIM until it is confirmed or cancelled
   }
+}
+// ---------------- Live token plans and coupons (set by the admin) ----------------
+const PLANS_CACHE = 'tokens:plans'
+
+// The last token list the server gave us (null if there is none yet)
+export function cachedTokenPlans() {
+  const v = read(PLANS_CACHE)
+  return Array.isArray(v) ? v : null
+}
+
+// The live token list from the admin. Saved on the phone so it still shows offline.
+export async function fetchTokenPlans() {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 8000)
+  try {
+    const res = await fetch(TOKEN_API + '/tokens/plans', { signal: ctl.signal })
+    if (!res.ok) throw new Error(`The server answered ${res.status}`)
+    const d = await res.json()
+    if (!Array.isArray(d.plans)) throw new Error('Unexpected answer from the server')
+    write(PLANS_CACHE, d.plans)
+    return d.plans
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Sends a coupon code to the server. If it is valid, the gift is added to the wallet.
+export async function redeemCoupon(codeText) {
+  const code = String(codeText || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (code.length !== 8) throw new Error('A coupon code has 8 letters and numbers.')
+  let res
+  try {
+    res = await fetch(TOKEN_API + '/tokens/coupon/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, deviceId: deviceId() }),
+    })
+  } catch (e) {
+    throw new Error('Could not reach the server. Check your internet and try again.')
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.ok) throw new Error(data.error || `The server answered ${res.status}`)
+  const amount = Number(data.amount) || 0
+  const plan = {
+    id: 'coupon-' + code, label: data.label || 'Gift', price: 0,
+    ...(data.kind === 'days' ? { days: amount } : { units: amount }),
+  }
+  const entry = grantTokens(plan, 'coupon', data.receipt || 'COUPON-' + code)
+  return entry || { label: plan.label }
 }
