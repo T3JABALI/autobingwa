@@ -356,6 +356,7 @@ function cleanSnapshot(s = {}) {
     airUsed: num(s.airUsed), airBal: num(s.airBal),
     battery: Math.max(0, Math.min(100, Math.round(num(s.battery)))), charging: !!s.charging,
     commission: num(s.commission), running: !!s.running, unlimitedUntil: str(s.unlimitedUntil, 10), recent,
+    hidden: (Array.isArray(s.hidden) ? s.hidden : []).slice(0, 300).map((x) => str(x, 64)),
     offers: (Array.isArray(s.offers) ? s.offers : []).slice(0, 150).filter((o) => o && typeof o === 'object').map(cleanOffer).filter((o) => o.id && o.ussd),
   }
 }
@@ -437,8 +438,16 @@ app.post('/device/sync',
       const portalOn = !!b.portalOn
       const patch = { portal_enabled: portalOn, last_seen: new Date().toISOString() }
       if (portalOn && b.snapshot) patch.snapshot = cleanSnapshot(b.snapshot)
+      const hidden = patch.snapshot ? patch.snapshot.hidden : []
+      if (patch.snapshot) delete patch.snapshot.hidden // no need to store this list on the device row
       await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
-      if (portalOn && patch.snapshot) { try { await saveTx(req.dev.id, patch.snapshot.recent) } catch (e) { console.error('saveTx', e.message) } }
+      if (portalOn && patch.snapshot) {
+        try {
+          await saveTx(req.dev.id, patch.snapshot.recent)
+          if (hidden.length)
+            await pool.query('DELETE FROM portal_tx WHERE device_id=$1 AND tx_id=ANY($2::text[]) AND NOT qd', [String(req.dev.id), hidden])
+        } catch (e) { console.error('saveTx', e.message) }
+      }
 
       const cutoff = new Date(Date.now() - 120000).toISOString()
       await sbAdmin.from('device_commands').update({ status: 'expired' })

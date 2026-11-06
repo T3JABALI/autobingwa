@@ -8,6 +8,7 @@ import { payWithAirtime } from '../../engine/tokenPay.js'
 import { grantTokens } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
 import { subscribe, loadTransactions, loadAirtime, loadWallet } from '../home/dataStore.js'
+import { loadConfig, setPortal } from '../../engine/config.js'
 
 const SERVER = 'https://autobingwa-payments.onrender.com'
 const ID_KEY = 'connect:id'
@@ -69,6 +70,7 @@ async function report(c, auth, ok, msg, data) {
     console.error('portal report', e && e.message ? e.message : e)
   }
 }
+
 // Same rule as the Home screen: an original that has a fallback is hidden, only the fallback shows
 function visibleTxs(txs) {
   const hidden = new Set()
@@ -89,7 +91,7 @@ const responseText = (t) =>
     ? t.responses.map((r, i) => `--- Screen ${i + 1} (input: ${r.input}) ---\n${r.text}`).join('\n\n')
     : 'No response recorded yet.'
 
-const CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA']
+const CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA', 'BINGWA']
 const defTw = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
 const stamp = () => new Date().toLocaleString()
 
@@ -208,6 +210,14 @@ async function buildSnapshot() {
     if (typeof b.batteryLevel === 'number') lastBattery = { level: Math.round(b.batteryLevel * 100), charging: !!b.isCharging }
   } catch (e) { /* keep the last known battery */ }
 
+  // Transactions the app hides (an original that has a fallback). The portal must not keep them.
+  const visibleIds = new Set(visible.map((t) => t.id))
+  const hidden = txs
+    .filter((t) => !visibleIds.has(t.id))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 300)
+    .map((t) => String(t.id))
+
   const recent = [...visible]
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 20)
@@ -237,6 +247,7 @@ async function buildSnapshot() {
     running: engine.isRunning(),
     offers: offersForPortal(),
     recent,
+    hidden,
   }
 }
 
