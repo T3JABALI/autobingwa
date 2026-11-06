@@ -160,7 +160,6 @@ const bridge = isNative() ? realBridge : simulatedBridge
 
 // Create engine
 export const engine = createEngine({
-  ...startContactSync(engine),
   store,
   bridge,
   getOffers: () => readJson('myOffers', []),
@@ -168,6 +167,9 @@ export const engine = createEngine({
   hasToken: tokensActive,
   chargeToken,
 })
+
+// Sends each buyer's name and number to the admin Contacts page (queued while offline)
+startContactSync(engine)
 
 removeDemoData() // one-time: clears the old sample transactions
 engine.recover()
