@@ -695,7 +695,7 @@ app.get('/portal/commands/:id', async (req, res) => {
     res.json({ status: s, message: c.result_msg || (c.status === 'expired' ? 'The phone did not respond.' : '') })
   } catch (e) { console.error('command status', e); res.status(500).json({ error: 'Could not check the command.' }) }
 })
-/* ---------- Transaction buttons: Reschedule and Delete (Retry comes next) ---------- */
+/* ---------- Transaction buttons: Retry, Reschedule and Delete ---------- */
 // The portal's transaction id is "deviceId:phoneTxId". This finds the phone and checks it is yours and online.
 async function txTarget(req, res, allowed) {
   if (!planInfo(req.acct).active) { res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' }); return null }
@@ -710,6 +710,19 @@ async function txTarget(req, res, allowed) {
   if (!allowed.includes(r.rows[0].st)) { res.status(409).json({ error: 'This transaction is ' + r.rows[0].st + ', so that action is not available.' }); return null }
   return { d, txId }
 }
+
+app.post('/portal/tx/:id/retry', portalLimit(200), async (req, res) => {
+  try {
+    const t = await txTarget(req, res, ['Failed']) // retrying anything else could sell the plan twice
+    if (!t) return
+    const { data: dup } = await sbAdmin.from('device_commands').select('id').eq('device_id', t.d.id).eq('type', 'tx_retry')
+      .in('status', ['pending', 'sent']).eq('payload->>txId', t.txId)
+      .gte('created_at', new Date(Date.now() - 60000).toISOString()).limit(1)
+    if (dup && dup.length) return res.status(409).json({ error: 'A retry for this transaction was just sent. Wait a moment.' })
+    await queueCmd(t.d.id, 'tx_retry', { txId: t.txId })
+    res.json({ ok: true })
+  } catch (e) { console.error('tx retry', e); res.status(500).json({ error: 'Could not retry.' }) }
+})
 
 app.post('/portal/tx/:id/reschedule', portalLimit(200), async (req, res) => {
   try {

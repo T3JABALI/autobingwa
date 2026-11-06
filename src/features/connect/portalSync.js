@@ -6,9 +6,9 @@ import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
 import { loadConfig, setPortal } from '../../engine/config.js'
 import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
 import { payWithAirtime } from '../../engine/tokenPay.js'
-import { grantTokens } from '../../engine/tokens.js'
+import { grantTokens, tokensActive } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
-import { subscribe, loadTransactions, updateTransaction, deleteTransaction, loadAirtime, loadWallet } from '../home/dataStore.js'
+import { subscribe, loadTransactions, loadAirtime, loadWallet } from '../home/dataStore.js'
 
 const SERVER = 'https://autobingwa-payments.onrender.com'
 const ID_KEY = 'connect:id'
@@ -265,6 +265,8 @@ async function runAirtimeCheck() {
   }
 }
 
+const findTx = (id) => loadTransactions().find((x) => String(x.id) === String(id))
+
 async function handleCommand(c, auth) {
   const p = c.payload || {}
 
@@ -319,21 +321,31 @@ async function handleCommand(c, auth) {
     grantTokens(plan, 'mpesa', String(p.paymentId)) // returns null if this payment was already credited
     await report(c, auth, true, `${plan.label} added.`)
     soon()
-  } else if (c.type === 'tx_delete') {
-    const t = loadTransactions().find((x) => String(x.id) === String(p.txId))
-    if (!t) return report(c, auth, true, 'The transaction was already gone.')
-    if (t.status === 'Processing') return report(c, auth, false, 'It is being processed right now. Try again when it finishes.')
-    deleteTransaction(t.id)
-    await report(c, auth, true, 'Transaction deleted.')
+  } else if (c.type === 'tx_retry') {
+    // Same engine call as the app's Retry button. Only a Failed transaction, so nothing is sold twice.
+    const t = findTx(p.txId)
+    if (!t) return report(c, auth, false, 'That transaction is no longer on the phone.')
+    if (t.status !== 'Failed') return report(c, auth, false, `Only a failed transaction can be retried. This one is ${t.status}.`)
+    if (t.hasFallback) return report(c, auth, false, 'A fallback plan was already started for this one, so it cannot be retried.')
+    if (!tokensActive()) return report(c, auth, false, 'You have no active token. Buy a token to continue.')
+    engine.retry(t.id)
+    await report(c, auth, true, 'Retry started on the phone.')
     soon()
   } else if (c.type === 'tx_reschedule') {
-    const t = loadTransactions().find((x) => String(x.id) === String(p.txId))
+    const t = findTx(p.txId)
     if (!t) return report(c, auth, false, 'That transaction is no longer on the phone.')
     if (t.status !== 'Failed' && t.status !== 'Scheduled') return report(c, auth, false, 'Only a failed or scheduled transaction can be rescheduled.')
     const at = Number(p.at)
     if (!(at > Date.now())) return report(c, auth, false, 'The time must be in the future.')
-    updateTransaction(t.id, { status: 'Scheduled', scheduledFor: at })
+    engine.reschedule(t.id, at)
     await report(c, auth, true, 'Transaction rescheduled.')
+    soon()
+  } else if (c.type === 'tx_delete') {
+    const t = findTx(p.txId)
+    if (!t) return report(c, auth, true, 'The transaction was already gone.')
+    if (t.status === 'Processing') return report(c, auth, false, 'It is being processed right now. Try again when it finishes.')
+    engine.remove(t.id)
+    await report(c, auth, true, 'Transaction deleted.')
     soon()
   } else if (c.type === 'offer_add') {
     const src = p.offer || p
