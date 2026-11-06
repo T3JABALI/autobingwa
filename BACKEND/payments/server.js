@@ -114,7 +114,35 @@ app.use(cors())
 app.use(express.json({ limit: '1mb' }))
 app.use((req, res, next) => { console.log(req.method, req.path); next() })
 app.get('/', (req, res) => res.send('AutoBingwa token server running'))
+/* ================= ADMIN (role is stored in the profiles table) ================= */
 
+// Everything under /admin needs a logged-in user whose profiles.role is 'admin'.
+// The role is checked here on the server every time; the app screen is only for show.
+async function requireAdmin(req, res, next) {
+  try {
+    if (!sbAdmin) return res.status(503).json({ error: 'Admin is not configured yet.' })
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+    if (!token) return res.status(401).json({ error: 'unauthorized' })
+
+    const { data, error } = await sbAdmin.auth.getUser(token)
+    if (error || !data || !data.user) return res.status(401).json({ error: 'unauthorized' })
+
+    const { data: p } = await sbAdmin.from('profiles').select('role').eq('id', data.user.id).maybeSingle()
+    if (!p || p.role !== 'admin') return res.status(403).json({ error: 'forbidden' })
+
+    req.adminUser = data.user
+    next()
+  } catch (e) {
+    console.error('requireAdmin', e)
+    res.status(401).json({ error: 'unauthorized' })
+  }
+}
+app.use('/admin', rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false }))
+
+// Test route: confirms the admin login reaches the server
+app.get('/admin/ping', requireAdmin, (req, res) => {
+  res.json({ ok: true, admin: req.adminUser.email })
+})
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.
