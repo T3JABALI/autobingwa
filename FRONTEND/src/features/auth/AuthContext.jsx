@@ -15,8 +15,24 @@ const writeCache = (u) => {
   } catch (e) { /* ignore */ }
 };
 
+// The role is cached only so the screen opens instantly. The server checks the real role every time.
+const ROLE = 'ab:role';
+const readRole = (id) => {
+  try {
+    const r = JSON.parse(localStorage.getItem(ROLE) || 'null');
+    return r && r.id === id ? r.role : null;
+  } catch (e) { return null; }
+};
+const writeRole = (id, role) => {
+  try {
+    if (id) localStorage.setItem(ROLE, JSON.stringify({ id, role }));
+    else localStorage.removeItem(ROLE);
+  } catch (e) { /* ignore */ }
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [role, setRole] = useState(undefined); // undefined = still loading, otherwise 'admin' or 'user'
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -66,10 +82,31 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  // Load the role whenever a different user signs in
+  const userId = user ? user.id : null;
+  useEffect(() => {
+    if (!userId) { setRole(undefined); return; }
+    let alive = true;
+    const cached = readRole(userId);
+    if (cached) setRole(cached);
+    supabase.from('profiles').select('role').eq('id', userId).maybeSingle()
+      .then(({ data, error }) => {
+        if (!alive) return;
+        // If the check fails (for example no network), fall back to the cached role, otherwise a normal user
+        const r = error ? (cached || 'user') : ((data && data.role) || 'user');
+        setRole(r);
+        writeRole(userId, r);
+      })
+      .catch(() => { if (alive) setRole(cached || 'user'); });
+    return () => { alive = false; };
+  }, [userId]);
+
   const logout = async () => {
     await supabase.auth.signOut();
     writeCache(null);
+    writeRole(null);
+    setRole(undefined);
   };
 
-  return <Ctx.Provider value={{ user, loading, logout }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, role, loading, logout }}>{children}</Ctx.Provider>;
 }
