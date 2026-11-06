@@ -3,12 +3,12 @@ import { Device } from '@capacitor/device'
 import { engine } from '../../engine/index.js'
 import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled } from '../../engine/native.js'
 import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
+import { loadConfig, setPortal } from '../../engine/config.js'
 import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
 import { payWithAirtime } from '../../engine/tokenPay.js'
 import { grantTokens } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
-import { subscribe, loadTransactions, loadAirtime, loadWallet } from '../home/dataStore.js'
-import { loadConfig, setPortal } from '../../engine/config.js'
+import { subscribe, loadTransactions, updateTransaction, deleteTransaction, loadAirtime, loadWallet } from '../home/dataStore.js'
 
 const SERVER = 'https://autobingwa-payments.onrender.com'
 const ID_KEY = 'connect:id'
@@ -318,6 +318,22 @@ async function handleCommand(c, auth) {
     if (!plan || !p.paymentId) return report(c, auth, false, 'Unknown token pack or payment.')
     grantTokens(plan, 'mpesa', String(p.paymentId)) // returns null if this payment was already credited
     await report(c, auth, true, `${plan.label} added.`)
+    soon()
+  } else if (c.type === 'tx_delete') {
+    const t = loadTransactions().find((x) => String(x.id) === String(p.txId))
+    if (!t) return report(c, auth, true, 'The transaction was already gone.')
+    if (t.status === 'Processing') return report(c, auth, false, 'It is being processed right now. Try again when it finishes.')
+    deleteTransaction(t.id)
+    await report(c, auth, true, 'Transaction deleted.')
+    soon()
+  } else if (c.type === 'tx_reschedule') {
+    const t = loadTransactions().find((x) => String(x.id) === String(p.txId))
+    if (!t) return report(c, auth, false, 'That transaction is no longer on the phone.')
+    if (t.status !== 'Failed' && t.status !== 'Scheduled') return report(c, auth, false, 'Only a failed or scheduled transaction can be rescheduled.')
+    const at = Number(p.at)
+    if (!(at > Date.now())) return report(c, auth, false, 'The time must be in the future.')
+    updateTransaction(t.id, { status: 'Scheduled', scheduledFor: at })
+    await report(c, auth, true, 'Transaction rescheduled.')
     soon()
   } else if (c.type === 'offer_add') {
     const src = p.offer || p

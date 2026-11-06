@@ -487,8 +487,9 @@ app.post('/device/command-result', deviceAuth, async (req, res) => {
     }
     await sbAdmin.from('device_commands').update({ status: 'sent', result: ok ? 'ok' : 'failed', result_msg: store, done_at: new Date().toISOString() }).eq('id', id)
     const txId = c.payload && c.payload.txId
-    if (txId) await pool.query("UPDATE portal_tx SET st=$3, resp=CASE WHEN $4::text='' THEN resp ELSE $4::text END WHERE device_id=$1 AND tx_id=$2",
+    if (txId && c.type === 'quickdial') await pool.query("UPDATE portal_tx SET st=$3, resp=CASE WHEN $4::text='' THEN resp ELSE $4::text END WHERE device_id=$1 AND tx_id=$2",
       [String(req.dev.id), txId, ok ? 'Completed' : 'Failed', msg])
+    if (txId && c.type === 'tx_delete' && ok) await pool.query('DELETE FROM portal_tx WHERE device_id=$1 AND tx_id=$2', [String(req.dev.id), txId])
     res.json({ ok: true })
   } catch (e) { console.error('command-result', e); res.status(500).json({ error: 'Could not save the result.' }) }
 })
@@ -694,7 +695,43 @@ app.get('/portal/commands/:id', async (req, res) => {
     res.json({ status: s, message: c.result_msg || (c.status === 'expired' ? 'The phone did not respond.' : '') })
   } catch (e) { console.error('command status', e); res.status(500).json({ error: 'Could not check the command.' }) }
 })
+/* ---------- Transaction buttons: Reschedule and Delete (Retry comes next) ---------- */
+// The portal's transaction id is "deviceId:phoneTxId". This finds the phone and checks it is yours and online.
+async function txTarget(req, res, allowed) {
+  if (!planInfo(req.acct).active) { res.status(403).json({ error: 'Your subscription has expired. Renew it to control your phones.' }); return null }
+  const raw = String(req.params.id || ''), i = raw.indexOf(':')
+  if (i < 1) { res.status(404).json({ error: 'Transaction not found.' }); return null }
+  const d = await ownedDev(req, raw.slice(0, i))
+  if (!d) { res.status(404).json({ error: 'Transaction not found.' }); return null }
+  if (!isOnline(d)) { res.status(409).json({ error: 'The phone is offline. Open AutoBingwa on it and check that AutoBingwa Portal is on.' }); return null }
+  const txId = raw.slice(i + 1)
+  const r = await pool.query('SELECT st FROM portal_tx WHERE device_id=$1 AND tx_id=$2', [String(d.id), txId])
+  if (!r.rows[0]) { res.status(404).json({ error: 'Transaction not found.' }); return null }
+  if (!allowed.includes(r.rows[0].st)) { res.status(409).json({ error: 'This transaction is ' + r.rows[0].st + ', so that action is not available.' }); return null }
+  return { d, txId }
+}
 
+app.post('/portal/tx/:id/reschedule', portalLimit(200), async (req, res) => {
+  try {
+    const t = await txTarget(req, res, ['Failed', 'Scheduled'])
+    if (!t) return
+    const at = Date.parse(req.body && req.body.at)
+    if (!Number.isFinite(at) || at <= Date.now() + 30000) return res.status(400).json({ error: 'Choose a time in the future.' })
+    if (at > Date.now() + 30 * DAY) return res.status(400).json({ error: 'Choose a time within the next 30 days.' })
+    await queueCmd(t.d.id, 'tx_reschedule', { txId: t.txId, at })
+    await pool.query("UPDATE portal_tx SET st='Scheduled' WHERE device_id=$1 AND tx_id=$2", [String(t.d.id), t.txId])
+    res.json({ ok: true })
+  } catch (e) { console.error('tx reschedule', e); res.status(500).json({ error: 'Could not reschedule.' }) }
+})
+
+app.delete('/portal/tx/:id', portalLimit(200), async (req, res) => {
+  try {
+    const t = await txTarget(req, res, ['Completed', 'Failed', 'Pending', 'Scheduled', 'Unmatched', 'Paused', 'Skipped'])
+    if (!t) return
+    await queueCmd(t.d.id, 'tx_delete', { txId: t.txId })
+    res.json({ ok: true })
+  } catch (e) { console.error('tx delete', e); res.status(500).json({ error: 'Could not delete.' }) }
+})
 /* ================= PORTAL DATA PLANS (the offers on each phone) =================
    Every change is queued as a command for the phone, and the saved copy of the phone's
    offers is updated right away so the portal looks instant. The phone's next sync then

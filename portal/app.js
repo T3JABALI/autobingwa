@@ -150,7 +150,7 @@ tback(){S.tx=null;reload()},
 async copy(d){try{await navigator.clipboard.writeText(cur()[d.k]);toast('Copied')}catch(e){toast('Could not copy. Select the text and copy it by hand.')}},
 async retry(){const t=cur();await call('POST','/portal/tx/'+t.id+'/retry');t.st='Pending';render();toast('Retry sent to the phone')},
 resched(){modal(`<h3>Reschedule</h3><label>New date and time<input id="rs" class="in" type="datetime-local"></label><p id="re" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="rsok">Schedule</button></div>`)},
-async rsok(){const v=$('#rs').value;if(!v||new Date(v)<=new Date())return $('#re').textContent='Choose a time in the future';const t=cur();await call('POST','/portal/tx/'+t.id+'/reschedule',{at:v});t.st='Scheduled';A.close();render();toast('Transaction rescheduled')},
+async rsok(){const v=$('#rs').value;if(!v||new Date(v)<=new Date())return $('#re').textContent='Choose a time in the future';const t=cur();await call('POST','/portal/tx/'+t.id+'/reschedule',{at:new Date(v).toISOString()});t.st='Scheduled';A.close();render();toast('Transaction rescheduled')},
 async del(){if(!await ask('Delete transaction?','This transaction will be removed for good.','Delete',1))return;await call('DELETE','/portal/tx/'+S.tx);DB.tx=DB.tx.filter(x=>x.id!==S.tx);S.tx=null;render();toast('Transaction deleted')},
 padd(){pform(null)},pedit(d){pform(pl(d.id))},
 async psave(d){const n=$('#pn').value.trim(),u=$('#pu').value.trim(),pr=Number($('#pp').value),e=$('#pe');
