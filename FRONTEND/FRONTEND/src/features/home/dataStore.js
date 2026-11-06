@@ -6,7 +6,7 @@ const WALLET_KEY = 'tokens:wallet'
 const CONFIG_KEY = 'settings:config'
 const EVENT = 'autobingwa-data'
 
-// Tokens used by each successful transaction (not used while an unlimited plan is active).
+// Tokens used by each transaction chain (not used while an unlimited plan is active).
 export const TOKENS_PER_TRANSACTION = 1
 
 function read(key, fallback) {
@@ -79,7 +79,7 @@ function applyCompletion(tx) {
   if (cost) write(AIRTIME_KEY, Math.max(0, loadAirtime() - cost))
 }
 
-// One token per dialed transaction, whether it ended Completed or Failed (unlimited plans ignore this)
+// One token per dialed transaction chain (unlimited plans ignore this)
 export function chargeToken() {
   const wallet = loadWallet()
   if (!(wallet.unlimitedUntil > Date.now()) && wallet.units > 0) {
@@ -123,61 +123,23 @@ export function deleteTransaction(id) {
   write(TX_KEY, loadTransactions().filter((t) => t.id !== id))
 }
 
-function stampOf(ts) {
-  const d = new Date(ts)
-  const p = (n) => String(n).padStart(2, '0')
-  const h = d.getHours()
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} at ${h % 12 || 12}:${p(d.getMinutes())} ${h >= 12 ? 'PM' : 'AM'}`
+// One-time cleanup of the old sample transactions
+const DEMO_ROWS = [
+  'Faith Simiyu|0704590730', 'Ruth Mogaka|0759461380', 'Purity Bowen|0769010855',
+  'Sydney Wangwe|0797609585', 'Imran Ahmed|0711723954', 'Mitchelle Makokha|0791818480',
+  'Joy Wanjiku|0722334455', 'Brian Otieno|0733445566', 'Amina Hassan|0744556677',
+  'Peter Kamau|0755667788',
+]
+
+export function removeDemoData() {
+  try {
+    if (localStorage.getItem('ab:demo-removed') === '1') return
+    const list = loadTransactions()
+    const keep = list.filter((t) => !DEMO_ROWS.includes(`${t.name || ''}|${t.phone || ''}`))
+    if (keep.length !== list.length) write(TX_KEY, keep)
+    if (loadAirtime() === 11274.24) write(AIRTIME_KEY, 0)
+    localStorage.setItem('ab:demo-removed', '1')
+  } catch (e) {
+    console.error('demo cleanup', e)
+  }
 }
-
-// Sample data so you can test the page.
-export function seedDemo(offers = []) {
-  const now = Date.now()
-  const pickOffer = (i) => offers[i % Math.max(offers.length, 1)] || {}
-  const rows = [
-    ['Faith Simiyu', '0704590730', 20, 15, 'Completed', -5],
-    ['Ruth Mogaka', '0759461380', 50, 40, 'Completed', -40],
-    ['Purity Bowen', '0769010855', 30, 24, 'Completed', -95],
-    ['Sydney Wangwe', '0797609585', 20, 15, 'Pending', -2],
-    ['Imran Ahmed', '0711723954', 100, 85, 'Failed', -120],
-    ['Mitchelle Makokha', '0791818480', 19, 15, 'Completed', -180],
-    ['Joy Wanjiku', '0722334455', 50, 40, 'Scheduled', 0],
-    ['Brian Otieno', '0733445566', 30, 24, 'Completed', -1440],
-    ['Amina Hassan', '0744556677', 20, 15, 'Completed', -1500],
-    ['Peter Kamau', '0755667788', 50, 40, 'Completed', -2900],
-  ]
-
-  const list = rows.map(([name, phone, amount, cost, status, mins], i) => {
-    const scheduled = status === 'Scheduled'
-    const createdAt = scheduled ? now - 10 * 60000 : now + mins * 60000
-    const code = Math.random().toString(36).slice(2, 12).toUpperCase()
-    const offer = pickOffer(i)
-    const ussd = (offer.ussd || '*180*5*2*ab*5*1#').replaceAll('ab', phone)
-    const responses =
-      status === 'Completed'
-        ? [
-            { input: '5', text: '1:Daily\n2:Weekly\n3:Monthly\n4:Deals' },
-            { input: '2', text: '1:Confirm\n2:Cancel' },
-            { input: '1', text: 'Your request is being processed. You will receive an SMS shortly.' },
-          ]
-        : status === 'Failed'
-          ? [{ input: '5', text: 'Request failed. Please try again later.' }]
-          : []
-    return {
-      id: newId() + i,
-      name, phone, amount, cost, status, createdAt,
-      offerName: offer.name || `${amount} bob offer`,
-      completedAt: status === 'Completed' ? createdAt + 20000 : null,
-      scheduledFor: scheduled ? now + 180 * 60000 : null,
-      rawMessage: `${code} Confirmed. on ${stampOf(createdAt)} Ksh${amount}.00 received from 254${phone.slice(1)} ${name.toUpperCase()}. New M-PESA balance is Ksh${(5000 + i * 137).toFixed(2)}.`,
-      ussd,
-      responses,
-    }
-  })
-
-  write(TX_KEY, list)
-  if (loadAirtime() === 0) write(AIRTIME_KEY, 11274.24)
-}
-// The old sample data was removed (see removeDemoData above), so this no longer adds anything.
-// It stays exported because HomePage.jsx still imports it.
-export function seedDemo() {}
