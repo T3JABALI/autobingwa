@@ -1322,7 +1322,17 @@ function App() {
 useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
 const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
 const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
-  const [light, setLight] = useState(false)
+ useEffect(() => {
+  const onOffer = (e) => {
+    const d = e.detail || {}
+    if (d.op === 'save' && d.offer) saveOffer(d.offer)
+    if (d.op === 'delete') deleteOffer(d.id)
+  }
+  window.addEventListener('ab-offer-cmd', onOffer)
+  return () => window.removeEventListener('ab-offer-cmd', onOffer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [])
+const [light, setLight] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
   const [automationRunning, setAutomationRunning] = useState(false)

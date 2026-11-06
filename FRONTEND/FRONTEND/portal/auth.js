@@ -91,7 +91,7 @@ async function enter() {
   appLoaded = true;
   $app.innerHTML = '';
   const s = document.createElement('script');
-  s.src = '/app.js';
+ s.src = '/app.js?v=2'
   document.body.appendChild(s);
 }
 
