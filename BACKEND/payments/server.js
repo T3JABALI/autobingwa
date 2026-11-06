@@ -5,6 +5,7 @@ import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import rateLimit from 'express-rate-limit'
 import { initTokenTables, getTokenPlan, mountTokenRoutes } from './tokenAdmin.js'
+import { initPortalTables, getSubPlan, activePlans, mountPortalAdminRoutes, saveContactsFromTx } from './portalAdmin.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -16,16 +17,11 @@ const BASE = LIVE ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.c
 // Prices live here, never trusted from the app
 const PLANS = { u1000: 90, u600: 50, u250: 25, u100: 15, d1: 30, d7: 200, d30: 550 }
 
-// Portal subscription plans. Everyone must subscribe; there is no free plan.
-const SUB_PLANS = {
-  d2:  { name: '2 Devices',      price: 100, max: 2,    history: 3, days: 31 },
-  d4:  { name: '4 Devices',      price: 200, max: 4,    history: 5, days: 31 },
-  unl: { name: 'Unlimited Plan', price: 400, max: 1000, history: 7, days: 31 },
-}
-const planList = () => Object.entries(SUB_PLANS).map(([id, p]) => ({ id, ...p }))
+// CHANGED: portal subscription plans now come from the admin (portal_plans table)
+const planList = () => activePlans()
 function planInfo(acct) {
   const exp = acct.plan_exp ? new Date(acct.plan_exp) : null
-  const def = SUB_PLANS[acct.plan]
+  const def = getSubPlan(acct.plan) // still works for a plan that was switched off
   if (def && exp && exp.getTime() > Date.now())
     return { id: acct.plan, name: def.name, max: def.max, history: def.history, exp: exp.toISOString().slice(0, 10), active: true }
   return { id: '', name: 'None', max: 0, history: 0, exp: '', active: false }
@@ -62,7 +58,8 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (device_id, tx_id))`)
     await pool.query('CREATE INDEX IF NOT EXISTS portal_tx_dev_ts ON portal_tx (device_id, ts DESC)')
     await pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS credited BOOLEAN NOT NULL DEFAULT false')
-       await initTokenTables(pool)
+    await initTokenTables(pool)
+    await initPortalTables(pool) // CHANGED: creates portal_plans and contacts, loads the plans
     dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -145,6 +142,7 @@ app.get('/admin/ping', requireAdmin, (req, res) => {
   res.json({ ok: true, admin: req.adminUser.email })
 })
 mountTokenRoutes({ app, pool, requireAdmin })
+mountPortalAdminRoutes({ app, pool, requireAdmin, sbAdmin }) // CHANGED: portal plans + contacts routes
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.
@@ -222,7 +220,8 @@ async function finishSubPayment(id, receipt) {
     "UPDATE portal_payments SET status='paid', receipt=$2 WHERE id=$1 AND status='pending' RETURNING *", [id, receipt || null])
   const pay = rows[0]
   if (!pay) return // already handled, so a repeated callback cannot extend twice
-  const def = SUB_PLANS[pay.plan_id]
+  const def = getSubPlan(pay.plan_id) // CHANGED
+  if (!def) return // CHANGED
   const { data: acct } = await sbAdmin.from('portal_accounts').select('plan_exp').eq('user_id', pay.user_id).maybeSingle()
   const cur = acct && acct.plan_exp ? new Date(acct.plan_exp).getTime() : 0
   const from = Math.max(cur, Date.now()) // renewing early adds on top of the remaining time
@@ -237,8 +236,8 @@ app.post('/portal/subscribe/start',
   async (req, res) => {
     try {
       if (!dbReady) return res.status(503).json({ error: 'Server is starting, try again in a few seconds.' })
-      const plan = SUB_PLANS[req.body && req.body.planId]
-      if (!plan) return res.status(400).json({ error: 'Unknown plan.' })
+      const plan = getSubPlan(req.body && req.body.planId) // CHANGED
+      if (!plan || !plan.active) return res.status(400).json({ error: 'Unknown plan.' }) // CHANGED
       const phone = normalizePhone((req.body && req.body.phone) || req.acct.phone)
       if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number, for example 0712345678.' })
       const ts = stamp()
@@ -332,7 +331,7 @@ const normCid = (v) => { const c = String(v || '').trim().toUpperCase(); return 
 const isOnline = (d) => !!d.portal_enabled && !!d.last_seen && Date.now() - new Date(d.last_seen).getTime() < ONLINE_MS
 
 /* ---------- Offer (data plan) cleaning, shared by the phone sync and the portal routes ---------- */
-   const OFFER_CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA', 'BINGWA']
+const OFFER_CATS = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA', 'BINGWA']
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 const normUssd = (v) => String(v || '').replace(/\s+/g, '').replace(/ab/gi, 'AB').slice(0, 200)
 const ussdError = (u) => !u ? 'Enter the USSD code'
@@ -474,6 +473,7 @@ app.post('/device/sync',
       if (portalOn && patch.snapshot) {
         try {
           await saveTx(req.dev.id, patch.snapshot.recent)
+          await saveContactsFromTx(pool, req.dev.id, patch.snapshot.recent) // CHANGED: saves buyers as contacts
           if (hidden.length)
             await pool.query('DELETE FROM portal_tx WHERE device_id=$1 AND tx_id=ANY($2::text[]) AND NOT qd', [String(req.dev.id), hidden])
         } catch (e) { console.error('saveTx', e.message) }
@@ -1019,7 +1019,7 @@ app.post('/tokens/mpesa/start', async (req, res) => {
     if (!dbReady) return res.status(503).json({ error: 'Server is starting, try again in a few seconds.' })
     const { planId, deviceId } = req.body || {}
     const phone = normalizePhone(req.body && req.body.phone)
-       const pack = await getTokenPlan(pool, planId)
+    const pack = await getTokenPlan(pool, planId)
     const amount = pack ? pack.price : 0
     if (!amount) return res.status(400).json({ error: 'Unknown plan.' })
     if (!phone) return res.status(400).json({ error: 'Invalid phone number.' })
