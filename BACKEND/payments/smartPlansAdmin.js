@@ -257,7 +257,7 @@ export function mountSmartRoutes({ app, pool, requireAdmin, sbAdmin }) {
       if (!r) return res.status(404).json({ error: 'Plan not found.' })
       const sig = cleanSigRaw(req.body && req.body.signature)
       if (!sig || !sig.complete) return res.status(400).json({ error: 'This signature is not complete, so it cannot be saved. Learn it again.' })
-      if (sig.steps.length !== r.steps.length) return res.status(400).json({ error: 'This signature does not match the plan\'s USSD code. Learn it again.' })
+      if (sig.steps.length < 1 || sig.steps.length > r.steps.length) return res.status(400).json({ error: 'This signature does not match the plan\'s USSD code. Learn it again.' })
       const pub = pubOf({ ...r, sig })
       await pool.query('UPDATE smart_plans SET sig=$2::jsonb, pub=$3::jsonb, rev=$4 WHERE sid=$1',
         [r.sid, JSON.stringify(sig), JSON.stringify(pub), Date.now()])

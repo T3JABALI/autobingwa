@@ -4,6 +4,7 @@ import TokensAdmin from './TokensAdmin';
 import './admin.css';
 import PortalAdmin from './PortalAdmin';
 import ContactsAdmin from './ContactsAdmin';
+import SmartPlansAdmin from './SmartPlansAdmin';
 const NAV = [
   ['home', 'Home', '⌂'],
   ['smart', 'Smart plans', '✦'],
@@ -160,8 +161,9 @@ export default function AdminApp({ email, logout }) {
   else if (page === 'settings') body = <Settings email={email} logout={logout} />;
     else if (page === 'portal') body = <PortalAdmin />;
   else if (page === 'contacts') body = <ContactsAdmin />;
+  else if (page === 'smart-plans') body = <SmartPlansAdmin />;
   else body = <Placeholder title={TITLES[page]} />;
-
+  
   return (
     <div className="ad-root">
       {open && <button className="ad-backdrop" aria-label="Close menu" onClick={() => setOpen(false)} />}
