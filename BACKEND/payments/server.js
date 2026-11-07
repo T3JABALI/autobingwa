@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import rateLimit from 'express-rate-limit'
 import { initTokenTables, getTokenPlan, mountTokenRoutes } from './tokenAdmin.js'
 import { initPortalTables, getSubPlan, activePlans, mountPortalAdminRoutes, saveContactsFromTx } from './portalAdmin.js'
+import { initSmartTables, mountSmartRoutes } from './smartPlansAdmin.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -60,6 +61,7 @@ async function initDb() {
     await pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS credited BOOLEAN NOT NULL DEFAULT false')
     await initTokenTables(pool)
     await initPortalTables(pool) // CHANGED: creates portal_plans and contacts, loads the plans
+       await initSmartTables(pool)
     dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -143,6 +145,7 @@ app.get('/admin/ping', requireAdmin, (req, res) => {
 })
 mountTokenRoutes({ app, pool, requireAdmin })
 mountPortalAdminRoutes({ app, pool, requireAdmin, sbAdmin }) // CHANGED: portal plans + contacts routes
+mountSmartRoutes({ app, pool, requireAdmin, sbAdmin })
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.
