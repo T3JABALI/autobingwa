@@ -159,11 +159,11 @@ export default function AdminApp({ email, logout }) {
   if (page === 'home') body = <Home name={name} go={go} />;
   else if (page === 'tokens') body = <TokensAdmin />;
   else if (page === 'settings') body = <Settings email={email} logout={logout} />;
-    else if (page === 'portal') body = <PortalAdmin />;
+  else if (page === 'portal') body = <PortalAdmin />;
   else if (page === 'contacts') body = <ContactsAdmin />;
-  else if (page === 'smart-plans') body = <SmartPlansAdmin />;
+  else if (page === 'smart') body = <SmartPlansAdmin />;
   else body = <Placeholder title={TITLES[page]} />;
-  
+
   return (
     <div className="ad-root">
       {open && <button className="ad-backdrop" aria-label="Close menu" onClick={() => setOpen(false)} />}
