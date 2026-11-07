@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit'
 import { initTokenTables, getTokenPlan, mountTokenRoutes } from './tokenAdmin.js'
 import { initPortalTables, getSubPlan, activePlans, mountPortalAdminRoutes, saveContactsFromTx } from './portalAdmin.js'
 import { initSmartTables, mountSmartRoutes } from './smartPlansAdmin.js'
+import { initIncomeTables, mountIncomeRoutes, recordAirtime } from './incomeAdmin.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -62,7 +63,8 @@ async function initDb() {
     await initTokenTables(pool)
     await initPortalTables(pool) // CHANGED: creates portal_plans and contacts, loads the plans
        await initSmartTables(pool)
-    dbReady = true
+      await initIncomeTables(pool)
+       dbReady = true
     console.log('Database ready')
   } catch (e) {
     console.error('Database init failed, retrying in 10s:', e.message)
@@ -146,6 +148,8 @@ app.get('/admin/ping', requireAdmin, (req, res) => {
 mountTokenRoutes({ app, pool, requireAdmin })
 mountPortalAdminRoutes({ app, pool, requireAdmin, sbAdmin }) // CHANGED: portal plans + contacts routes
 mountSmartRoutes({ app, pool, requireAdmin, sbAdmin })
+mountIncomeRoutes({ app, pool, requireAdmin, sbAdmin })
+
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.
@@ -519,6 +523,7 @@ app.post('/device/command-result', deviceAuth, async (req, res) => {
       else store = JSON.stringify({ signature: sg, screens: cleanScreens(b.data.screens) })
     }
     await sbAdmin.from('device_commands').update({ status: 'sent', result: ok ? 'ok' : 'failed', result_msg: store, done_at: new Date().toISOString() }).eq('id', id)
+        if (c.type === 'buy_tokens' && ok && c.payload && c.payload.amount) await recordAirtime(pool, { kind: 'token', amount: c.payload.amount, item: c.payload.packId, ref: 'cmd-' + id, who: 'portal:' + req.dev.id })
     const txId = c.payload && c.payload.txId
     if (txId && c.type === 'quickdial') await pool.query("UPDATE portal_tx SET st=$3, resp=CASE WHEN $4::text='' THEN resp ELSE $4::text END WHERE device_id=$1 AND tx_id=$2",
       [String(req.dev.id), txId, ok ? 'Completed' : 'Failed', msg])
