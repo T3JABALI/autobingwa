@@ -30,55 +30,59 @@
 
 .ad-main { max-width: 560px; margin: 0 auto; padding: 14px 14px 28px; }
 
-/* ---- Home: scrolls, so 5 transactions and Quick Access both fit ---- */
-.ad-main.home { display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 28px; }
-.ad-hello-row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-.ad-sun { color: var(--or); font-size: 20px; }
-.ad-greet { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ad-badge {
-  font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--or);
-  padding: 5px 9px; border: 1px solid #8a5311; border-radius: 10px; background: rgba(247, 147, 30, 0.12);
+/* ---- Home: one fixed screen, no scrolling ---- */
+.ad-main.home {
+  height: calc(100vh - var(--top)); height: calc(100dvh - var(--top));
+  display: flex; flex-direction: column; gap: 6px; padding: 6px 10px 8px; overflow: hidden;
 }
-.ad-title-row { display: flex; align-items: baseline; justify-content: space-between; margin-top: 2px; }
-.ad-title-row h1, .ad-pagehead h1 { margin: 0; font-size: 24px; font-weight: 800; }
+.ad-hello-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ad-sun { color: var(--or); font-size: 16px; }
+.ad-greet { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ad-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--or);
+  padding: 3px 8px; border: 1px solid #8a5311; border-radius: 8px; background: rgba(247, 147, 30, 0.12);
+}
+.ad-title-row { display: flex; align-items: baseline; justify-content: space-between; margin-top: 0; }
+.ad-title-row h1, .ad-pagehead h1 { margin: 0; font-size: 19px; font-weight: 800; }
 .ad-pagehead h1 { font-size: 26px; margin: 6px 0 12px; }
 .ad-sample { font-size: 10px; color: var(--mut); }
 
-.ad-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ad-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .ad-stat {
   background: var(--card); border: 1px solid var(--line); border-top: 3px solid var(--or);
-  border-radius: 14px; padding: 8px 8px 7px; min-width: 0;
+  border-radius: 12px; padding: 6px 8px; min-width: 0;
 }
-.ad-stat-top { display: flex; align-items: center; gap: 5px; color: var(--mut); font-size: 12px; }
-.ad-stat-icon { color: #fff; font-size: 16px; }
-.ad-stat-value { font-size: 19px; font-weight: 800; margin: 3px 0 1px; white-space: nowrap; }
-.ad-stat-value small { font-size: 10px; font-weight: 600; color: var(--mut); }
+.ad-stat-top { display: flex; align-items: center; gap: 4px; color: var(--mut); font-size: 11px; }
+.ad-stat-icon { color: #fff; font-size: 13px; }
+.ad-stat-value { font-size: 16px; font-weight: 800; margin: 2px 0 0; white-space: nowrap; }
+.ad-stat-value small { font-size: 9px; font-weight: 600; color: var(--mut); }
+.ad-stat-note { color: var(--mut); font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ad-stat-change { color: var(--gr); font-size: 11px; font-weight: 700; }
 
 .ad-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; margin-bottom: 12px; }
-.ad-main.home .ad-card { margin-bottom: 0; }
-.ad-card-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.ad-card-head div { flex: 1; line-height: 1.15; }
-.ad-card-head b { display: block; font-size: 15px; }
-.ad-card-head small { color: var(--mut); font-size: 11px; }
-.ad-clock { color: var(--or); font-size: 22px; }
-.ad-link { color: var(--or); font-weight: 700; font-size: 13px; padding: 4px 0; }
+.ad-main.home .ad-card { margin-bottom: 0; border-radius: 14px; }
+.ad-txcard { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ad-card-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.ad-card-head div { flex: 1; line-height: 1.1; }
+.ad-card-head b { display: block; font-size: 13px; }
+.ad-card-head small { color: var(--mut); font-size: 10px; }
+.ad-clock { color: var(--or); font-size: 18px; }
+.ad-link { color: var(--or); font-weight: 700; font-size: 12px; padding: 4px 0; }
 
-.ad-quick-title { font-size: 14px; font-weight: 700; }
+.ad-quick-title { font-size: 12px; font-weight: 700; }
 .ad-quick-title::first-letter { color: var(--or); }
-.ad-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ad-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .ad-quick-btn {
-  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 4px;
-  display: flex; flex-direction: column; align-items: center; gap: 1px; text-align: center;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 6px 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 0; text-align: center;
 }
 .ad-quick-btn:active { transform: scale(0.98); }
-.ad-quick-icon { font-size: 22px; color: var(--or); }
-.ad-quick-btn b { font-size: 14px; }
-.ad-quick-btn small { color: var(--mut); font-size: 10px; }
+.ad-quick-icon { font-size: 18px; color: var(--or); line-height: 1.1; }
+.ad-quick-btn b { font-size: 12px; }
+.ad-quick-btn small { color: var(--mut); font-size: 9px; }
 
-/* ---- Transaction cards: medium, neat (Home and All transactions) ---- */
+/* ---- Transaction cards (All transactions page: medium) ---- */
 .ad-root .in-txlist { display: grid; gap: 10px; }
-.ad-root .ad-txcard .in-txlist { padding: 12px; }
 .ad-root .in-tx {
   display: flex; align-items: flex-start; gap: 10px; padding: 12px;
   background: #0d1730; border: 1px solid var(--line); border-radius: 14px;
@@ -101,6 +105,21 @@
 .ad-root .in-tag.st.ok { background: #0f3a2a; color: #22c55e; }
 .ad-root .in-tag.st.wait { background: #3a2d12; color: var(--or); }
 .ad-root .in-tag.st.bad { background: #3a1d2a; color: #f87171; }
+
+/* ---- Transaction cards on Home: compact, 5 fit the screen ---- */
+.ad-root .ad-main.home .in-txlist { flex: 1; min-height: 0; overflow: hidden; align-content: start; gap: 5px; padding: 6px 8px; }
+.ad-root .ad-main.home .in-tx { padding: 5px 9px; gap: 8px; border-radius: 10px; align-items: center; }
+.ad-root .ad-main.home .in-ico { width: 26px; height: 26px; border-radius: 8px; font-size: 12px; }
+.ad-root .ad-main.home .in-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 6px; }
+.ad-root .ad-main.home .in-l1 { grid-column: 1 / -1; font-size: 12px; }
+.ad-root .ad-main.home .in-l2 { grid-column: 1 / -1; font-size: 10.5px; margin: 0; }
+.ad-root .ad-main.home .in-l3 { grid-column: 1; font-size: 10px; margin: 0; align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ad-root .ad-main.home .in-tags { grid-column: 2; margin: 0; gap: 4px; justify-self: end; }
+.ad-root .ad-main.home .in-tag { font-size: 9px; padding: 2px 7px; }
+@media (max-height: 660px) {
+  .ad-root .ad-main.home .in-ico { display: none; }
+  .ad-root .ad-main.home .ad-quick-btn small { display: none; }
+}
 
 /* ---- other pages ---- */
 .ad-empty { text-align: center; padding: 40px 20px; }
@@ -183,26 +202,27 @@
 .ad-nav span { width: 24px; text-align: center; color: var(--or); font-size: 20px; }
 .ad-nav.active { background: rgba(247, 147, 30, 0.16); color: #fff; font-weight: 700; }
 
-/* ---- Users and Analytics ---- */
-.ux-seg{display:grid;grid-template-columns:1fr 1fr;background:#121b35;border:1px solid #1f2b4d;border-radius:12px;padding:4px;margin-bottom:12px}
-.ux-seg button{border:0;background:none;color:#8b97bb;font-weight:700;padding:10px;border-radius:9px;cursor:pointer;font-family:inherit}
+/* ---- Users: medium, rectangular cards ---- */
+.ux-seg{display:grid;grid-template-columns:1fr 1fr;background:#121b35;border:1px solid #1f2b4d;border-radius:12px;padding:4px;margin-bottom:10px}
+.ux-seg button{border:0;background:none;color:#8b97bb;font-weight:700;padding:9px;border-radius:9px;cursor:pointer;font-family:inherit}
 .ux-seg button.on{background:#ff9a1f;color:#1a1200}
-.ux-chips{display:flex;gap:6px;align-items:center;margin-bottom:12px;overflow-x:auto}
-.ux-chips button{border:1px solid #1f2b4d;background:none;color:#8b97bb;font-weight:700;font-size:12px;padding:6px 12px;border-radius:20px;cursor:pointer;white-space:nowrap;font-family:inherit}
+.ux-search{width:100%;padding:9px 12px;border-radius:10px;border:1px solid #1f2b4d;background:#0a1224;color:#fff;font-size:14px;margin-bottom:10px}
+.ux-chips{display:flex;gap:6px;align-items:center;margin-bottom:10px;overflow-x:auto}
+.ux-chips button{border:1px solid #1f2b4d;background:none;color:#8b97bb;font-weight:700;font-size:12px;padding:5px 12px;border-radius:20px;cursor:pointer;white-space:nowrap;font-family:inherit}
 .ux-chips button.on{border-color:#ff9a1f;color:#ff9a1f}
 .ux-count{margin-left:auto;color:#8b97bb;font-size:12px;white-space:nowrap}
-.ux-list{display:grid;gap:10px}
-.ux-card{background:#121b35;border:1px solid #1f2b4d;border-radius:14px;padding:12px}
-.ux-row{display:flex;align-items:flex-start;gap:10px}
+.ux-list{display:grid;gap:8px}
+.ux-card{background:#121b35;border:1px solid #1f2b4d;border-radius:12px;padding:9px 12px}
+.ux-row{display:flex;align-items:center;gap:10px}
 .ux-main{flex:1;min-width:0}
-.ux-main b{display:block;color:#f2f5ff}
-.ux-main span{color:#8b97bb;font-size:12px}
-.ux-avatar{width:38px;height:38px;border-radius:50%;background:#232a5c;color:#7c8cff;display:grid;place-items:center;font-weight:800;flex:none}
-.ux-status{border-radius:20px;padding:5px 12px;font-size:11px;font-weight:800;color:#fff}
+.ux-main b{display:block;color:#f2f5ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ux-avatar{width:30px;height:30px;border-radius:50%;background:#232a5c;color:#7c8cff;display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+.ux-status{border-radius:20px;padding:3px 10px;font-size:10px;font-weight:800;color:#fff;flex:none}
 .ux-status.on{background:#16a34a}.ux-status.off{background:#dc2626}
-.ux-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:10px;padding-top:10px;border-top:1px solid #1f2b4d}
-.ux-grid small{display:block;color:#8b97bb;font-size:11px}
-.ux-grid span{font-weight:600;font-size:13px;color:#f2f5ff}
+.ux-meta{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:7px;padding-top:7px;border-top:1px solid #1f2b4d;font-size:11px;color:#8b97bb}
+.ux-meta b{color:#f2f5ff;font-weight:600}
+
+/* ---- Analytics ---- */
 .ux-health{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
 .ux-stat{background:#121b35;border:1px solid #1f2b4d;border-top:3px solid #ff9a1f;border-radius:14px;padding:10px}
 .ux-stat.red{border-top-color:#f87171}.ux-stat.green{border-top-color:#22c55e}

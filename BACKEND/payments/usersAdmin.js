@@ -4,6 +4,25 @@ import { getSubPlan } from './portalAdmin.js'
 const DAY = 86400000
 const ACTIVE_DAYS = 30
 const s = (v, m) => String(v ?? '').slice(0, m)
+const np = (v) => {
+  let p = String(v || '').replace(/[\s\-+]/g, '')
+  if (/^0(7|1)\d{8}$/.test(p)) p = '254' + p.slice(1)
+  else if (/^(7|1)\d{8}$/.test(p)) p = '254' + p
+  return /^254(7|1)\d{8}$/.test(p) ? p : ''
+}
+const later = (a, b) => (!a ? b : !b ? a : new Date(a) > new Date(b) ? a : b)
+const earlier = (a, b) => (!a ? b : !b ? a : new Date(a) < new Date(b) ? a : b)
+
+async function listAuthUsers(sbAdmin) {
+  const all = []
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await sbAdmin.auth.admin.listUsers({ page, perPage: 200 })
+    if (error || !data || !data.users || !data.users.length) break
+    all.push(...data.users)
+    if (data.users.length < 200) break
+  }
+  return all
+}
 
 export async function initUsersTables(pool) {
   await pool.query(`CREATE TABLE IF NOT EXISTS app_errors (
@@ -31,24 +50,61 @@ export function mountUsersRoutes({ app, pool, requireAdmin, sbAdmin }) {
   app.get('/admin/users', requireAdmin, async (req, res) => {
     try {
       const now = Date.now()
+
+      /* ---------- App users: identified by email ---------- */
       if (req.query.type !== 'portal') {
-        const r = await pool.query(`
+        const groups = (await pool.query(`
           SELECT device_id,
-                 (array_agg(phone ORDER BY created_at DESC))[1] AS phone,
+                 array_agg(DISTINCT phone) AS phones,
                  MIN(created_at) AS first, MAX(created_at) AS last,
                  COUNT(*) FILTER (WHERE status='paid') AS paid_n,
                  COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS spent,
                  COUNT(*) FILTER (WHERE status IN ('failed','cancelled')) AS failed_n
-          FROM payments WHERE device_id NOT LIKE 'portal:%'
-          GROUP BY device_id ORDER BY MAX(created_at) DESC LIMIT 300`)
-        return res.json({
-          users: r.rows.map((u) => ({
-            id: u.device_id, phone: u.phone || '', joined: u.first, lastActive: u.last,
-            active: now - new Date(u.last).getTime() < ACTIVE_DAYS * DAY,
-            purchases: Number(u.paid_n), spent: Number(u.spent), failed: Number(u.failed_n),
-          })),
-        })
+          FROM payments WHERE device_id NOT LIKE 'portal:%' GROUP BY device_id`)).rows
+
+        const used = new Set()
+        const out = []
+
+        if (sbAdmin) {
+          const authUsers = await listAuthUsers(sbAdmin)
+          const { data: profs } = await sbAdmin.from('profiles').select('id,role')
+          const admins = new Set((profs || []).filter((p) => p.role === 'admin').map((p) => p.id))
+          for (const u of authUsers) {
+            if (admins.has(u.id) || (u.app_metadata && u.app_metadata.portal)) continue
+            const phones = new Set([np(u.phone), np((u.user_metadata || {}).phone)].filter(Boolean))
+            const mine = groups.filter((g) => g.device_id === u.id || (g.phones || []).some((p) => phones.has(np(p))))
+            let first = u.created_at || null, last = null, purchases = 0, spent = 0, failed = 0, phone = [...phones][0] || ''
+            for (const g of mine) {
+              used.add(g.device_id)
+              first = earlier(first, g.first)
+              last = later(last, g.last)
+              purchases += Number(g.paid_n); spent += Number(g.spent); failed += Number(g.failed_n)
+              if (!phone && g.phones && g.phones[0]) phone = g.phones[0]
+            }
+            const lastActive = later(last, u.last_sign_in_at || null)
+            out.push({
+              id: u.id, email: u.email || '', phone, joined: first, lastActive,
+              active: !!lastActive && now - new Date(lastActive).getTime() < ACTIVE_DAYS * DAY,
+              purchases, spent, failed,
+            })
+          }
+        }
+
+        // Payment devices that match no account are still listed, by phone
+        for (const g of groups) {
+          if (used.has(g.device_id)) continue
+          out.push({
+            id: g.device_id, email: '', phone: (g.phones && g.phones[0]) || '', joined: g.first, lastActive: g.last,
+            active: now - new Date(g.last).getTime() < ACTIVE_DAYS * DAY,
+            purchases: Number(g.paid_n), spent: Number(g.spent), failed: Number(g.failed_n),
+          })
+        }
+
+        out.sort((a, b) => new Date(b.lastActive || 0) - new Date(a.lastActive || 0))
+        return res.json({ users: out.slice(0, 500) })
       }
+
+      /* ---------- Portal users ---------- */
       if (!sbAdmin) return res.json({ users: [] })
       const { data: accts } = await sbAdmin.from('portal_accounts').select('*').order('created_at', { ascending: false }).limit(300)
       const { data: devs } = await sbAdmin.from('devices').select('owner_id').not('owner_id', 'is', null)

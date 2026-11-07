@@ -10,39 +10,35 @@ const fmtWhen = (iso) => {
   return days === 0 ? 'Today, ' + hm : days === 1 ? 'Yesterday, ' + hm : fmtDate(iso)
 }
 const ksh = (v) => 'KSh ' + Number(v || 0).toLocaleString('en-KE')
-
-function Field({ label, value }) {
-  return <div><small>{label}</small><span>{value}</span></div>
-}
+const phoneFmt = (p) => (p ? (p.startsWith('254') ? '0' + p.slice(3) : p) : '')
 
 function UserCard({ u, type }) {
-  const initials = (u.name || u.phone || '?').replace(/\D/g, '').length > 3 && !u.name ? '#' : (u.name || u.phone).trim().charAt(0).toUpperCase()
+  const title = type === 'app' ? (u.email || phoneFmt(u.phone) || 'Unknown') : (u.name || phoneFmt(u.phone) || 'Unknown')
+  const meta = type === 'app'
+    ? [
+        ['Joined', fmtDate(u.joined)],
+        ['Last active', fmtWhen(u.lastActive)],
+        ['Purchases', u.purchases],
+        ['Spent', ksh(u.spent)],
+        ...(u.failed ? [['Failed', u.failed]] : []),
+        ...(u.email && u.phone ? [['Phone', phoneFmt(u.phone)]] : []),
+      ]
+    : [
+        ['Joined', fmtDate(u.joined)],
+        ['Plan', u.plan],
+        ['Expires', fmtDate(u.expires)],
+        ['Phones', u.devices],
+        ...(u.name && u.phone ? [['Phone', phoneFmt(u.phone)]] : []),
+      ]
   return (
     <div className="ux-card">
       <div className="ux-row">
-        <div className="ux-avatar">{initials}</div>
-        <div className="ux-main">
-          <b>{u.name || u.phone || 'Unknown'}</b>
-          <span>{u.name ? u.phone : (type === 'app' ? 'App user' : 'Portal user')}</span>
-        </div>
+        <div className="ux-avatar">{title.charAt(0).toUpperCase()}</div>
+        <div className="ux-main"><b>{title}</b></div>
         <span className={'ux-status ' + (u.active ? 'on' : 'off')}>{u.active ? 'Active' : 'Inactive'}</span>
       </div>
-      <div className="ux-grid">
-        <Field label="Joined" value={fmtDate(u.joined)} />
-        {type === 'app' ? (
-          <>
-            <Field label="Last payment" value={fmtWhen(u.lastActive)} />
-            <Field label="Purchases" value={u.purchases} />
-            <Field label="Total spent" value={ksh(u.spent)} />
-            <Field label="Failed payments" value={u.failed} />
-          </>
-        ) : (
-          <>
-            <Field label="Plan" value={u.plan} />
-            <Field label="Expires" value={fmtDate(u.expires)} />
-            <Field label="Phones connected" value={u.devices} />
-          </>
-        )}
+      <div className="ux-meta">
+        {meta.map(([k, v]) => <span key={k}>{k} <b>{v}</b></span>)}
       </div>
     </div>
   )
@@ -51,6 +47,7 @@ function UserCard({ u, type }) {
 export default function UsersAdmin() {
   const [type, setType] = useState('app')
   const [filter, setFilter] = useState('all')
+  const [q, setQ] = useState('')
   const [users, setUsers] = useState(null)
   const [err, setErr] = useState('')
 
@@ -63,7 +60,10 @@ export default function UsersAdmin() {
     return () => { live = false }
   }, [type])
 
-  const list = (users || []).filter((u) => filter === 'all' || (filter === 'active') === u.active)
+  const needle = q.trim().toLowerCase()
+  const list = (users || []).filter((u) =>
+    (filter === 'all' || (filter === 'active') === u.active) &&
+    (!needle || [u.email, u.name, u.phone].some((x) => (x || '').toLowerCase().includes(needle))))
   const activeN = (users || []).filter((u) => u.active).length
 
   return (
@@ -72,6 +72,8 @@ export default function UsersAdmin() {
         <button className={type === 'app' ? 'on' : ''} onClick={() => setType('app')}>App users</button>
         <button className={type === 'portal' ? 'on' : ''} onClick={() => setType('portal')}>Portal users</button>
       </div>
+      <input className="ux-search" placeholder={type === 'app' ? 'Search by email' : 'Search by name or phone'}
+        value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="ux-chips">
         {[['all', 'All'], ['active', 'Active'], ['inactive', 'Inactive']].map(([id, label]) => (
           <button key={id} className={filter === id ? 'on' : ''} onClick={() => setFilter(id)}>{label}</button>

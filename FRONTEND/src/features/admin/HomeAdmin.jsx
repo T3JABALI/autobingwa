@@ -19,7 +19,7 @@ export default function HomeAdmin({ name, go }) {
   }, [])
   const h = now.getHours() // the device's own timezone
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone.replace(/_/g, ' ')
+  const city = Intl.DateTimeFormat().resolvedOptions().timeZone.split('/').pop().replace(/_/g, ' ')
 
   async function load() {
     try {
@@ -48,12 +48,12 @@ export default function HomeAdmin({ name, go }) {
       <div className="ad-hello">
         <div className="ad-hello-row">
           <span className="ad-sun">☼</span>
-          <span className="ad-greet">{greet}, {name} <small className="ad-muted">· {tz}</small></span>
+          <span className="ad-greet">{greet}, {name}</span>
           <span className="ad-badge">★ SUPER ADMIN</span>
         </div>
         <div className="ad-title-row">
           <h1>Home Dashboard</h1>
-          <span className="ad-sample">{monthLabel}</span>
+          <span className="ad-sample">{city}{monthLabel ? ' · ' + monthLabel : ''}</span>
         </div>
       </div>
 
@@ -64,7 +64,7 @@ export default function HomeAdmin({ name, go }) {
           <div className="ad-stat" key={s.label}>
             <div className="ad-stat-top"><span className="ad-stat-icon">{s.icon}</span><span className="ad-stat-label">{s.label}</span></div>
             <div className="ad-stat-value"><small>KSh</small> {num(s.value)}</div>
-            <div className="ad-muted" style={{ fontSize: 12 }}>{d ? `${s.n} payment${s.n === 1 ? '' : 's'} this month` : ' '}</div>
+            <div className="ad-stat-note">{d ? `${s.n} payment${s.n === 1 ? '' : 's'} this month` : ' '}</div>
           </div>
         ))}
       </div>
