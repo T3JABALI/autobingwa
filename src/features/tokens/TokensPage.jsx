@@ -3,6 +3,7 @@ import { parsePhone } from '../quickdial/ussd.js'
 import { loadWallet, subscribe } from '../home/dataStore.js'
 import { loadHistory } from '../../engine/tokens.js'
 import { isNative } from '../../engine/native.js'
+import { reportAirtime, flushAirtimeReports } from '../../engine/incomeReport.js'
 import {
   payWithAirtime, verifyAirtimePayment, cancelAirtimePayment, pendingAirtimePayment,
   startMpesaPayment, waitForMpesaPayment, pendingMpesaPayment, cancelMpesaPayment,
@@ -66,9 +67,9 @@ export default function TokensPage({ onBack }) {
   useEffect(() => {
     const refreshWallet = () => { setWallet(loadWallet()); setNow(Date.now()) }
     const off = subscribe(refreshWallet)
-    const t = setInterval(() => setNow(Date.now()), 30000)
+     const t = setInterval(() => setNow(Date.now()), 30000)
     refreshPlans()
-
+    flushAirtimeReports()
     // A payment interrupted earlier (app closed, no answer yet) comes back here
     const a = pendingAirtimePayment()
     const m = pendingMpesaPayment()
@@ -109,8 +110,9 @@ export default function TokensPage({ onBack }) {
     setScreen('method')
   }
 
-  function showDone(via) {
+  function showDone(via, packId) {
     const last = loadHistory()[0]
+    if (via === 'airtime') reportAirtime(packId || (selected && selected.id))
     setReceipt({
       title: last ? last.label : selected ? selected.title : '',
       price: last ? last.price : selected ? selected.price : 0,
@@ -183,7 +185,7 @@ export default function TokensPage({ onBack }) {
       setStatus('Starting the payment...')
       try {
         const r = await payWithAirtime(plan, { onStatus: setStatus, slot: simSlot })
-        if (r.status === 'paid') showDone('airtime')
+        if (r.status === 'paid') showDone('airtime', plan.id)
         else showProblem('airtime', r.message)
       } catch (e) {
         setError(e && e.message ? e.message : String(e))
@@ -216,8 +218,9 @@ export default function TokensPage({ onBack }) {
     try {
       if (problem.kind === 'airtime') {
         setStatus('Confirming the airtime payment...')
+        const pend = pendingAirtimePayment()
         const r = await verifyAirtimePayment({ onStatus: setStatus })
-        if (r.status === 'paid') showDone('airtime')
+        if (r.status === 'paid') showDone('airtime', pend && pend.plan ? pend.plan.id : null)
         else showProblem('airtime', r.message)
       } else {
         setStatus('Checking your M-Pesa payment...')
