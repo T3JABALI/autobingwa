@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { smartOffers, GROUPS } from './smartCatalog.js'
+import { useEffect, useState } from 'react'
+import { smartOffers as BUNDLED, GROUPS as BUNDLED_GROUPS } from './smartCatalog.js'
+import { loadCatalog, cachedCatalog } from './catalog.js'
 import VerifiedBadge from '../home/VerifiedBadge.jsx'
 
 const t12 = (v) => {
@@ -10,15 +11,32 @@ const t12 = (v) => {
 const noWindow = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
 
 export default function SmartPlans({ owned = [], onDownload = () => {} }) {
-  const [group, setGroup] = useState(GROUPS[0])
+  const [cat, setCat] = useState(() => cachedCatalog())
+  const [loaded, setLoaded] = useState(false)
+  const [group, setGroup] = useState(null)
   const [q, setQ] = useState('')
   const [pick, setPick] = useState(null)
   const [price, setPrice] = useState('')
   const [err, setErr] = useState('')
 
+  useEffect(() => {
+    let alive = true
+    loadCatalog().then((c) => {
+      if (!alive) return
+      if (c) setCat(c)
+      setLoaded(true)
+    })
+    return () => { alive = false }
+  }, [])
+
+  // The server catalog. The bundled list is only used if the server was never reachable.
+  const plans = cat ? cat.plans : loaded ? BUNDLED : []
+  const groups = cat ? cat.groups : loaded ? BUNDLED_GROUPS : []
+  const active = groups.includes(group) ? group : groups[0]
+
   const have = new Set(owned.filter((o) => o.smart).map((o) => o.sid))
-  const list = smartOffers.filter(
-    (o) => o.group === group && o.name.toLowerCase().includes(q.toLowerCase())
+  const list = plans.filter(
+    (o) => o.group === active && o.name.toLowerCase().includes(q.toLowerCase())
   )
 
   const open = (o) => {
@@ -35,9 +53,11 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
       sid: pick.sid,
       smart: true,
       signature: true, // shows the verified tick and locks the USSD in Offers
-      sig: pick.sig || null, // the learned steps, once they have been added to the catalog
+      sig: pick.sig || null, // the learned steps from the catalog
       sigLearned: Boolean(pick.sig),
       sigEnabled: true,
+      catRev: pick.rev || 0, // lets the app keep this plan up to date by itself
+      catTw: pick.tw ? { on: Boolean(pick.tw.on), from: pick.tw.from, until: pick.tw.until } : null,
       category: pick.group.toUpperCase(),
       name: pick.name,
       ussd: pick.ussd,
@@ -67,8 +87,8 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
       </div>
 
       <div className="chips">
-        {GROUPS.map((g) => (
-          <button key={g} className={`chip ${group === g ? 'on' : ''}`} onClick={() => setGroup(g)}>
+        {groups.map((g) => (
+          <button key={g} className={`chip ${active === g ? 'on' : ''}`} onClick={() => setGroup(g)}>
             {g}
           </button>
         ))}
@@ -76,7 +96,14 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
 
       <input className="sig-search" placeholder="Search plans" value={q} onChange={(e) => setQ(e.target.value)} />
 
-      {list.length === 0 && (
+      {!loaded && !cat && <div className="empty"><b>Loading plans…</b></div>}
+      {(loaded || cat) && groups.length === 0 && (
+        <div className="empty">
+          <b>No plans yet</b><br />
+          New plans appear here as soon as they are ready
+        </div>
+      )}
+      {groups.length > 0 && list.length === 0 && (
         <div className="empty"><b>No plans found</b></div>
       )}
 

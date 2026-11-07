@@ -23,7 +23,7 @@ import PhoneSetupPage from './features/setup/PhoneSetupPage.jsx'
 import DialogHost from './features/ui/DialogHost.jsx'
 import { askChoice } from './features/ui/dialog.js'
 import Sitelink from './features/sitelink/sitelink.jsx'
-
+import { useSmartSync } from './features/smartplans/smartSync.js'
 
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";

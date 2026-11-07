@@ -29,7 +29,7 @@ import { saveMode } from './features/home/dataStore.js'
 import { engine } from './engine/index.js'
 import { isNative, ussdServiceEnabled, setKeepAlive } from './engine/native.js'
 import { loadConfig } from './engine/config.js'
-
+import { useSmartSync } from './features/smartplans/smartSync.js'
 const navigation = [
   'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
   'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
