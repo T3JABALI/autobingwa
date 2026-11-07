@@ -8,6 +8,7 @@ import { initTokenTables, getTokenPlan, mountTokenRoutes } from './tokenAdmin.js
 import { initPortalTables, getSubPlan, activePlans, mountPortalAdminRoutes, saveContactsFromTx } from './portalAdmin.js'
 import { initSmartTables, mountSmartRoutes } from './smartPlansAdmin.js'
 import { initIncomeTables, mountIncomeRoutes, recordAirtime } from './incomeAdmin.js'
+import { initUsersTables, mountUsersRoutes } from './usersAdmin.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -64,6 +65,7 @@ async function initDb() {
     await initPortalTables(pool) // CHANGED: creates portal_plans and contacts, loads the plans
        await initSmartTables(pool)
       await initIncomeTables(pool)
+      await initUsersTables(pool)
        dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -149,7 +151,7 @@ mountTokenRoutes({ app, pool, requireAdmin })
 mountPortalAdminRoutes({ app, pool, requireAdmin, sbAdmin }) // CHANGED: portal plans + contacts routes
 mountSmartRoutes({ app, pool, requireAdmin, sbAdmin })
 mountIncomeRoutes({ app, pool, requireAdmin, sbAdmin })
-
+mountUsersRoutes({ app, pool, requireAdmin, sbAdmin })
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.

@@ -15,16 +15,16 @@ const phoneFmt = (p) => (p ? (p.startsWith('254') ? '0' + p.slice(3) : p) : 'Pho
 /* ---------- One payment row (used on Home and in All transactions) ---------- */
 const TONE = { Completed: 'ok', Pending: 'wait', Failed: 'bad', Cancelled: 'bad' }
 export function TxRow({ t }) {
+  const line2 = [t.item, t.name, phoneFmt(t.phone)].filter(Boolean).join(' · ')
   return (
     <div className="in-tx">
       <div className={`in-ico ${t.kind}`}>{t.kind === 'token' ? '◉' : '◎'}</div>
       <div className="in-main">
         <div className="in-l1">
-          <b>{t.kind === 'token' ? 'Token Subscription' : 'Portal Subscription'}</b>
+          <b>{t.kind === 'token' ? 'Token subscription' : 'Portal subscription'}</b>
           <b className="in-amt">KSh {money(t.amount)}</b>
         </div>
-        {t.item && <div className="in-l2">{t.item}</div>}
-        <div className="in-l2">{t.name ? `${t.name} · ` : ''}{phoneFmt(t.phone)}</div>
+        <div className="in-l2">{line2}</div>
         <div className="in-l3">{t.id} · {when(t.ts)}</div>
         <div className="in-tags">
           <span className={`in-tag ${t.method}`}>{t.method === 'mpesa' ? 'M-PESA' : 'AIRTIME'}</span>
@@ -207,7 +207,7 @@ function AllTx() {
         <Chips value={f.method} onChange={set('method')} options={[['all', 'All money'], ['mpesa', 'M-Pesa'], ['airtime', 'Airtime']]} />
         <Chips value={f.status} onChange={set('status')} options={[['all', 'All status'], ['completed', 'Completed'], ['pending', 'Pending'], ['failed', 'Failed']]} />
       </div>
-      <div className="in-card" style={{ padding: '4px 16px' }}>
+      <div className="in-txlist">
         {err && <p className="in-err">{err}</p>}
         {items.map((t) => <TxRow key={t.key} t={t} />)}
         {!busy && !err && items.length === 0 && <p className="in-msg">No transactions found</p>}

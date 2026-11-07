@@ -11,8 +11,15 @@ const QUICK = [
 export default function HomeAdmin({ name, go }) {
   const [d, setD] = useState(null)
   const [err, setErr] = useState('')
-  const h = new Date().getHours()
+  const [now, setNow] = useState(new Date())
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000)
+    return () => clearInterval(t)
+  }, [])
+  const h = now.getHours() // the device's own timezone
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone.replace(/_/g, ' ')
 
   async function load() {
     try {
@@ -41,7 +48,7 @@ export default function HomeAdmin({ name, go }) {
       <div className="ad-hello">
         <div className="ad-hello-row">
           <span className="ad-sun">☼</span>
-          <span className="ad-greet">{greet}, {name}</span>
+          <span className="ad-greet">{greet}, {name} <small className="ad-muted">· {tz}</small></span>
           <span className="ad-badge">★ SUPER ADMIN</span>
         </div>
         <div className="ad-title-row">
@@ -71,10 +78,10 @@ export default function HomeAdmin({ name, go }) {
           </div>
           <button className="ad-link" onClick={() => go('income', 'tx')}>View All →</button>
         </div>
-        <div style={{ padding: '0 16px' }}>
+        <div className="in-txlist">
           {d && d.recent.length === 0 && <p className="in-msg">No payments yet</p>}
           {!d && !err && <p className="in-msg">Loading…</p>}
-          {d && d.recent.map((t) => <TxRow key={t.key} t={t} />)}
+          {d && d.recent.slice(0, 5).map((t) => <TxRow key={t.key} t={t} />)}
         </div>
       </div>
 

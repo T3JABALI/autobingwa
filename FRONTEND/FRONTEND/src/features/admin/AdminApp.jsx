@@ -7,8 +7,13 @@ import ContactsAdmin from './ContactsAdmin';
 import SmartPlansAdmin from './SmartPlansAdmin';
 import HomeAdmin from './HomeAdmin';
 import IncomeAdmin from './IncomeAdmin';
+import UsersAdmin from './UsersAdmin';
+import AnalyticsAdmin from './AnalyticsAdmin';
+
 const NAV = [
   ['home', 'Home', '⌂'],
+  ['users', 'Users', '♙'],
+  ['analytics', 'Analytics', '▮'],
   ['income', 'Income', '▣'],
   ['smart', 'Smart plans', '✦'],
   ['tokens', 'Tokens', '▤'],
@@ -75,6 +80,8 @@ export default function AdminApp({ email, logout }) {
   let body;
   if (page === 'home') body = <HomeAdmin name={name} go={go} />;
   else if (page === 'income') body = <IncomeAdmin key={tab || 'overview'} start={tab} />;
+  else if (page === 'users') body = <UsersAdmin />;
+  else if (page === 'analytics') body = <AnalyticsAdmin />;
   else if (page === 'tokens') body = <TokensAdmin />;
   else if (page === 'settings') body = <Settings email={email} logout={logout} />;
   else if (page === 'portal') body = <PortalAdmin />;
