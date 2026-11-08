@@ -106,4 +106,5 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
         <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
         <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+        <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 </manifest>

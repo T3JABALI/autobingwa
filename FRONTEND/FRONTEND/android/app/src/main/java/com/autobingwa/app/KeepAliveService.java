@@ -1,8 +1,10 @@
 package com.autobingwa.app;
 
 import android.app.Service;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -19,6 +21,27 @@ public class KeepAliveService extends Service {
     private PowerManager.WakeLock wake;
     private int ticks = 0; // counts scans, one every 30 seconds
     private long lastWake = 0;
+
+    // Switches the USSD accessibility service back on if Android turned it off
+    private void ensureAccessibility() {
+        try {
+            if (UssdAccessibilityService.instance != null) return;
+            if (checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != PackageManager.PERMISSION_GRANTED) return;
+            String me = getPackageName() + "/" + UssdAccessibilityService.class.getName();
+            ContentResolver r = getContentResolver();
+            String cur = Settings.Secure.getString(r, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (cur == null) cur = "";
+            // remove then add, so Android restarts the service even if it was listed but stuck
+            cur = cur.replace(me, "").replace("::", ":");
+            if (cur.startsWith(":")) cur = cur.substring(1);
+            if (cur.endsWith(":")) cur = cur.substring(0, cur.length() - 1);
+            Settings.Secure.putString(r, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, cur.isEmpty() ? me : cur + ":" + me);
+            Settings.Secure.putInt(r, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+            Log.i("AutoBingwa", "accessibility service re-enabled");
+        } catch (Exception e) {
+            Log.e("AutoBingwa", "ensureAccessibility", e);
+        }
+    }
 
     // Keeps the CPU awake while automation is running, so the queue keeps going with the screen off
     private void holdCpu() {
@@ -54,6 +77,7 @@ public class KeepAliveService extends Service {
         Notifier.channels(this);
         startForeground(Notifier.ID_RUN, Notifier.running(this, "Waiting for payments"));
         active = true;
+        ensureAccessibility();
         AutoBingwaPlugin.lastBeat = System.currentTimeMillis(); // grace period after a start
         holdCpu();
         if (scanner == null) {
@@ -63,6 +87,7 @@ public class KeepAliveService extends Service {
                 public void run() {
                     try {
                         holdCpu();
+                        ensureAccessibility();
                         if (++ticks % 10 == 0) Notifier.motivate(getApplicationContext()); // every 5 minutes
 
                         // Watchdog: no heartbeat from the web engine means it is frozen

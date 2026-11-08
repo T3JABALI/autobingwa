@@ -1391,11 +1391,19 @@ function App() {
     if (waiting > 0) engine.releasePaused(choice)
   }
 
-  // If automation was running when the app closed, start it again on reopen.
-  // (The old "always opens stopped" effect was removed: it undid this one.)
-  useEffect(() => {
+// If automation was running when the app closed, start it again on reopen,
+// but only when everything it needs is ready.
+useEffect(() => {
+  (async () => {
     const wasRunning = localStorage.getItem('ab-auto-run') === '1'
     if (wasRunning && tokensActive()) {
+      if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
+        engine.stop()
+        setKeepAlive(false)
+        localStorage.setItem('ab-auto-run', '0')
+        window.dispatchEvent(new Event('ab-need-setup'))
+        return
+      }
       setKeepAlive(true)
       engine.start()
       setAutomationRunning(true)
@@ -1404,9 +1412,9 @@ function App() {
       setKeepAlive(false)
       localStorage.setItem('ab-auto-run', '0')
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
+  })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [])
   // While automation runs: keep the engine on, release anything Paused by mistake
   useEffect(() => {
     if (!automationRunning) return
