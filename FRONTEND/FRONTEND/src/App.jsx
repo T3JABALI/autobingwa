@@ -1,6 +1,6 @@
- import TokenGate from './features/tokens/TokenGate.jsx'
+import TokenGate from './features/tokens/TokenGate.jsx'
 import { tokensActive } from './engine/tokens.js'
-  import SmartPlans from './features/smartplans/SmartPlans.jsx'
+import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
 import Offers from './Offers.jsx'
 import { useEffect, useState } from 'react'
@@ -29,9 +29,10 @@ import { AnalyticsScreen } from './features/home/AnalyticsPage.jsx'
 
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
-   import { isNative, ussdServiceEnabled, setKeepAlive } from './engine/native.js'
-   import { loadConfig } from './engine/config.js'
+import { isNative, ussdServiceEnabled, setKeepAlive, heartbeat } from './engine/native.js'
+import { loadConfig } from './engine/config.js'
 import Onboarding, { isOnboarded } from './features/setup/Onboarding.jsx'
+
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
   { id: 2, name: 'FAITH KHASOA SIMIYU', phone: '070 459 0730', status: 'Completed', time: '7m ago', initials: 'FS' },
@@ -1321,96 +1322,110 @@ const toOldShape = (o) => ({
 })
 
 function App() {
-    const [myOffers, setMyOffers] = useState(() => {
-  try { return JSON.parse(localStorage.getItem('myOffers')) || [] } catch { return [] }
-})
-useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
-const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
-const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
- useEffect(() => {
-  const onOffer = (e) => {
-    const d = e.detail || {}
-    if (d.op === 'save' && d.offer) saveOffer(d.offer)
-    if (d.op === 'delete') deleteOffer(d.id)
-  }
-  window.addEventListener('ab-offer-cmd', onOffer)
-  return () => window.removeEventListener('ab-offer-cmd', onOffer)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [])
-const [light, setLight] = useState(false)
+  const [myOffers, setMyOffers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('myOffers')) || [] } catch { return [] }
+  })
+  useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
+  const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
+  const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
+  useEffect(() => {
+    const onOffer = (e) => {
+      const d = e.detail || {}
+      if (d.op === 'save' && d.offer) saveOffer(d.offer)
+      if (d.op === 'delete') deleteOffer(d.id)
+    }
+    window.addEventListener('ab-offer-cmd', onOffer)
+    return () => window.removeEventListener('ab-offer-cmd', onOffer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const [light, setLight] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
   const [automationRunning, setAutomationRunning] = useState(false)
   const [filter, setFilter] = useState('All')
   const [showBalances, setShowBalances] = useState(true)
   const offers = myOffers.map(toOldShape)
-    const [profile, setProfile] = useState(loadProfile)
+  const [profile, setProfile] = useState(loadProfile)
   const [mode, setMode] = useState(loadMode)
   const [clock, setClock] = useState(new Date())
-    const [modeOpen, setModeOpen] = useState(false)
-const [onboarded, setOnboarded] = useState(isOnboarded)
-   // The one big Start / Stop button
-  async function toggleAutomation() {
-  if (automationRunning) {
-    engine.stop()
-    setAutomationRunning(false)
-    setKeepAlive(false)
-    localStorage.setItem('ab-auto-run', '0')
-    return
-  }
-  // No token, no automation: show the "buy tokens" pop-up instead of starting.
-  if (!tokensActive()) {
-    window.dispatchEvent(new Event('ab-need-tokens'))
-    return
-  }
-  // Advanced mode needs the accessibility service. Show the setup guide instead of starting.
-  if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
-    window.dispatchEvent(new Event('ab-need-setup'))
-    return
-  }
-  const waiting = engine.pausedCount()
-  let choice = 'process'
-  if (waiting > 0) {
-    choice = await askChoice({
-      title: 'Before we start',
-      message: `${waiting} payment${waiting === 1 ? '' : 's'} arrived while automation was off. Handle ${waiting === 1 ? 'it' : 'them'} now, or leave ${waiting === 1 ? 'it' : 'them'} out and only take new payments from here?`,
-      choices: [
-        { id: 'cancel', label: "Don't start", kind: 'text' },
-        { id: 'skip', label: 'Leave them out', kind: 'text' },
-        { id: 'process', label: 'Handle them now', kind: 'primary' },
-      ],
-    })
-    if (choice !== 'process' && choice !== 'skip') return
-  }
-  setKeepAlive(true)
-  engine.start()
-  setAutomationRunning(true)
-  localStorage.setItem('ab-auto-run', '1')
-  if (waiting > 0) engine.releasePaused(choice)
-}
+  const [modeOpen, setModeOpen] = useState(false)
+  const [onboarded, setOnboarded] = useState(isOnboarded)
 
-// If automation was running when the app closed, start it again on reopen.
-useEffect(() => {
-  const wasRunning = localStorage.getItem('ab-auto-run') === '1'
-  if (wasRunning && tokensActive()) {
+  // The one big Start / Stop button
+  async function toggleAutomation() {
+    if (automationRunning) {
+      engine.stop()
+      setAutomationRunning(false)
+      setKeepAlive(false)
+      localStorage.setItem('ab-auto-run', '0')
+      return
+    }
+    // No token, no automation: show the "buy tokens" pop-up instead of starting.
+    if (!tokensActive()) {
+      window.dispatchEvent(new Event('ab-need-tokens'))
+      return
+    }
+    // Advanced mode needs the accessibility service. Show the setup guide instead of starting.
+    if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
+      window.dispatchEvent(new Event('ab-need-setup'))
+      return
+    }
+    const waiting = engine.pausedCount()
+    let choice = 'process'
+    if (waiting > 0) {
+      choice = await askChoice({
+        title: 'Before we start',
+        message: `${waiting} payment${waiting === 1 ? '' : 's'} arrived while automation was off. Handle ${waiting === 1 ? 'it' : 'them'} now, or leave ${waiting === 1 ? 'it' : 'them'} out and only take new payments from here?`,
+        choices: [
+          { id: 'cancel', label: "Don't start", kind: 'text' },
+          { id: 'skip', label: 'Leave them out', kind: 'text' },
+          { id: 'process', label: 'Handle them now', kind: 'primary' },
+        ],
+      })
+      if (choice !== 'process' && choice !== 'skip') return
+    }
     setKeepAlive(true)
     engine.start()
     setAutomationRunning(true)
-  } else {
-    engine.stop()
-    setKeepAlive(false)
-    localStorage.setItem('ab-auto-run', '0')
+    localStorage.setItem('ab-auto-run', '1')
+    if (waiting > 0) engine.releasePaused(choice)
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [])
 
-  // The app always opens stopped. Automation only starts when you hold the button.
+  // If automation was running when the app closed, start it again on reopen.
+  // (The old "always opens stopped" effect was removed: it undid this one.)
   useEffect(() => {
-    engine.stop()
-    setKeepAlive(false)
+    const wasRunning = localStorage.getItem('ab-auto-run') === '1'
+    if (wasRunning && tokensActive()) {
+      setKeepAlive(true)
+      engine.start()
+      setAutomationRunning(true)
+    } else {
+      engine.stop()
+      setKeepAlive(false)
+      localStorage.setItem('ab-auto-run', '0')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-   function changeMode(id) {
+
+  // While automation runs: keep the engine on, release anything Paused by mistake
+  useEffect(() => {
+    if (!automationRunning) return
+    const t = setInterval(() => {
+      if (!engine.isRunning()) engine.start()
+      if (engine.pausedCount() > 0) engine.releasePaused('process')
+    }, 3000)
+    return () => clearInterval(t)
+  }, [automationRunning])
+
+  // Heartbeat: tells the Android service the web engine is alive (watchdog wakes the app if it stops)
+  useEffect(() => {
+    if (!automationRunning) return
+    heartbeat()
+    const t = setInterval(heartbeat, 5000)
+    return () => clearInterval(t)
+  }, [automationRunning])
+
+  function changeMode(id) {
     setMode(id)
     saveMode(id)
     setModeOpen(false)
@@ -1421,10 +1436,25 @@ useEffect(() => {
     return () => clearInterval(timer)
   }, [])
 
+  // A successful purchase teaches its menu path (see engine/index.js). Saved here so the offers list stays in sync.
+  useEffect(() => {
+    const learned = (e) => {
+      const d = e.detail || {}
+      setMyOffers(p => p.map(o =>
+        String(o.id) === String(d.offerId) && !(o.sig && o.sig.complete)
+          ? { ...o, sig: d.sig, sigLearned: true, sigEnabled: true, sigAuto: true, updated: new Date().toLocaleString() }
+          : o))
+    }
+    window.addEventListener('ab-offer-learned', learned)
+    return () => window.removeEventListener('ab-offer-learned', learned)
+  }, [])
+
   const transactions = initialTransactions.filter(transaction =>
     filter === 'All' || transaction.status === filter
   )
-if (!onboarded) return <Onboarding onDone={() => setOnboarded(true)} />
+
+  if (!onboarded) return <Onboarding onDone={() => setOnboarded(true)} />
+
   return (
     <div className={`app ${light ? 'light' : 'dark'} ${NAV_PAGES.includes(activePage) ? 'has-nav' : ''}`}>
       {menuOpen && (
@@ -1500,15 +1530,12 @@ if (!onboarded) return <Onboarding onDone={() => setOnboarded(true)} />
         {activePage === 'Home' ? (
           <>
             <HomePage
-            automationRunning={automationRunning}
-onToggleAutomation={toggleAutomation}
+              automationRunning={automationRunning}
+              onToggleAutomation={toggleAutomation}
               offers={offers}
               onOpenTokens={() => setActivePage('Tokens')}
               onOpenAnalytics={() => setActivePage('Analytics')}
             />
-
-            
-        
           </>
         ) : activePage === 'OldHome' ? (
           <>
@@ -1560,10 +1587,10 @@ onToggleAutomation={toggleAutomation}
             </section>
 
             <section className="panel recent">
-<div className="section-heading">
-  <h2>Recent transactions</h2>
-  <button className="text-button" onClick={() => setActivePage('Transactions')}>View all</button>
-</div>
+              <div className="section-heading">
+                <h2>Recent transactions</h2>
+                <button className="text-button" onClick={() => setActivePage('Transactions')}>View all</button>
+              </div>
 
               <div className="filters">
                 {['All', 'Completed', 'Pending', 'Failed', 'Scheduled', 'Unmatched', 'Sitelink'].map(item => (
@@ -1624,7 +1651,7 @@ onToggleAutomation={toggleAutomation}
         ) : activePage === 'Signature' ? (
           <Signature owned={myOffers} onDownload={saveOffer} />
         ) : activePage === 'Offers' ? (
-<Offers offers={myOffers} onSave={saveOffer} onDelete={deleteOffer} />
+          <Offers offers={myOffers} onSave={saveOffer} onDelete={deleteOffer} />
         ) : activePage === 'QuickDial' ? (
           <section className="panel">
             <QuickDialPage
@@ -1644,7 +1671,7 @@ onToggleAutomation={toggleAutomation}
           <section className="panel">
             <TokensPage onBack={() => setActivePage('Home')} />
           </section>
-                ) : activePage === 'Client Management' ? (
+        ) : activePage === 'Client Management' ? (
           <section className="panel">
             <ClientsPage onBack={() => setActivePage('Home')} />
           </section>
@@ -1652,7 +1679,7 @@ onToggleAutomation={toggleAutomation}
           <section className="panel">
             <ContactsPage onBack={() => setActivePage('Home')} />
           </section>
-         ) : activePage === 'Auto Replies' ? (
+        ) : activePage === 'Auto Replies' ? (
           <section className="panel fit fit-replies">
             <AutoRepliesPage onBack={() => setActivePage('Home')} />
           </section>
@@ -1663,16 +1690,12 @@ onToggleAutomation={toggleAutomation}
         ) : activePage === 'Fallback Plans' ? (
           <section className="panel fit fit-fallback">
             <FallbackPage offers={offers} onBack={() => setActivePage('Home')} />
-          </section> 
-                ) : activePage === 'Sitelink' ? (
+          </section>
+        ) : activePage === 'Sitelink' ? (
           <section className="panel">
             <Sitelink onBack={() => setActivePage('Home')} />
           </section>
         ) : activePage === 'Phone Setup' ? (
-          <section className="panel">
-            <PhoneSetupPage onBack={() => setActivePage('Home')} />
-          </section>
-      ) : activePage === 'Phone Setup' ? (
           <section className="panel">
             <PhoneSetupPage onBack={() => setActivePage('Home')} />
           </section>
@@ -1690,7 +1713,8 @@ onToggleAutomation={toggleAutomation}
               onToggleTheme={() => setLight(!light)}
             />
           </section>
-        ) : (    <section className="panel placeholder-page">
+        ) : (
+          <section className="panel placeholder-page">
             <div className="placeholder-icon">◇</div>
             <h1>{activePage}</h1>
             <p>This dashboard section will be built in a later stage.</p>
@@ -1711,7 +1735,7 @@ onToggleAutomation={toggleAutomation}
       )}
       <Toaster />
       <DialogHost />
-{activePage === 'Home' && <UpdatePrompt />}
+      {activePage === 'Home' && <UpdatePrompt />}
       <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />
       {modeOpen && (
         <ModeDialog mode={mode} onSelect={changeMode} onClose={() => setModeOpen(false)} />

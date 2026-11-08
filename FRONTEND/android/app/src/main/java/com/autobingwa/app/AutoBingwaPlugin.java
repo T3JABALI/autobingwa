@@ -135,7 +135,13 @@ public class AutoBingwaPlugin extends Plugin {
             }
         }).start();
     }
+static volatile long lastBeat = 0;
 
+@PluginMethod
+public void heartbeat(PluginCall call) {
+    lastBeat = System.currentTimeMillis();
+    call.resolve();
+}
     // Opens the Android installer for the downloaded APK
     @PluginMethod
     public void installApk(PluginCall call) {

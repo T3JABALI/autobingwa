@@ -22,6 +22,7 @@ export async function overlayGranted() {
   const r = await safe(() => AutoBingwa.overlayStatus())
   return Boolean(r && r.granted)
 }
+export const heartbeat = () => safe(() => AutoBingwa.heartbeat())
 export const openOverlaySettings = () => safe(() => AutoBingwa.openOverlaySettings())
 // Saves a customer to the phone's contacts as "Name Suffix"
 export async function saveContact(name, phone) {

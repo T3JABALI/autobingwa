@@ -7,6 +7,15 @@ import android.os.Looper;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    // Repeats every 5 seconds while automation runs, so Android cannot freeze the web view's timers
+    private final Handler loop = new Handler(Looper.getMainLooper());
+    private final Runnable keep = new Runnable() {
+        @Override public void run() {
+            keepWebViewRunning();
+            if (KeepAliveService.active) loop.postDelayed(this, 5000);
+        }
+    };
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AutoBingwaPlugin.class);
@@ -28,6 +37,8 @@ public class MainActivity extends BridgeActivity {
     public void onPause() {
         super.onPause();
         keepWebViewRunning();
+        loop.removeCallbacks(keep);
+        loop.postDelayed(keep, 5000);
     }
 
     @Override
@@ -45,6 +56,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        loop.removeCallbacks(keep);
         Intent in = getIntent();
         if (in != null && in.getBooleanExtra("restart", false)) {
             in.removeExtra("restart");

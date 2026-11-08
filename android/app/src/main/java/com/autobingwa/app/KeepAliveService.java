@@ -3,19 +3,22 @@ package com.autobingwa.app;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.Log;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import android.os.Build;
-import android.provider.Settings;
+
 public class KeepAliveService extends Service {
     static volatile boolean active = false;
     private static final long WAKE_MS = 6L * 60 * 60 * 1000; // renewed every scan, so it can never leak
     private ScheduledExecutorService scanner;
     private PowerManager.WakeLock wake;
+    private int ticks = 0; // counts scans, one every 30 seconds
+    private long lastWake = 0;
 
     // Keeps the CPU awake while automation is running, so the queue keeps going with the screen off
     private void holdCpu() {
@@ -31,11 +34,27 @@ public class KeepAliveService extends Service {
         }
     }
 
+    // Brings the app to the front for a moment. MainActivity sends it back to the background.
+    private void wakeApp() {
+        try {
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            i.putExtra("restart", true);
+            // Android 10+ only lets a background service open an activity with "Display over other apps"
+            if (Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this)) {
+                startActivity(i);
+            }
+        } catch (Exception e) {
+            Log.e("AutoBingwa", "wakeApp", e);
+        }
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notifier.channels(this);
         startForeground(Notifier.ID_RUN, Notifier.running(this, "Waiting for payments"));
         active = true;
+        AutoBingwaPlugin.lastBeat = System.currentTimeMillis(); // grace period after a start
         holdCpu();
         if (scanner == null) {
             scanner = Executors.newSingleThreadScheduledExecutor();
@@ -44,6 +63,16 @@ public class KeepAliveService extends Service {
                 public void run() {
                     try {
                         holdCpu();
+                        if (++ticks % 10 == 0) Notifier.motivate(getApplicationContext()); // every 5 minutes
+
+                        // Watchdog: no heartbeat from the web engine means it is frozen
+                        long now = System.currentTimeMillis();
+                        if (now - AutoBingwaPlugin.lastBeat > 90000 && now - lastWake > 120000) {
+                            lastWake = now;
+                            Log.w("AutoBingwa", "web engine stalled, waking the app");
+                            wakeApp();
+                        }
+
                         int n = SmsCatchUp.scan(getApplicationContext());
                         if (n > 0) AutoBingwaPlugin.poke();
                     } catch (Exception e) {
@@ -54,22 +83,14 @@ public class KeepAliveService extends Service {
         }
         return START_STICKY;
     }
-@Override
-public void onTaskRemoved(Intent rootIntent) {
-    super.onTaskRemoved(rootIntent);
-    Log.i("AutoBingwa", "task removed, relaunching");
-    try {
-        Intent i = new Intent(this, MainActivity.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        i.putExtra("restart", true);
-        // Android 10+ only lets a background service open an activity with "Display over other apps"
-        if (Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this)) {
-            startActivity(i);
-        }
-    } catch (Exception e) {
-        Log.e("AutoBingwa", "relaunch", e);
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        Log.i("AutoBingwa", "task removed, relaunching");
+        wakeApp();
     }
-}
+
     @Override
     public void onDestroy() {
         active = false;

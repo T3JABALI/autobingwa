@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { TOAST_EVENT } from './notify.js'
 import { CSS } from './toastStyles.js'
-
+import { phoneAlert } from '../../engine/native.js'
 // Only these two kinds ever show. Everything else stays silent.
 const SHOW = ['processing', 'failed', 'error']
 
@@ -25,11 +25,13 @@ export default function Toaster() {
     const onToast = (e) => {
       const { message, type = 'info', title = '' } = e.detail || {}
 
-      if (!SHOW.includes(type)) {
-        // A result such as "completed" ends a Processing pop-up and shows nothing itself
-        if (current && current.type === 'processing') advance()
-        return
-      }
+  if (!SHOW.includes(type)) {
+  phoneAlert('clear', '', '') // a result arrived, so remove the Processing pop-up
+  if (current && current.type === 'processing') advance()
+  return
+}
+
+if (document.hidden) phoneAlert(type, title, message)
 
       const n = { message, type, title }
       if (current && current.message === message && current.type === type) return
