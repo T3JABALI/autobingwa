@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   isNative, ussdServiceEnabled, openAccessibilitySettings, openAppInfo,
-  requestBatteryExemption, restrictedStatus,
+  requestBatteryExemption, restrictedStatus, batteryExempt,
 } from '../../engine/native.js'
 
 export default function UssdSetup() {
   const [on, setOn] = useState(true)
   const [blocked, setBlocked] = useState(false)
+  const [bat, setBat] = useState(false)
   const [open, setOpen] = useState(false)
   const asked = useRef(false)
   const tried = useRef(false)
@@ -20,6 +21,7 @@ export default function UssdSetup() {
       if (enabled) { setOpen(false); return }
       const b = await restrictedStatus()
       setBlocked(b)
+      try { setBat(await batteryExempt()) } catch (e) { /* ignore */ }
       if (!asked.current) { asked.current = true; setOpen(true) }
       // Back from Accessibility and still off while Android blocks it: open App info for the user
       if (tried.current && b && !autoInfo.current) {
@@ -48,42 +50,96 @@ export default function UssdSetup() {
 
   return (
     <>
-      <button
-        className="hm-note"
-        style={{ width: '100%', textAlign: 'left', cursor: 'pointer', border: '1px solid #f07a63', color: '#f07a63', background: 'transparent' }}
-        onClick={() => setOpen(true)}
-      >
-        ⚠ USSD automation is off. Tap to set it up.
+      <style>{`
+        .us-banner { width: 100%; text-align: left; cursor: pointer; padding: 12px 14px; margin-bottom: 12px;
+          border-radius: 14px; border: 1px solid #f07a63; background: transparent;
+          color: #f07a63; font: inherit; font-size: 13px; font-weight: 600; }
+        .us-back { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-end;
+          justify-content: center; background: rgba(0, 0, 0, 0.62); }
+        .us-sheet { --us-card: rgba(127,127,127,.09); --us-ic: rgba(127,127,127,.18);
+          width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto; box-sizing: border-box;
+          padding: 20px 16px calc(env(safe-area-inset-bottom, 0px) + 18px);
+          border-radius: 22px 22px 0 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        @supports (background: color-mix(in srgb, red 10%, blue)) {
+          .us-sheet { --us-card: color-mix(in srgb, var(--primary) 7%, var(--bg));
+                      --us-ic: color-mix(in srgb, var(--primary) 18%, var(--bg)); }
+        }
+        .us-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
+        .us-logo { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
+          background: var(--primary); color: var(--bg); font-size: 21px; font-weight: 800; }
+        .us-brand { font-size: 20px; font-weight: 800; color: var(--primary); }
+        .us-sheet h3 { margin: 0 0 6px; font-size: 21px; font-weight: 800; color: var(--text); }
+        .us-sub { margin: 0 0 16px; font-size: 13.5px; line-height: 1.55; color: var(--soft); }
+        .us-card { display: flex; align-items: center; gap: 12px; padding: 13px; margin-bottom: 10px;
+          border-radius: 18px; background: var(--us-card); border: 1px solid var(--border); }
+        .us-card.hot { border-color: #f07a63; }
+        .us-num { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
+          background: var(--us-ic); color: var(--primary); font-weight: 800; }
+        .us-txt { flex: 1; min-width: 0; }
+        .us-txt strong { display: block; font-size: 14.5px; color: var(--text); }
+        .us-txt span { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: var(--soft); }
+        .us-txt span.warn { color: #f07a63; font-weight: 700; }
+        .us-go { padding: 9px 16px; border-radius: 999px; border: 1.5px solid var(--primary); background: transparent;
+          color: var(--primary); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+        .us-go:active { background: var(--us-ic); }
+        .us-ok { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
+          background: var(--primary); color: var(--bg); font-weight: 800; }
+        .us-close { width: 100%; margin-top: 6px; padding: 13px; border: 0; background: transparent;
+          color: var(--soft); font: inherit; font-size: 14px; cursor: pointer; }
+      `}</style>
+
+      <button className="us-banner" onClick={() => setOpen(true)}>
+        ⚠ USSD automation is not active yet. Tap to finish setup.
       </button>
 
       {open && (
-        <div className="hm-modal-back" onClick={() => setOpen(false)}>
-          <div className="hm-modal" role="dialog" aria-label="Set up USSD" onClick={(e) => e.stopPropagation()}>
-            <h3>Set up USSD automation</h3>
-            <p>Do these once. Advanced mode cannot run until step 1 is done.</p>
+        <div className="us-back" onClick={() => setOpen(false)}>
+          <div className="us-sheet" role="dialog" aria-label="USSD setup" onClick={(e) => e.stopPropagation()}>
+            <div className="us-head">
+              <div className="us-logo">A</div>
+              <div className="us-brand">AutoBingwa</div>
+            </div>
+            <h3>Let the app dial for you</h3>
+            <p className="us-sub">
+              Complete these steps one time. Advanced mode stays locked until the first one is done.
+            </p>
 
-            <button
-              className="hm-simbtn"
-              onClick={() => { tried.current = true; autoInfo.current = false; openAccessibilitySettings() }}
-            >
-              1. Turn on the service
-              <small>Installed apps → AutoBingwa USSD → On. If Android says "Restricted setting", press OK and come back here.</small>
-            </button>
+            <div className="us-card">
+              <span className="us-num">1</span>
+              <div className="us-txt">
+                <strong>Switch on the service</strong>
+                <span>Open Accessibility, pick AutoBingwa USSD and turn it on. If Android shows a "Restricted setting" notice, tap OK and return here.</span>
+              </div>
+              <button
+                className="us-go"
+                onClick={() => { tried.current = true; autoInfo.current = false; openAccessibilitySettings() }}
+              >
+                Open
+              </button>
+            </div>
 
-            <button className="hm-simbtn" onClick={() => openAppInfo()}>
-              2. Allow restricted settings
-              <small>
-                {blocked ? 'Android is blocking it. ' : ''}
-                App info → ⋮ (top right) → Allow restricted settings. Then repeat step 1.
-              </small>
-            </button>
+            <div className={`us-card ${blocked ? 'hot' : ''}`}>
+              <span className="us-num">2</span>
+              <div className="us-txt">
+                <strong>Unlock restricted settings</strong>
+                {blocked && <span className="warn">Android is blocking the service right now.</span>}
+                <span>Open App info, tap ⋮ at the top right, choose Allow restricted settings, then repeat step 1.</span>
+              </div>
+              <button className="us-go" onClick={() => openAppInfo()}>Open</button>
+            </div>
 
-            <button className="hm-simbtn" onClick={() => requestBatteryExemption()}>
-              3. Allow background running
-              <small>Choose Allow so Android does not stop a transaction halfway.</small>
-            </button>
+            <div className="us-card">
+              <span className="us-num">3</span>
+              <div className="us-txt">
+                <strong>Keep it running in the background</strong>
+                <span>Choose Allow so Android does not cut a purchase off halfway.</span>
+              </div>
+              {bat
+                ? <span className="us-ok">✓</span>
+                : <button className="us-go" onClick={() => requestBatteryExemption()}>Allow</button>}
+            </div>
 
-            <button className="hm-cancel" onClick={() => setOpen(false)}>Close</button>
+            <button className="us-close" onClick={() => setOpen(false)}>Close</button>
           </div>
         </div>
       )}
