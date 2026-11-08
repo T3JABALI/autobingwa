@@ -184,7 +184,23 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
       <Switch on={config[field]} onChange={() => updateConfig({ [field]: !config[field] })} label={label} />
     </div>
   )
-
+const Chevron = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 6l6 6-6 6" />
+  </svg>
+)
+const simRows = (field) => ['SIM 1', 'SIM 2'].map((sim) => (
+  <div className="sx-item" key={sim}>
+    <strong>{sim}</strong>
+    <Switch on={config[field] === sim} onChange={() => chooseSim(field, sim)} label={sim} />
+  </div>
+))
+const sxToggle = (label, desc, field) => (
+  <div className="sx-item">
+    <span><strong>{label}</strong>{desc && <small>{desc}</small>}</span>
+    <Switch on={config[field]} onChange={() => updateConfig({ [field]: !config[field] })} label={label} />
+  </div>
+)
   return (
     <div className="st-page">
       <style>{`
@@ -281,111 +297,92 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
         .st-block-info strong { display: block; overflow-wrap: anywhere; }
         .st-block-info span { color: var(--st-soft); font-size: 14px; }
         .st-empty { text-align: center; color: var(--st-soft); padding: 30px 12px; }
+        .st-inner { max-width: none; }
+.sx { margin: 0 -4px; }
+.sx-label { margin: 0; padding: 26px 16px 8px; font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #2e9e45; }
+.sx-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; box-sizing: border-box; padding: 18px 16px; border: 0; border-bottom: 1px solid var(--st-border); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sx-item strong { display: block; font-size: 17px; font-weight: 600; }
+.sx-item small { display: block; margin-top: 4px; color: var(--st-soft); font-size: 13px; }
+.sx-pad { padding: 4px 16px 14px; }
+.sx-danger strong { color: var(--st-bad); }
+.sx-dot { width: 24px; height: 24px; border-radius: 50%; border: 3px solid var(--st-border); flex-shrink: 0; display: grid; place-items: center; }
+.sx-radio.on .sx-dot { border-color: #2e9e45; }
+.sx-radio.on .sx-dot::after { content: ''; width: 11px; height: 11px; border-radius: 50%; background: #2e9e45; }
+.st-switch.on { background: #2e8b3d; border-color: #2e8b3d; }
       `}</style>
 
       <div className="st-inner">
-        {screen === 'main' && (
-          <>
-            <div className="st-head">
-              <button className="st-icon" onClick={onBack} aria-label="Go back">
-                <svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-              </button>
-              <h1>Settings</h1>
-            </div>
+{screen === 'main' && (
+  <div className="sx">
+    {notice && <p className="st-note" role="status">{notice}</p>}
 
-            <div className="st-profile">
-              <div className="st-avatar">
-                {profile.photo ? (
-                  <img src={profile.photo} alt="Your profile" />
-                ) : (
-                  <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" /></svg>
-                )}
-              </div>
-              <div className="st-who">
-                <strong>{displayName}</strong>
-                {profile.business && <span>{profile.business}</span>}
-                {profile.phone && <span>{profile.phone}</span>}
-              </div>
-              <button className="st-icon" onClick={openEdit} aria-label="Edit profile" title="Edit profile">
-                <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-              </button>
-            </div>
+    <p className="sx-label">Account</p>
+    <button className="sx-item" onClick={openEdit}>
+      <span>
+        <strong>Profile</strong>
+        <small>{displayName}{profile.business ? ` · ${profile.business}` : ''}</small>
+      </span>
+      <Chevron />
+    </button>
 
-            {notice && <p className="st-note" role="status" style={{ marginTop: 16 }}>{notice}</p>}
+    <p className="sx-label">Appearance</p>
+    <div className="sx-item">
+      <strong>Light mode</strong>
+      <Switch on={light} onChange={() => onToggleTheme && onToggleTheme()} label="Light mode" />
+    </div>
 
-            <h2 className="st-section">Appearance</h2>
-            <div className="st-row">
-              <span className="st-row-label">Light mode</span>
-              <Switch on={light} onChange={() => onToggleTheme && onToggleTheme()} label="Light mode" />
-            </div>
+    <p className="sx-label">USSD SIM</p>
+    {simRows('bingwaSim')}
 
-            <h2 className="st-section">SIM Setup</h2>
-            {simPicker(
-              'Bingwa SIM',
-              'Receives payments and runs USSDs. Airtime balance and Safaricom commission messages are read from this SIM.',
-              'bingwaSim',
-            )}
-            {simPicker('Send Auto-Replies Using', 'This SIM sends every message the app sends.', 'replySim')}
+    <p className="sx-label">Auto-replies SIM</p>
+    {simRows('replySim')}
 
-            <h2 className="st-section">Message Processing</h2>
-            {toggleRow('Process M-Pesa Messages', 'processMpesa')}
-            {toggleRow('Process Till Messages', 'processTill')}
-            {toggleRow('Process Paybill Messages', 'processPaybill')}
-            {toggleRow('Process SiteLink Messages', 'processSitelink')}
+    <p className="sx-label">Message processing</p>
+    {sxToggle('M-Pesa messages', '', 'processMpesa')}
+    {sxToggle('Till messages', '', 'processTill')}
+    {sxToggle('Paybill messages', '', 'processPaybill')}
+    {sxToggle('SiteLink messages', '', 'processSitelink')}
 
-            <h2 className="st-section">My Customers</h2>
-            {toggleRow('Auto-Save Contacts', 'autoSave')}
-            {config.autoSave && (
-              <div>
-                <label className="st-label" htmlFor="st-suffix">Common ending for saved names</label>
-                <input id="st-suffix" className="st-field" value={config.saveSuffix} maxLength={30}
-                  placeholder="e.g. AutoBingwa"
-                  onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
-                <p className="st-preview">
-                  Every customer is saved to your phone as: <strong>Faith Simiyu{suffix ? ` ${suffix}` : ''}</strong>
-                </p>
-              </div>
-            )}
-            <button className="st-link" onClick={openBlacklist}>
-              <span>
-                <strong>BlackList ({blockedCount})</strong>
-                <span className="d">Blacklisted customers are not processed and not saved to contacts</span>
-              </span>
-              <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></svg>
-            </button>
+    <p className="sx-label">My customers</p>
+    {sxToggle('Auto-save contacts', 'Saved to your phone after each payment', 'autoSave')}
+    {config.autoSave && (
+      <div className="sx-pad">
+        <label className="st-label" htmlFor="st-suffix">Common ending for saved names</label>
+        <input id="st-suffix" className="st-field" value={config.saveSuffix} maxLength={30}
+          placeholder="e.g. AutoBingwa"
+          onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
+        <p className="st-preview">Saved as: <strong>Faith Simiyu{suffix ? ` ${suffix}` : ''}</strong></p>
+      </div>
+    )}
+    <button className="sx-item" onClick={openBlacklist}>
+      <span><strong>Blacklist ({blockedCount})</strong><small>Not processed and not saved to contacts</small></span>
+      <Chevron />
+    </button>
 
-            <h2 className="st-section">AutoBingwa Portal</h2>
-            <div className="st-row">
-              <span>
-                <span className="st-row-label">AutoBingwa Portal</span>
-                <p className="st-desc">View and manage transactions remotely</p>
-              </span>
-              <Switch on={config.portal} onChange={() => { updateConfig({ portal: !config.portal }); window.dispatchEvent(new Event('ab-connect')) }}
-                label="AutoBingwa Portal" />
-            </div>
-            {!config.portal && (
-              <p className="st-desc">Switch this on first. The portal will not work while it is off.</p>
-            )}
+    <p className="sx-label">Portal</p>
+    <div className="sx-item">
+      <span><strong>AutoBingwa Portal</strong><small>View and manage transactions remotely</small></span>
+      <Switch on={config.portal} label="AutoBingwa Portal"
+        onChange={() => { updateConfig({ portal: !config.portal }); window.dispatchEvent(new Event('ab-connect')) }} />
+    </div>
+    {!config.portal && (
+      <p className="sx-pad st-desc">Switch this on first. The portal will not work while it is off.</p>
+    )}
 
-            <h2 className="st-section">Processing Mode</h2>
-            <div role="radiogroup" aria-label="Processing mode">
-              {MODES.map((m) => (
-                <button key={m.id} role="radio" aria-checked={config.mode === m.id}
-                  className={`st-radio ${config.mode === m.id ? 'on' : ''}`} onClick={() => chooseMode(m.id)}>
-                  <span className="st-dot" />
-                  <span>
-                    <strong>{m.label}</strong>
-                    <span className="d">{m.desc}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
+    <p className="sx-label">Processing mode</p>
+    {MODES.map((m) => (
+      <button key={m.id} role="radio" aria-checked={config.mode === m.id}
+        className={`sx-item sx-radio ${config.mode === m.id ? 'on' : ''}`} onClick={() => chooseMode(m.id)}>
+        <span><strong>{m.label}</strong><small>{m.desc}</small></span>
+        <span className="sx-dot" />
+      </button>
+    ))}
 
-            <h2 className="st-section">Account</h2>
-            {user && user.email && <p className="st-desc">Signed in as {user.email}</p>}
-            <button className="st-btn ghost" onClick={logout}>Sign out</button>
-          </>
-        )}
+    <p className="sx-label">Session</p>
+    {user && user.email && <p className="sx-pad st-desc">Signed in as {user.email}</p>}
+    <button className="sx-item sx-danger" onClick={logout}><strong>Sign out</strong></button>
+  </div>
+)}
 
         {screen === 'edit' && (
           <>

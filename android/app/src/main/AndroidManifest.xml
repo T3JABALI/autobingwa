@@ -67,14 +67,15 @@
                 android:resource="@xml/ussd_service_config" />
         </service>
 
-        <service
-            android:name=".KeepAliveService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Runs USSD offers for customer payments" />
-        </service>
+  <service
+    android:name=".KeepAliveService"
+    android:exported="false"
+    android:stopWithTask="false"
+    android:foregroundServiceType="specialUse">
+    <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Runs USSD offers for customer payments" />
+</service>
     </application>
 
     <!-- Permissions -->
@@ -104,4 +105,5 @@
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
         <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+        <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 </manifest>

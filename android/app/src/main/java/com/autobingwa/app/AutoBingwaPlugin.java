@@ -516,6 +516,28 @@ public class AutoBingwaPlugin extends Plugin {
         call.resolve();
     }
 
+    // NEW: true when the app may open screens from the background ("Display over other apps")
+    @PluginMethod
+    public void overlayStatus(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("granted", Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext()));
+        call.resolve(out);
+    }
+
+    // NEW: opens the "Display over other apps" screen for this app
+    @PluginMethod
+    public void openOverlaySettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Exception e) {
+            // some phones do not offer this screen
+        }
+        call.resolve();
+    }
+
     // Best guess whether Android is still blocking accessibility for this sideloaded app
     @PluginMethod
     public void restrictedStatus(PluginCall call) {

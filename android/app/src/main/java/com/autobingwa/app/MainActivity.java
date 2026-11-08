@@ -1,6 +1,9 @@
 package com.autobingwa.app;
 
+import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -31,5 +34,24 @@ public class MainActivity extends BridgeActivity {
     public void onStop() {
         super.onStop();
         keepWebViewRunning();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        Intent in = getIntent();
+        if (in != null && in.getBooleanExtra("restart", false)) {
+            in.removeExtra("restart");
+            // let the web app load and resume automation, then go back to the background
+            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override public void run() { moveTaskToBack(true); }
+            }, 3500);
+        }
     }
 }

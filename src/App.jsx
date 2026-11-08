@@ -31,7 +31,7 @@ import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
    import { isNative, ussdServiceEnabled, setKeepAlive } from './engine/native.js'
    import { loadConfig } from './engine/config.js'
-
+import Onboarding, { isOnboarded } from './features/setup/Onboarding.jsx'
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
   { id: 2, name: 'FAITH KHASOA SIMIYU', phone: '070 459 0730', status: 'Completed', time: '7m ago', initials: 'FS' },
@@ -1348,57 +1348,61 @@ const [light, setLight] = useState(false)
   const [mode, setMode] = useState(loadMode)
   const [clock, setClock] = useState(new Date())
     const [modeOpen, setModeOpen] = useState(false)
-
+const [onboarded, setOnboarded] = useState(isOnboarded)
    // The one big Start / Stop button
-     async function toggleAutomation() {
-       if (automationRunning) {
-         engine.stop()
-         setAutomationRunning(false)
-         setKeepAlive(false)
-         return
-       }
-// No token, no automation: show the "buy tokens" pop-up instead of starting.
-       if (!tokensActive()) {
-         window.dispatchEvent(new Event('ab-need-tokens'))
-         return
-       }
-       // Advanced mode needs the accessibility service. Show the setup guide instead of starting.
-       if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
-         window.dispatchEvent(new Event('ab-need-setup'))
-         return
-       }
-       const waiting = engine.pausedCount()
-       let choice = 'process'
-       if (waiting > 0) {
-         choice = await askChoice({
-           title: 'Before we start',
-           message: `${waiting} payment${waiting === 1 ? '' : 's'} arrived while automation was off. Handle ${waiting === 1 ? 'it' : 'them'} now, or leave ${waiting === 1 ? 'it' : 'them'} out and only take new payments from here?`,
-           choices: [
-             { id: 'cancel', label: "Don't start", kind: 'text' },
-             { id: 'skip', label: 'Leave them out', kind: 'text' },
-             { id: 'process', label: 'Handle them now', kind: 'primary' },
-           ],
-         })
-         if (choice !== 'process' && choice !== 'skip') return // closed or "Don't start": nothing starts
-       }
-       setKeepAlive(true)
-       engine.start()
-       setAutomationRunning(true)
-       if (waiting > 0) engine.releasePaused(choice)
-     }
+  async function toggleAutomation() {
+  if (automationRunning) {
+    engine.stop()
+    setAutomationRunning(false)
+    setKeepAlive(false)
+    localStorage.setItem('ab-auto-run', '0')
+    return
+  }
+  // No token, no automation: show the "buy tokens" pop-up instead of starting.
+  if (!tokensActive()) {
+    window.dispatchEvent(new Event('ab-need-tokens'))
+    return
+  }
+  // Advanced mode needs the accessibility service. Show the setup guide instead of starting.
+  if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
+    window.dispatchEvent(new Event('ab-need-setup'))
+    return
+  }
+  const waiting = engine.pausedCount()
+  let choice = 'process'
+  if (waiting > 0) {
+    choice = await askChoice({
+      title: 'Before we start',
+      message: `${waiting} payment${waiting === 1 ? '' : 's'} arrived while automation was off. Handle ${waiting === 1 ? 'it' : 'them'} now, or leave ${waiting === 1 ? 'it' : 'them'} out and only take new payments from here?`,
+      choices: [
+        { id: 'cancel', label: "Don't start", kind: 'text' },
+        { id: 'skip', label: 'Leave them out', kind: 'text' },
+        { id: 'process', label: 'Handle them now', kind: 'primary' },
+      ],
+    })
+    if (choice !== 'process' && choice !== 'skip') return
+  }
+  setKeepAlive(true)
+  engine.start()
+  setAutomationRunning(true)
+  localStorage.setItem('ab-auto-run', '1')
+  if (waiting > 0) engine.releasePaused(choice)
+}
 
-  // A successful purchase teaches its menu path (see engine/index.js). Saved here so the offers list stays in sync.
-  useEffect(() => {
-    const learned = (e) => {
-      const d = e.detail || {}
-      setMyOffers(p => p.map(o =>
-        String(o.id) === String(d.offerId) && !(o.sig && o.sig.complete)
-          ? { ...o, sig: d.sig, sigLearned: true, sigEnabled: true, sigAuto: true, updated: new Date().toLocaleString() }
-          : o))
-    }
-    window.addEventListener('ab-offer-learned', learned)
-    return () => window.removeEventListener('ab-offer-learned', learned)
-  }, [])
+// If automation was running when the app closed, start it again on reopen.
+useEffect(() => {
+  const wasRunning = localStorage.getItem('ab-auto-run') === '1'
+  if (wasRunning && tokensActive()) {
+    setKeepAlive(true)
+    engine.start()
+    setAutomationRunning(true)
+  } else {
+    engine.stop()
+    setKeepAlive(false)
+    localStorage.setItem('ab-auto-run', '0')
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [])
 
   // The app always opens stopped. Automation only starts when you hold the button.
   useEffect(() => {
@@ -1420,7 +1424,7 @@ const [light, setLight] = useState(false)
   const transactions = initialTransactions.filter(transaction =>
     filter === 'All' || transaction.status === filter
   )
-
+if (!onboarded) return <Onboarding onDone={() => setOnboarded(true)} />
   return (
     <div className={`app ${light ? 'light' : 'dark'} ${NAV_PAGES.includes(activePage) ? 'has-nav' : ''}`}>
       {menuOpen && (

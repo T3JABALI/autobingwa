@@ -18,7 +18,11 @@ export async function askPermissions() {
   if (have.sms === 'granted' && have.phone === 'granted' && have.contacts === 'granted') return have
   return AutoBingwa.requestPermissions()
 }
-
+export async function overlayGranted() {
+  const r = await safe(() => AutoBingwa.overlayStatus())
+  return Boolean(r && r.granted)
+}
+export const openOverlaySettings = () => safe(() => AutoBingwa.openOverlaySettings())
 // Saves a customer to the phone's contacts as "Name Suffix"
 export async function saveContact(name, phone) {
   if (!isNative() || !name || !phone) return
@@ -125,15 +129,7 @@ export async function accessibilityConflicts() {
   const r = await safe(() => AutoBingwa.accessibilityConflicts())
   return r || { apps: [], ours: false }
 }
-// Keeps the last 40 incoming SMS so a token payment can find its confirmation message
-function logRecentSms(m) {
-  try {
-    const list = JSON.parse(localStorage.getItem('ab:recent-sms') || '[]')
-    if (list.some((x) => x.id === m.id)) return
-    list.unshift({ id: m.id, body: String(m.body || '').slice(0, 400), at: Date.now() })
-    localStorage.setItem('ab:recent-sms', JSON.stringify(list.slice(0, 40)))
-  } catch (e) { /* ignore */ }
-}
+
 // Every saved SMS is handed on, then marked as done
 export function startSmsBridge(engine) {
   if (!isNative()) return
@@ -156,7 +152,6 @@ export function startSmsBridge(engine) {
     for (const m of items) {
       try {
         console.log('AB sms from', m.sender)
-                logRecentSms(m)
         const total = parseCommission(m.body)
         const isPayment = /^[A-Z0-9]{10}\s+Confirmed/i.test(String(m.body).trim())
         const conf = isPayment ? null : classifyConfirmation(m.body)
@@ -207,9 +202,4 @@ export function startSmsBridge(engine) {
   setInterval(drain, 5000) // safety net in case a signal is ever missed
   catchUp()
   drain()
-}
-// Dials one full code in the dialer window and returns { status, text, message }
-export async function dialUssdOnce({ code, slot = 0, waitMs = 25000 }) {
-  if (!isNative()) throw new Error('USSD can only run inside the Android app')
-  return AutoBingwa.dialUssdOnce({ code, slot, waitMs })
 }

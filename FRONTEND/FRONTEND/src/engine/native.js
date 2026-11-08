@@ -18,7 +18,11 @@ export async function askPermissions() {
   if (have.sms === 'granted' && have.phone === 'granted' && have.contacts === 'granted') return have
   return AutoBingwa.requestPermissions()
 }
-
+export async function overlayGranted() {
+  const r = await safe(() => AutoBingwa.overlayStatus())
+  return Boolean(r && r.granted)
+}
+export const openOverlaySettings = () => safe(() => AutoBingwa.openOverlaySettings())
 // Saves a customer to the phone's contacts as "Name Suffix"
 export async function saveContact(name, phone) {
   if (!isNative() || !name || !phone) return
@@ -158,7 +162,7 @@ export function startSmsBridge(engine) {
         if (conf) {
           const used = engine.confirm({ ...conf, text: m.body })
           console.log('AB confirmation', conf.status, used ? 'used' : 'no transaction waiting')
-            } else if (total === null && (isPayment || fromMpesa(m.sender))) {
+        } else if (total === null && fromMpesa(m.sender)) {
           engine.ingest(m.body)
         }
         done.push(m.id)

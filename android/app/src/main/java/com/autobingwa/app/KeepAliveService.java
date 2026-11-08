@@ -9,7 +9,8 @@ import android.util.Log;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
+import android.os.Build;
+import android.provider.Settings;
 public class KeepAliveService extends Service {
     static volatile boolean active = false;
     private static final long WAKE_MS = 6L * 60 * 60 * 1000; // renewed every scan, so it can never leak
@@ -53,7 +54,22 @@ public class KeepAliveService extends Service {
         }
         return START_STICKY;
     }
-
+@Override
+public void onTaskRemoved(Intent rootIntent) {
+    super.onTaskRemoved(rootIntent);
+    Log.i("AutoBingwa", "task removed, relaunching");
+    try {
+        Intent i = new Intent(this, MainActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        i.putExtra("restart", true);
+        // Android 10+ only lets a background service open an activity with "Display over other apps"
+        if (Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this)) {
+            startActivity(i);
+        }
+    } catch (Exception e) {
+        Log.e("AutoBingwa", "relaunch", e);
+    }
+}
     @Override
     public void onDestroy() {
         active = false;

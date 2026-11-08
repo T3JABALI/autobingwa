@@ -9,7 +9,6 @@ import java.security.MessageDigest;
 import android.Manifest;
 import android.content.ContentProviderOperation;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -37,7 +36,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONException;
 import org.json.JSONArray;
 import org.json.JSONObject;
-
 @CapacitorPlugin(
     name = "AutoBingwa",
     permissions = {
@@ -60,36 +58,6 @@ public class AutoBingwaPlugin extends Plugin {
         AutoBingwaPlugin p = instance;
         if (p != null) p.notifyListeners("smsStored", new JSObject());
     }
-
-    // Dials a USSD code straight from native code, without opening the dialer screen.
-    // With a "slot" it uses that SIM; without one it uses the phone's default SIM.
-    @PluginMethod
-    public void dialUssd(PluginCall call) {
-        String code = call.getString("code");
-        if (code == null || code.trim().isEmpty()) {
-            call.reject("No USSD code");
-            return;
-        }
-        if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CALL_PHONE)
-                != PackageManager.PERMISSION_GRANTED) {
-            call.reject("CALL_PHONE permission not granted");
-            return;
-        }
-        Integer slotArg = call.getInt("slot");
-        try {
-            if (slotArg != null) {
-                UssdFlow.dial(getContext(), slotArg, code.trim());
-            } else {
-                Intent i = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(code.trim())));
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getContext().startActivity(i);
-            }
-            call.resolve();
-        } catch (Exception e) {
-            call.reject(String.valueOf(e.getMessage()));
-        }
-    }
-
     // ---------- App updates ----------
     // Downloads the APK into the app's cache and checks its SHA-256 before it can be installed
     @PluginMethod
@@ -365,7 +333,7 @@ public class AutoBingwaPlugin extends Plugin {
         }
         try {
             SubscriptionManager sm = getContext().getSystemService(SubscriptionManager.class);
-            SubscriptionInfo info = sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
+              SubscriptionInfo info = sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
             if (info == null) {
                 // a phone with one SIM: use it whatever slot was chosen
                 List<SubscriptionInfo> actives = sm.getActiveSubscriptionInfoList();
@@ -425,29 +393,6 @@ public class AutoBingwaPlugin extends Plugin {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         getContext().startActivity(i);
         call.resolve();
-    }
-
-    // Dials one full code in the dialer and returns the first dialog's text
-    @PluginMethod
-    public void dialUssdOnce(final PluginCall call) {
-        if (getPermissionState("phone") != PermissionState.GRANTED) {
-            call.reject("Phone permission not granted");
-            return;
-        }
-        final String code = call.getString("code", "");
-        final Integer slotArg = call.getInt("slot", 0);
-        final int slot = slotArg == null ? 0 : slotArg;
-        final long waitMs = call.getLong("waitMs", 25000L);
-        if (code == null || code.trim().isEmpty()) {
-            call.reject("No USSD code given");
-            return;
-        }
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                call.resolve(UssdFlow.dialOnce(getContext(), slot, code.trim(), waitMs));
-            }
-        }).start();
     }
 
     // Runs a full multi-step USSD in the real dialer window, step by step, to the end.
@@ -568,6 +513,28 @@ public class AutoBingwaPlugin extends Plugin {
             Uri.parse("package:" + getContext().getPackageName()));
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         getContext().startActivity(i);
+        call.resolve();
+    }
+
+    // NEW: true when the app may open screens from the background ("Display over other apps")
+    @PluginMethod
+    public void overlayStatus(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("granted", Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext()));
+        call.resolve(out);
+    }
+
+    // NEW: opens the "Display over other apps" screen for this app
+    @PluginMethod
+    public void openOverlaySettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Exception e) {
+            // some phones do not offer this screen
+        }
         call.resolve();
     }
 
