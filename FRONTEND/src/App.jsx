@@ -1461,7 +1461,17 @@ useEffect(() => {
     filter === 'All' || transaction.status === filter
   )
 
-  if (!onboarded) return <Onboarding onDone={() => setOnboarded(true)} />
+if (!onboarded) return (
+  <div className={`app ${light ? 'light' : 'dark'}`}>
+    <Onboarding
+      onDone={() => {
+        setOnboarded(true)
+        // No active token: go straight to Buy Tokens. Otherwise open Home.
+        setActivePage(tokensActive() ? 'Home' : 'Tokens')
+      }}
+    />
+  </div>
+)
 
   return (
     <div className={`app ${light ? 'light' : 'dark'} ${NAV_PAGES.includes(activePage) ? 'has-nav' : ''}`}>

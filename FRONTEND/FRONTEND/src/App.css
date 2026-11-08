@@ -1567,3 +1567,8 @@ textarea::placeholder {
 .panel.fit textarea,
 .panel.fit button { font-size: 14px; }
 .panel.fit small { font-size: 12px; }
+
+/* ===== Onboarding header ===== */
+.app .ob-title { margin: 0; font-size: 28px; font-weight: 800; color: var(--primary) !important; }
+.app .ob-sub { margin: 4px 0 0; font-size: 16px; font-weight: 700; }
+.app .ob-hint { margin: 10px 0 20px; font-size: 13px; color: var(--soft) !important; line-height: 1.6; }

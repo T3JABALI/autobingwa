@@ -16,11 +16,11 @@ import java.util.concurrent.TimeUnit;
 
 public class KeepAliveService extends Service {
     static volatile boolean active = false;
+    static volatile long lastWakeAt = 0;
     private static final long WAKE_MS = 6L * 60 * 60 * 1000; // renewed every scan, so it can never leak
     private ScheduledExecutorService scanner;
     private PowerManager.WakeLock wake;
-    private int ticks = 0; // counts scans, one every 30 seconds
-    private long lastWake = 0;
+    private int ticks = 0; // counts scans, one every 10 seconds
 
     // Switches the USSD accessibility service back on if Android turned it off
     private void ensureAccessibility() {
@@ -58,19 +58,23 @@ public class KeepAliveService extends Service {
     }
 
     // Brings the app to the front for a moment. MainActivity sends it back to the background.
-    private void wakeApp() {
+    // Static, so the SMS receiver can call it too.
+    static void wakeNow(Context ctx) {
         try {
-            Intent i = new Intent(this, MainActivity.class);
+            lastWakeAt = System.currentTimeMillis();
+            Intent i = new Intent(ctx, MainActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             i.putExtra("restart", true);
             // Android 10+ only lets a background service open an activity with "Display over other apps"
-            if (Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this)) {
-                startActivity(i);
+            if (Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(ctx)) {
+                ctx.startActivity(i);
             }
         } catch (Exception e) {
-            Log.e("AutoBingwa", "wakeApp", e);
+            Log.e("AutoBingwa", "wakeNow", e);
         }
     }
+
+    private void wakeApp() { wakeNow(this); }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -87,24 +91,36 @@ public class KeepAliveService extends Service {
                 public void run() {
                     try {
                         holdCpu();
-                        ensureAccessibility();
-                        if (++ticks % 10 == 0) Notifier.motivate(getApplicationContext()); // every 5 minutes
+                        ticks++;
+                        if (ticks % 3 == 0) ensureAccessibility();                          // every 30 s
+                        if (ticks % 30 == 0) Notifier.motivate(getApplicationContext());    // every 5 min
 
-                        // Watchdog: no heartbeat from the web engine means it is frozen
                         long now = System.currentTimeMillis();
-                        if (now - AutoBingwaPlugin.lastBeat > 90000 && now - lastWake > 120000) {
-                            lastWake = now;
-                            Log.w("AutoBingwa", "web engine stalled, waking the app");
+                        long silent = now - AutoBingwaPlugin.lastBeat;
+
+                        // Inbox catch-up every 30 s
+                        if (ticks % 3 == 0) {
+                            int n = SmsCatchUp.scan(getApplicationContext());
+                            if (n > 0) AutoBingwaPlugin.poke();
+                        }
+
+                        // A payment is waiting and the web engine is not beating: bring the app forward now
+                        boolean waiting = SmsStore.peek(getApplicationContext()).length() > 0;
+                        if (waiting && silent > 10000 && now - lastWakeAt > 30000) {
+                            Log.w("AutoBingwa", "payment waiting, web engine silent " + silent + " ms, waking the app");
                             wakeApp();
                         }
 
-                        int n = SmsCatchUp.scan(getApplicationContext());
-                        if (n > 0) AutoBingwaPlugin.poke();
+                        // General watchdog, much faster than before
+                        if (silent > 45000 && now - lastWakeAt > 60000) {
+                            Log.w("AutoBingwa", "web engine stalled, waking the app");
+                            wakeApp();
+                        }
                     } catch (Exception e) {
                         Log.e("AutoBingwa", "scan loop", e);
                     }
                 }
-            }, 5, 30, TimeUnit.SECONDS);
+            }, 5, 10, TimeUnit.SECONDS);
         }
         return START_STICKY;
     }

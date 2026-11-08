@@ -63,7 +63,7 @@ public class MainActivity extends BridgeActivity {
             // let the web app load and resume automation, then go back to the background
             new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                 @Override public void run() { moveTaskToBack(true); }
-            }, 3500);
+            }, 25000);
         }
     }
 }

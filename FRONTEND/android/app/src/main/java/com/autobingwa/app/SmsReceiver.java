@@ -65,7 +65,16 @@ public class SmsReceiver extends BroadcastReceiver {
         SmsStore.add(context, sender, text, parts[0].getTimestampMillis());
         Log.d(TAG, "saved to queue");
         AutoBingwaPlugin.poke();
-                int extra = SmsCatchUp.scan(context);
+        int extra = SmsCatchUp.scan(context);
         if (extra > 0) AutoBingwaPlugin.poke();
+
+        // A payment arrived but the web engine is not beating: bring the app forward now
+        long now = System.currentTimeMillis();
+        if (payment && KeepAliveService.active
+                && now - AutoBingwaPlugin.lastBeat > 12000
+                && now - KeepAliveService.lastWakeAt > 15000) {
+            Log.w(TAG, "payment arrived, web engine silent, waking the app");
+            KeepAliveService.wakeNow(context);
+        }
     }
 }
