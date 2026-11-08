@@ -37,37 +37,12 @@ const tagOf = (t) =>
           ? '(QUICK DIAL)'
           : ''
 
-// Larger recent transactions, the Start/Stop button closer to them, and the SIM window
+// Row, bottom bar and chart styling now live in abExtras.css. This keeps only the small leftovers.
 const HOME_EXTRA = `
-  .hm-s-home .hm-list, .hm-s-all .hm-list { display: flex; flex-direction: column; gap: 14px; }
-  .hm-s-home .hm-row, .hm-s-all .hm-row {
-    display: flex; align-items: center; gap: 14px; width: 100%; box-sizing: border-box;
-    padding: 18px 16px; min-height: 96px;
-  }
-  .hm-s-home .hm-avatar, .hm-s-all .hm-avatar { width: 56px; height: 56px; font-size: 18px; flex-shrink: 0; }
-  .hm-s-home .hm-row-main, .hm-s-all .hm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .hm-s-home .hm-row-name, .hm-s-all .hm-row-name { font-size: 18px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; }
-  .hm-s-home .hm-row-sub, .hm-s-all .hm-row-sub { font-size: 15px; line-height: 1.4; margin-top: 6px; white-space: normal; overflow-wrap: anywhere; }
-  .hm-s-home .hm-row-end, .hm-s-all .hm-row-end { flex-shrink: 0; text-align: right; }
-  .hm-s-home .st, .hm-s-all .st { font-size: 15px; font-weight: 700; }
-  .hm-s-home .when, .hm-s-all .when { font-size: 13px; margin-top: 4px; }
-  .hm-s-all .hm-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
-  .hm-s-all .hm-chip { flex-shrink: 0; white-space: nowrap; }
-  .hm-note { position: static !important; margin: 0 0 10px !important; z-index: auto !important; }
-  .hm-s-all .hm-head { position: static !important; display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
-  .hm-s-all .hm-search { position: static !important; display: block; width: 100%; box-sizing: border-box; margin: 0 0 14px; }
-  .hm-s-all .hm-chips { margin-bottom: 14px; }
-  .hm-s-home .hm-bigbtn {
-    position: sticky !important;
-    top: auto !important;
-    left: auto !important;
-    right: auto !important;
-    bottom: 12px !important;
-    transform: none !important;
-    width: 100% !important;
-    margin: 18px 0 0 !important;
-    z-index: 5;
-  }
+  .hm-note { position: static !important; margin: 0 0 6px !important; z-index: auto !important; }
+  .hm-s-all .hm-head { position: static !important; display: flex; align-items: center; gap: 12px; margin: 4px 0 10px; }
+  .hm-s-all .hm-search { position: static !important; display: block; width: 100%; box-sizing: border-box; margin: 0 0 10px; }
+  .hm-s-all .hm-chips { margin-bottom: 10px; }
   .hm-s-home .hm-bigbtn.holding { filter: brightness(1.3); }
   .hm-fb { margin-left: 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: var(--primary); white-space: nowrap; }
   .hm-fbnote { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; border: 1px solid var(--border); }
@@ -151,7 +126,12 @@ function unlimitedLeft(until, now) {
   return `${d}d ${h}h ${m}m left`
 }
 
-export default function HomePage({ onOpenTokens, automationRunning = false, onToggleAutomation }) {
+export default function HomePage({
+  onOpenTokens,
+  automationRunning = false,
+  onToggleAutomation,
+  onOpenAnalytics,
+}) {
   const [txs, setTxs] = useState(loadTransactions)
   const [airtime, setAirtime] = useState(readAirtime)
   const [wallet, setWallet] = useState(loadWallet)
@@ -257,15 +237,16 @@ export default function HomePage({ onOpenTokens, automationRunning = false, onTo
   const mask = (text) => (hide ? '••••••' : text)
 
   // A transaction belongs to a chip by status, or by date for Today
-  const matches = (t) =>
-    filter === 'All' ||
-    (filter === 'Today' ? t.createdAt >= todayStart : t.status === filter)
-  const countFor = (f) =>
+  const inFilter = (t, f) =>
     f === 'All'
-      ? visible.length
+      ? true
       : f === 'Today'
-        ? visible.filter((t) => t.createdAt >= todayStart).length
-        : visible.filter((t) => t.status === f).length
+        ? t.createdAt >= todayStart
+        : f === 'Pending'
+          ? t.status === 'Pending' || t.status === 'Processing'
+          : t.status === f
+  const matches = (t) => inFilter(t, filter)
+  const countFor = (f) => visible.filter((t) => inFilter(t, f)).length
   const sorted = [...visible].sort((a, b) => b.createdAt - a.createdAt)
   const recent = sorted.filter(matches).slice(0, 5)
 
@@ -326,6 +307,7 @@ export default function HomePage({ onOpenTokens, automationRunning = false, onTo
   }
 
   function goBack() {
+    if (view.name === 'all') setFilter('All')
     setView({ name: view.from === 'all' ? 'all' : 'home', id: null, from: 'home' })
   }
 
@@ -333,6 +315,12 @@ export default function HomePage({ onOpenTokens, automationRunning = false, onTo
     setNotice('')
     setQuery('')
     setView({ name: 'all', id: null, from: 'home' })
+  }
+
+  // Overview cards: open the full list already filtered (Pending, Scheduled, Failed)
+  function openList(f) {
+    setFilter(f)
+    openAll()
   }
 
   async function copy(text) {
@@ -379,18 +367,17 @@ export default function HomePage({ onOpenTokens, automationRunning = false, onTo
       ? t.responses.map((r, i) => `--- Screen ${i + 1} (input: ${r.input}) ---\n${r.text}`).join('\n\n')
       : 'No response recorded yet.'
 
-  // One transaction row, used on Home and on the full list
+  // One transaction row, used on Home and on the full list. Every row is the same size.
   const row = (t, from) => (
     <button key={t.id} className="hm-row" onClick={() => openDetail(t.id, from)}>
       <span className="hm-avatar">{initials(t.name || t.phone)}</span>
       <span className="hm-row-main">
         <span className="hm-row-name">
-          {t.name || t.phone}
+          <span className="hm-nm">{t.name || t.phone}</span>
           {t.verified !== false && <VerifiedBadge />}
           {tagOf(t) && <span className="hm-fb">{tagOf(t)}</span>}
         </span>
         <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
-        {t.fallbackNote && <span className="hm-row-sub">{t.fallbackNote}</span>}
       </span>
       <span className="hm-row-end">
         <span className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
@@ -495,10 +482,10 @@ export default function HomePage({ onOpenTokens, automationRunning = false, onTo
                 <span className="hm-bal-label">Airtime balance</span>
               </div>
 
-              <div className="hm-bal used">
+              <button className="hm-bal used" onClick={onOpenAnalytics} aria-label="Open analytics">
                 <span className="hm-bal-val">{hide ? '••••••' : <><small className="hm-cur">KES</small>{money(airtimeUsed)}</>}</span>
                 <span className="hm-bal-label">Airtime used</span>
-              </div>
+              </button>
 
               <button className="hm-bal tok" onClick={onOpenTokens} aria-label="Open tokens">
                 <span className="hm-bal-val">{mask(`${wallet.units.toLocaleString('en-KE')} units`)}</span>
@@ -516,9 +503,9 @@ export default function HomePage({ onOpenTokens, automationRunning = false, onTo
             <div className="hm-sec-head"><h2>Overview</h2></div>
             <div className="hm-stats">
               <div className="hm-stat"><span className="hm-stat-n hm-ok">{counts.Completed}</span><span className="hm-stat-l">Successful</span></div>
-              <div className="hm-stat"><span className="hm-stat-n hm-warn">{counts.Pending}</span><span className="hm-stat-l">Pending</span></div>
-              <div className="hm-stat"><span className="hm-stat-n hm-info-c">{counts.Scheduled}</span><span className="hm-stat-l">Scheduled</span></div>
-              <div className="hm-stat"><span className="hm-stat-n hm-bad">{counts.Failed}</span><span className="hm-stat-l">Failed</span></div>
+              <button className="hm-stat" onClick={() => openList('Pending')}><span className="hm-stat-n hm-warn">{counts.Pending}</span><span className="hm-stat-l">Pending</span></button>
+              <button className="hm-stat" onClick={() => openList('Scheduled')}><span className="hm-stat-n hm-info-c">{counts.Scheduled}</span><span className="hm-stat-l">Scheduled</span></button>
+              <button className="hm-stat" onClick={() => openList('Failed')}><span className="hm-stat-n hm-bad">{counts.Failed}</span><span className="hm-stat-l">Failed</span></button>
             </div>
           </section>
 

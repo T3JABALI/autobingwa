@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
 <link rel="icon" type="image/png" href="/autobingwa-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>autobingwa</title>
+    <title>AutoBingwa</title>
   </head>
   <body>
     <div id="root"></div>
     <script>
-window.addEventListener('error', function (e) { show(e.message + '\n' + (e.error && e.error.stack ? e.error.stack : (e.filename || '') + ':' + (e.lineno || ''))) })
+  window.addEventListener('error', function (e) { show(e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '')) })
   window.addEventListener('unhandledrejection', function (e) { show('Promise: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)) })
   function show(t) {
     var d = document.getElementById('ab-err')

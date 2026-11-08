@@ -72,7 +72,7 @@ function Switch({ on, onChange, label }) {
   )
 }
 
-export default function SettingsPage({ onBack, onProfileChange, onModeChange }) {
+export default function SettingsPage({ onBack, onProfileChange, onModeChange, light = false, onToggleTheme }) {
   const { user, logout } = useAuth()
   const [screen, setScreen] = useState('main')
   const [profile, setProfile] = useState(loadProfile)
@@ -313,6 +313,12 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
 
             {notice && <p className="st-note" role="status" style={{ marginTop: 16 }}>{notice}</p>}
 
+            <h2 className="st-section">Appearance</h2>
+            <div className="st-row">
+              <span className="st-row-label">Light mode</span>
+              <Switch on={light} onChange={() => onToggleTheme && onToggleTheme()} label="Light mode" />
+            </div>
+
             <h2 className="st-section">SIM Setup</h2>
             {simPicker(
               'Bingwa SIM',
@@ -354,7 +360,7 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange }) 
                 <span className="st-row-label">AutoBingwa Portal</span>
                 <p className="st-desc">View and manage transactions remotely</p>
               </span>
-              <Switch on={config.portal} onChange={() => updateConfig({ portal: !config.portal })}
+              <Switch on={config.portal} onChange={() => { updateConfig({ portal: !config.portal }); window.dispatchEvent(new Event('ab-connect')) }}
                 label="AutoBingwa Portal" />
             </div>
             {!config.portal && (

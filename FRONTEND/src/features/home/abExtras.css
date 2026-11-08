@@ -1,0 +1,73 @@
+/* ===== AutoBingwa v5: bottom nav, analytics, equal rows, glow chart ===== */
+.app { --nav-h: calc(58px + env(safe-area-inset-bottom, 0px)); }
+.app .hm-page.hm-s-home { height: calc(100dvh - 66px - var(--nav-h)) !important; overflow-y: auto !important; }
+.app .hm-page.hm-s-all, .app .hm-page.hm-s-analytics { padding-bottom: calc(var(--nav-h) + 12px) !important; }
+.app.has-nav .main > *:not(header):not(.hm-page) { padding-bottom: calc(var(--nav-h) + 12px); box-sizing: border-box; }
+.app:has(.hm-s-detail) .ab-nav, .app:has(.hm-s-reschedule) .ab-nav, .app:has(.sidebar-open) .ab-nav { display: none; }
+/* ---- Bottom navigation ---- */
+.ab-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--border); box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.18); }
+.ab-nav-item { display: grid; justify-items: center; gap: 2px; padding: 4px 0; border: 0; background: transparent; color: var(--soft); font-family: inherit; font-size: 10px; font-weight: 600; }
+.ab-nav-item svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ab-nav-item.on { color: var(--primary); }
+
+/* ---- Equal-size transaction cards ---- */
+.app .hm-page .hm-list { display: flex !important; flex-direction: column !important; gap: 4px !important; }
+.app .hm-page .hm-row { display: flex !important; align-items: center !important; gap: 8px !important; width: 100% !important; box-sizing: border-box !important; height: 42px !important; min-height: 42px !important; max-height: 42px !important; padding: 0 10px !important; overflow: hidden !important; text-align: left; flex-shrink: 0 !important; }
+.app .hm-page .hm-avatar { width: 28px !important; height: 28px !important; font-size: 10px !important; flex-shrink: 0 !important; }
+.app .hm-page .hm-row-main { flex: 1 1 0 !important; min-width: 0 !important; display: flex !important; flex-direction: column !important; justify-content: center !important; }
+.app .hm-page .hm-row-name { display: flex !important; align-items: center !important; gap: 5px !important; min-width: 0 !important; font-size: 12px !important; line-height: 1.25 !important; white-space: nowrap !important; overflow: hidden !important; }
+.app .hm-page .hm-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .hm-page .hm-row-name > :not(.hm-nm) { flex-shrink: 0; }
+.app .hm-page .hm-row-name > :not(.hm-nm):not(.hm-fb) { width: 14px !important; height: 14px !important; }
+.app .hm-page .hm-row-name > :not(.hm-nm):not(.hm-fb) svg { width: 100%; height: 100%; }
+.app .hm-page .hm-row .hm-fb { font-size: 9px !important; margin-left: 0 !important; }
+.app .hm-page .hm-row-sub { display: block !important; margin: 0 !important; font-size: 9px !important; line-height: 1.25 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+.app .hm-page .hm-row-end { flex-shrink: 0 !important; display: flex !important; flex-direction: column !important; align-items: flex-end !important; }
+
+/* ---- Tappable cards on Home ---- */
+.app .hm-page button.hm-stat, .app .hm-page button.hm-bal { font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.app .hm-page button.hm-stat { color: var(--text); }
+
+/* ---- Glowing commission chart card ---- */
+.app .hm-page .hm-chart {
+  background: var(--card);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 16%, var(--card)) 0%, var(--card) 100%);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+/* ---- Analytics ---- */
+.an-wrap { display: grid; gap: 12px; align-content: start; padding-top: 4px; }
+.an-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.an-top h2 { margin: 0; font-size: 20px; }
+.an-top small { color: var(--soft); font-size: 12px; }
+.an-live { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--success); }
+.an-live i { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.an-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 14px 12px; }
+.an-title { margin: 0; font-size: 15px; font-weight: 700; }
+.an-sub { margin: 2px 0 10px; font-size: 11px; color: var(--soft); }
+.an-legend { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 8px; }
+.an-leg { display: grid; gap: 2px; }
+.an-leg span { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--soft); }
+.an-leg b { font-size: 14px; }
+.an-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.an-chart { display: flex; height: 190px; }
+.an-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.an-stat { background: var(--muted-bg); border-radius: 12px; padding: 8px 10px; }
+.an-stat small { display: block; font-size: 11px; color: var(--soft); }
+.an-stat b { font-size: 15px; }
+.an-pos { color: var(--success); }
+.an-neg { color: var(--danger); }
+.an-chips { display: flex; gap: 6px; margin: 10px 0; }
+.an-chip { flex: 1 1 0; padding: 7px 4px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); font-family: inherit; font-size: 12px; font-weight: 600; }
+.an-chip.on { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.an-offers { display: grid; gap: 8px; }
+.an-offer { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; background: var(--muted-bg); }
+.an-ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--card); flex-shrink: 0; }
+.an-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.an-ico.blue { color: #4DA8FF; }
+.an-ico.green { color: var(--success); }
+.an-ico.gold { color: var(--warning); }
+.an-offer-text { display: grid; gap: 1px; min-width: 0; }
+.an-offer-text small { font-size: 12px; color: var(--soft); }
+.an-offer-text b { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-offer-text em { font-style: normal; font-size: 12px; color: var(--soft); }

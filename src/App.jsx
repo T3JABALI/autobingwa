@@ -1,5 +1,4 @@
-import PortalSync from './features/connect/PortalSync.jsx'
-import TokenGate from './features/tokens/TokenGate.jsx'
+ import TokenGate from './features/tokens/TokenGate.jsx'
 import { tokensActive } from './engine/tokens.js'
   import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
@@ -25,6 +24,8 @@ import DialogHost from './features/ui/DialogHost.jsx'
 import { askChoice } from './features/ui/dialog.js'
 import Sitelink from './features/sitelink/sitelink.jsx'
 import { useSmartSync } from './features/smartplans/smartSync.js'
+import BottomNav from './features/home/BottomNav.jsx'
+import { AnalyticsScreen } from './features/home/AnalyticsPage.jsx'
 
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
@@ -50,6 +51,9 @@ const navigation = [
 const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷', '✓']
 
 const chartValues = [120, 190, 290, 280, 460, 490, 820]
+
+// Pages that show the bottom bar
+const NAV_PAGES = ['Home', 'Offers', 'Analytics', 'Settings']
 
 const startingOffers = [
   {
@@ -1323,7 +1327,17 @@ function App() {
 useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
 const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
 const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
-  const [light, setLight] = useState(false)
+ useEffect(() => {
+  const onOffer = (e) => {
+    const d = e.detail || {}
+    if (d.op === 'save' && d.offer) saveOffer(d.offer)
+    if (d.op === 'delete') deleteOffer(d.id)
+  }
+  window.addEventListener('ab-offer-cmd', onOffer)
+  return () => window.removeEventListener('ab-offer-cmd', onOffer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [])
+const [light, setLight] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
   const [automationRunning, setAutomationRunning] = useState(false)
@@ -1387,16 +1401,6 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
   }, [])
 
   // The app always opens stopped. Automation only starts when you hold the button.
-    // Start / Stop sent from the AutoBingwa Portal. Same checks and pop-ups as the button on this phone.
-  useEffect(() => {
-    const remote = (e) => {
-      const type = e.detail && e.detail.type
-      if (type === 'start' && !automationRunning) toggleAutomation()
-      if (type === 'stop' && automationRunning) toggleAutomation()
-    }
-    window.addEventListener('ab-remote', remote)
-    return () => window.removeEventListener('ab-remote', remote)
-  })
   useEffect(() => {
     engine.stop()
     setKeepAlive(false)
@@ -1418,7 +1422,7 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
   )
 
   return (
-    <div className={`app ${light ? 'light' : 'dark'}`}>
+    <div className={`app ${light ? 'light' : 'dark'} ${NAV_PAGES.includes(activePage) ? 'has-nav' : ''}`}>
       {menuOpen && (
         <button
           className="menu-backdrop"
@@ -1482,9 +1486,6 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
               {profile.photo ? <img className="profile-photo" src={profile.photo} alt="" /> : '♙'}
             </span>
             <div className="mode-stack">
-              <button className="theme-toggle" onClick={() => setLight(!light)}>
-                {light ? '☾ Dark' : '☼ Light'}
-              </button>
               <button className="mode-chip" onClick={() => setModeOpen(true)} aria-label="Change processing mode">
                 {mode} Mode ▾
               </button>
@@ -1499,6 +1500,7 @@ const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
 onToggleAutomation={toggleAutomation}
               offers={offers}
               onOpenTokens={() => setActivePage('Tokens')}
+              onOpenAnalytics={() => setActivePage('Analytics')}
             />
 
             
@@ -1611,6 +1613,8 @@ onToggleAutomation={toggleAutomation}
               Prototype only: these controls do not dial USSD or process real M-Pesa messages.
             </p>
           </>
+        ) : activePage === 'Analytics' ? (
+          <AnalyticsScreen />
         ) : activePage === 'Smart Data Plans' ? (
           <SmartPlans owned={myOffers} onDownload={saveOffer} />
         ) : activePage === 'Signature' ? (
@@ -1678,6 +1682,8 @@ onToggleAutomation={toggleAutomation}
               onBack={() => setActivePage('Home')}
               onProfileChange={setProfile}
               onModeChange={setMode}
+              light={light}
+              onToggleTheme={() => setLight(!light)}
             />
           </section>
         ) : (    <section className="panel placeholder-page">
@@ -1690,8 +1696,16 @@ onToggleAutomation={toggleAutomation}
           </section>
         )}
       </main>
+      {NAV_PAGES.includes(activePage) && (
+        <BottomNav
+          active={activePage.toLowerCase()}
+          onHome={() => setActivePage('Home')}
+          onOffers={() => setActivePage('Offers')}
+          onAnalytics={() => setActivePage('Analytics')}
+          onSettings={() => setActivePage('Settings')}
+        />
+      )}
       <Toaster />
-      <PortalSync />
       <DialogHost />
 {activePage === 'Home' && <UpdatePrompt />}
       <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />

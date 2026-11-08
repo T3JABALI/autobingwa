@@ -24,6 +24,8 @@ import DialogHost from './features/ui/DialogHost.jsx'
 import { askChoice } from './features/ui/dialog.js'
 import Sitelink from './features/sitelink/sitelink.jsx'
 import { useSmartSync } from './features/smartplans/smartSync.js'
+import BottomNav from './features/home/BottomNav.jsx'
+import { AnalyticsScreen } from './features/home/AnalyticsPage.jsx'
 
 import { saveMode } from './features/home/dataStore.js'
 import { engine } from "./engine/index.js";
@@ -49,6 +51,9 @@ const navigation = [
 const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷', '✓']
 
 const chartValues = [120, 190, 290, 280, 460, 490, 820]
+
+// Pages that show the bottom bar
+const NAV_PAGES = ['Home', 'Offers', 'Analytics', 'Settings']
 
 const startingOffers = [
   {
@@ -1417,7 +1422,7 @@ const [light, setLight] = useState(false)
   )
 
   return (
-    <div className={`app ${light ? 'light' : 'dark'}`}>
+    <div className={`app ${light ? 'light' : 'dark'} ${NAV_PAGES.includes(activePage) ? 'has-nav' : ''}`}>
       {menuOpen && (
         <button
           className="menu-backdrop"
@@ -1481,9 +1486,6 @@ const [light, setLight] = useState(false)
               {profile.photo ? <img className="profile-photo" src={profile.photo} alt="" /> : '♙'}
             </span>
             <div className="mode-stack">
-              <button className="theme-toggle" onClick={() => setLight(!light)}>
-                {light ? '☾ Dark' : '☼ Light'}
-              </button>
               <button className="mode-chip" onClick={() => setModeOpen(true)} aria-label="Change processing mode">
                 {mode} Mode ▾
               </button>
@@ -1498,6 +1500,7 @@ const [light, setLight] = useState(false)
 onToggleAutomation={toggleAutomation}
               offers={offers}
               onOpenTokens={() => setActivePage('Tokens')}
+              onOpenAnalytics={() => setActivePage('Analytics')}
             />
 
             
@@ -1610,6 +1613,8 @@ onToggleAutomation={toggleAutomation}
               Prototype only: these controls do not dial USSD or process real M-Pesa messages.
             </p>
           </>
+        ) : activePage === 'Analytics' ? (
+          <AnalyticsScreen />
         ) : activePage === 'Smart Data Plans' ? (
           <SmartPlans owned={myOffers} onDownload={saveOffer} />
         ) : activePage === 'Signature' ? (
@@ -1677,6 +1682,8 @@ onToggleAutomation={toggleAutomation}
               onBack={() => setActivePage('Home')}
               onProfileChange={setProfile}
               onModeChange={setMode}
+              light={light}
+              onToggleTheme={() => setLight(!light)}
             />
           </section>
         ) : (    <section className="panel placeholder-page">
@@ -1689,6 +1696,15 @@ onToggleAutomation={toggleAutomation}
           </section>
         )}
       </main>
+      {NAV_PAGES.includes(activePage) && (
+        <BottomNav
+          active={activePage.toLowerCase()}
+          onHome={() => setActivePage('Home')}
+          onOffers={() => setActivePage('Offers')}
+          onAnalytics={() => setActivePage('Analytics')}
+          onSettings={() => setActivePage('Settings')}
+        />
+      )}
       <Toaster />
       <DialogHost />
 {activePage === 'Home' && <UpdatePrompt />}
