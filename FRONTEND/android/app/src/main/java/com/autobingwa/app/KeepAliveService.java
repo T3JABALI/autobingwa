@@ -130,10 +130,11 @@ public class KeepAliveService extends Service {
                             int n = SmsCatchUp.scan(getApplicationContext());
                             if (n > 0) AutoBingwaPlugin.poke();
                         }
-
+                        if (EngineCore.owns(getApplicationContext())) EngineCore.tick(getApplicationContext());
                         // Bring the app forward ONLY when a fresh message is waiting and the web engine is silent.
                         // Never in the middle of a purchase, and at most 3 times for the same message.
-                        String key = waitingKey();
+                        // While the background engine owns payments, the app is never woken for a waiting SMS
+                        String key = EngineCore.owns(getApplicationContext()) ? null : waitingKey();
                         if (key == null) {
                             lastKey = "";
                             wakeCount = 0;

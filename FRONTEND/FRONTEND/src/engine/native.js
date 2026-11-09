@@ -149,6 +149,8 @@ export function startSmsBridge(engine) {
 
   async function drainOnce() {
     const { items } = await AutoBingwa.peekSms()
+    // If this fails the pass stops and tries again in 5 seconds. Never guess who owns a payment.
+    const own = await AutoBingwa.nativeOwner()
     const done = []
     for (const m of items) {
       try {
@@ -163,8 +165,9 @@ export function startSmsBridge(engine) {
         if (conf) {
           const used = engine.confirm({ ...conf, text: m.body })
           console.log('AB confirmation', conf.status, used ? 'used' : 'no transaction waiting')
-        } else if (total === null && fromMpesa(m.sender)) {
-          engine.ingest(m.body)
+         } else if (total === null && fromMpesa(m.sender)) {
+          if (own.owner && m.time >= own.since) console.log('AB the background engine owns this payment')
+          else engine.ingest(m.body)
         }
         done.push(m.id)
       } catch (err) {

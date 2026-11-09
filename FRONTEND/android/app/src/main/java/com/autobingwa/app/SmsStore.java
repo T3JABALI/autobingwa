@@ -46,6 +46,7 @@ final class SmsStore {
     }
 
     static void add(Context ctx, String sender, String body, long time) {
+        String savedId = null;
         synchronized (LOCK) {
             try {
                 SharedPreferences sp = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE);
@@ -66,15 +67,25 @@ final class SmsStore {
 
                 JSONArray arr = new JSONArray(sp.getString(KEY, "[]"));
                 JSONObject o = new JSONObject();
-                o.put("id", sender + "|" + time + "|" + Integer.toHexString(body.hashCode()));
+                String id = sender + "|" + time + "|" + Integer.toHexString(body.hashCode());
+                o.put("id", id);
                 o.put("sender", sender);
                 o.put("body", body);
                 o.put("time", time);
                 arr.put(o);
                 ed.putString(KEY, arr.toString());
                 ed.commit(); // the message and its "seen" mark are saved together
+                savedId = id;
             } catch (JSONException e) {
                 // nothing to do
+            }
+        }
+        // Outside the lock. Does nothing unless the native engine is switched on, and can never break saving.
+        if (savedId != null) {
+            try {
+                EngineCore.onSms(ctx, savedId, sender, body, time);
+            } catch (Throwable t) {
+                android.util.Log.e("AutoBingwa", "native hook", t);
             }
         }
     }

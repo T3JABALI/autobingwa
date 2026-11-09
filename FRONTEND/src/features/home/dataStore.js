@@ -143,3 +143,15 @@ export function removeDemoData() {
     console.error('demo cleanup', e)
   }
 }
+// Applies the tokens the background engine used. The counter only ever goes up, so a charge is never applied twice.
+export function applyNativeCharges(total) {
+  const t = Number(total) || 0
+  const w = loadWallet()
+  const applied = Number(w.chargesApplied) || 0
+  if (t <= applied) return
+  const next = { ...w, chargesApplied: t }
+  if (!(Number(w.unlimitedUntil) > Date.now())) {
+    next.units = Math.max(0, (Number(w.units) || 0) - (t - applied))
+  }
+  write(WALLET_KEY, next)
+}

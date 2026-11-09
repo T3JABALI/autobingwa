@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONException;
 import org.json.JSONArray;
 import org.json.JSONObject;
+
 @CapacitorPlugin(
     name = "AutoBingwa",
     permissions = {
@@ -47,6 +48,7 @@ import org.json.JSONObject;
 )
 public class AutoBingwaPlugin extends Plugin {
     private static AutoBingwaPlugin instance;
+    static volatile long lastBeat = 0;
 
     @Override
     public void load() {
@@ -58,6 +60,7 @@ public class AutoBingwaPlugin extends Plugin {
         AutoBingwaPlugin p = instance;
         if (p != null) p.notifyListeners("smsStored", new JSObject());
     }
+
     // ---------- App updates ----------
     // Downloads the APK into the app's cache and checks its SHA-256 before it can be installed
     @PluginMethod
@@ -135,13 +138,38 @@ public class AutoBingwaPlugin extends Plugin {
             }
         }).start();
     }
-static volatile long lastBeat = 0;
 
-@PluginMethod
-public void heartbeat(PluginCall call) {
-    lastBeat = System.currentTimeMillis();
-    call.resolve();
-}
+    // ---------- Background engine: the service's copy of the app's data ----------
+    @PluginMethod
+    public void syncSnapshot(PluginCall call) {
+        String json = call.getString("json", "");
+        if (json == null || json.isEmpty()) {
+            call.reject("Nothing to save");
+            return;
+        }
+        try {
+            EngineStore.save(getContext(), json);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not save the copy: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void engineStatus(PluginCall call) {
+        try {
+            call.resolve(new JSObject(EngineStore.status(getContext()).toString()));
+        } catch (Exception e) {
+            call.reject("Could not read the copy: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void heartbeat(PluginCall call) {
+        lastBeat = System.currentTimeMillis();
+        call.resolve();
+    }
+
     // Opens the Android installer for the downloaded APK
     @PluginMethod
     public void installApk(PluginCall call) {
@@ -169,6 +197,7 @@ public void heartbeat(PluginCall call) {
             call.reject("Could not start the installer: " + e.getMessage());
         }
     }
+
     @PluginMethod
     public void peekSms(PluginCall call) {
         JSObject out = new JSObject();
@@ -247,6 +276,7 @@ public void heartbeat(PluginCall call) {
             call.reject("Could not save contact: " + e.getMessage());
         }
     }
+
     // Every phone contact that has a number: [{ name, phone }]
     @PluginMethod
     public void listContacts(final PluginCall call) {
@@ -289,6 +319,7 @@ public void heartbeat(PluginCall call) {
             }
         }).start();
     }
+
     // ---------- SIMs and USSD ----------
     // Lists the SIMs in the phone. slot 0 is SIM 1, slot 1 is SIM 2.
     @PluginMethod
@@ -339,7 +370,7 @@ public void heartbeat(PluginCall call) {
         }
         try {
             SubscriptionManager sm = getContext().getSystemService(SubscriptionManager.class);
-              SubscriptionInfo info = sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
+            SubscriptionInfo info = sm.getActiveSubscriptionInfoForSimSlotIndex(slot);
             if (info == null) {
                 // a phone with one SIM: use it whatever slot was chosen
                 List<SubscriptionInfo> actives = sm.getActiveSubscriptionInfoList();
@@ -522,7 +553,7 @@ public void heartbeat(PluginCall call) {
         call.resolve();
     }
 
-    // NEW: true when the app may open screens from the background ("Display over other apps")
+    // True when the app may open screens from the background ("Display over other apps")
     @PluginMethod
     public void overlayStatus(PluginCall call) {
         JSObject out = new JSObject();
@@ -530,7 +561,7 @@ public void heartbeat(PluginCall call) {
         call.resolve(out);
     }
 
-    // NEW: opens the "Display over other apps" screen for this app
+    // Opens the "Display over other apps" screen for this app
     @PluginMethod
     public void openOverlaySettings(PluginCall call) {
         try {
@@ -641,6 +672,58 @@ public void heartbeat(PluginCall call) {
     @PluginMethod
     public void phoneAlert(PluginCall call) {
         Notifier.alert(getContext(), call.getString("kind", ""), call.getString("title", ""), call.getString("text", ""));
+        call.resolve();
+    }
+
+    // ---------- Native engine switches ----------
+    @PluginMethod
+    public void setNativeEngine(PluginCall call) {
+        android.content.Context ctx = getContext();
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        JSObject out = new JSObject();
+        String why = on ? EngineCore.cannotOwn(ctx)
+            : (EngineCore.busy(ctx)
+                ? "Payments are still waiting or running in the background engine. Wait for them to finish, then switch it off."
+                : null);
+        if (why != null) {
+            out.put("ok", false);
+            out.put("reason", why);
+            call.resolve(out);
+            return;
+        }
+        EngineCore.setOwner(ctx, on);
+        out.put("ok", true);
+        out.put("owner", EngineCore.owns(ctx));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void nativeOwner(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("owner", EngineCore.owns(getContext()));
+        out.put("since", EngineCore.ownerSince(getContext()));
+        out.put("running", EngineCore.running(getContext()));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void setNativeRunning(PluginCall call) {
+        EngineCore.setRunning(getContext(), Boolean.TRUE.equals(call.getBoolean("on", false)));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void nativeState(PluginCall call) {
+        try {
+            call.resolve(new JSObject(EngineCore.state(getContext()).toString()));
+        } catch (Exception e) {
+            call.reject("Could not read the native state: " + e.getMessage());
+        }
+    }
+        @PluginMethod
+    public void nativeRelease(PluginCall call) {
+        String id = call.getString("id", "");
+        if (id != null && !id.isEmpty()) EngineCore.release(getContext(), id);
         call.resolve();
     }
 }

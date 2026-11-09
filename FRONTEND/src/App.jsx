@@ -28,7 +28,8 @@ import BottomNav from './features/home/BottomNav.jsx'
 import { AnalyticsScreen } from './features/home/AnalyticsPage.jsx'
 
 import { saveMode } from './features/home/dataStore.js'
-import { engine } from "./engine/index.js";
+import { engine, importNative } from "./engine/index.js";
+import { setNativeRunning } from './engine/nativeSync.js'
 import { isNative, ussdServiceEnabled, setKeepAlive, heartbeat } from './engine/native.js'
 import { loadConfig } from './engine/config.js'
 import Onboarding, { isOnboarded } from './features/setup/Onboarding.jsx'
@@ -1355,6 +1356,7 @@ function App() {
   async function toggleAutomation() {
     if (automationRunning) {
       engine.stop()
+      setNativeRunning(false)
       setAutomationRunning(false)
       setKeepAlive(false)
       localStorage.setItem('ab-auto-run', '0')
@@ -1370,6 +1372,7 @@ function App() {
       window.dispatchEvent(new Event('ab-need-setup'))
       return
     }
+    await importNative() // so payments the background engine paused are counted
     const waiting = engine.pausedCount()
     let choice = 'process'
     if (waiting > 0) {
@@ -1386,6 +1389,7 @@ function App() {
     }
     setKeepAlive(true)
     engine.start()
+    setNativeRunning(true)
     setAutomationRunning(true)
     localStorage.setItem('ab-auto-run', '1')
     if (waiting > 0) engine.releasePaused(choice)
@@ -1399,6 +1403,7 @@ useEffect(() => {
     if (wasRunning && tokensActive()) {
       if (isNative() && loadConfig().mode === 'Advanced' && !(await ussdServiceEnabled())) {
         engine.stop()
+        setNativeRunning(false)
         setKeepAlive(false)
         localStorage.setItem('ab-auto-run', '0')
         window.dispatchEvent(new Event('ab-need-setup'))
@@ -1406,9 +1411,11 @@ useEffect(() => {
       }
       setKeepAlive(true)
       engine.start()
+      setNativeRunning(true)
       setAutomationRunning(true)
     } else {
       engine.stop()
+      setNativeRunning(false)
       setKeepAlive(false)
       localStorage.setItem('ab-auto-run', '0')
     }

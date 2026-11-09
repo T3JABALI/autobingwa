@@ -8,10 +8,12 @@ import {
   requestNotifications,
   phoneAlert,
   ussdServiceEnabled,
+  saveContact,
 } from './native.js'
 
-import { loadConfig } from './config.js'
+import { loadConfig, savedContactName } from './config.js'
 import { createEngine } from './engine.js'
+import { fillTemplate as fillTpl } from './offerRules.js'
 import { findAutoReply, fillTemplate as fillReply } from './autoRepliesStore.js'
 import { recordClientPurchase } from './clientsStore.js'
 import { addContact } from './contactsStore.js'
@@ -24,8 +26,9 @@ import {
   deleteTransaction,
   chargeToken,
   removeDemoData,
+  applyNativeCharges,
 } from '../features/home/dataStore.js'
-
+import { startNativeSync } from './nativeSync.js'
 function readJson(key, fallback) {
   try {
     const v = JSON.parse(localStorage.getItem(key) || 'null')
@@ -35,16 +38,27 @@ function readJson(key, fallback) {
   }
 }
 
-// Connects the engine to your saved transactions
+// Transactions the background engine is working on are hidden from the app's engine,
+// so the two engines can never dial the same payment. A retry or release hands one to the app.
+const NATIVE_BUSY = ['Pending', 'Processing', 'Scheduled']
+function releaseNative(id) {
+  if (!isNative()) return
+  const t = loadTransactions().find((x) => x.id === id)
+  if (t && t.engine === 'native') AutoBingwa.nativeRelease({ id }).catch(() => {})
+}
+
 const store = {
-  list: loadTransactions,
+  list: () => loadTransactions().filter((t) => !(t.engine === 'native' && NATIVE_BUSY.includes(t.status))),
   add: addTransaction,
   update: (id, patch) => {
-    updateTransaction(id, patch)
+    if (patch && patch.status === 'Pending') releaseNative(id)
+    const p = patch && patch.status === 'Pending' ? { ...patch, engine: 'js' } : patch
+    updateTransaction(id, p)
     return loadTransactions().find((t) => t.id === id)
   },
   remove: deleteTransaction,
 }
+
 
 // A saved signature is used only when it is complete and switched on (smart plans are always on)
 const sigOf = (offer) =>
@@ -170,7 +184,7 @@ export const engine = createEngine({
 
 // Sends each buyer's name and number to the admin Contacts page (queued while offline)
 startContactSync(engine)
-
+startNativeSync()
 removeDemoData() // one-time: clears the old sample transactions
 engine.recover()
 
@@ -246,7 +260,9 @@ function sendAutoReply(tx, trigger) {
   }
 }
 
-engine.on((event, tx) => {
+// What happens after a transaction changes: client records, contacts, auto replies.
+// Used for the app's own transactions and for ones imported from the background engine.
+function onTxEvent(event, tx) {
   try {
     if (!tx) return
 
@@ -267,6 +283,7 @@ engine.on((event, tx) => {
 
     if (event === 'failed') {
       // The customer is about to get a backup plan, so no failure message
+            if (tx.hasFallback) return
       if (loadTransactions().some((t) => t.fallbackFromId === tx.id)) return
       const text = (tx.responses || []).map((r) => r.text).join(' ')
       if (/already\s+been\s+recommended/i.test(text)) return sendAutoReply(tx, 'recommended')
@@ -277,7 +294,100 @@ engine.on((event, tx) => {
   } catch (e) {
     console.error('AB listener', e)
   }
-})
+}
+engine.on(onTxEvent)
+
+// ---------- Background engine: bring its results into the app ----------
+// SMS to the customer after a purchase the background engine made (the offer's own message and the time-window message)
+function notifyNative(tx) {
+  try {
+    const cur = loadTransactions().find((t) => t.id === tx.id)
+    if (!cur || cur.notifySent || !cur.phone) return
+    const offers = readJson('myOffers', [])
+    const offer = offers.find((o) => String(o.id) === String(cur.offerId))
+    if (!offer) return
+    const first = String(cur.name || '').trim().split(/\s+/)[0] || ''
+    const vars = {
+      name: first ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : '',
+      phone: cur.phone, offer: offer.name, amount: cur.amount, price: cur.amount,
+    }
+    const texts = []
+    if (cur.isFallback && cur.fallbackNotify) {
+      texts.push(
+        fillTpl('Hi {name}, {first} could not be given, so we sent you {offer} instead. Thank you for buying!',
+          { ...vars, first: cur.fallbackFromName || 'your offer' }).replace(/^Hi ,/, 'Hi,')
+      )
+    } else if (offer.notifyOn && offer.notifyMsg) texts.push(fillTpl(offer.notifyMsg, vars))
+    const primary = cur.fallbackOf != null ? offers.find((o) => String(o.id) === String(cur.fallbackOf)) : null
+    if (primary && primary.tw && primary.tw.notify && primary.tw.msg) texts.push(fillTpl(primary.tw.msg, vars))
+    if (!texts.length) return
+    updateTransaction(cur.id, { notifySent: true })
+    texts.forEach((text) => {
+      const log = (input) => {
+        const now = loadTransactions().find((t) => t.id === cur.id)
+        if (now) updateTransaction(cur.id, { responses: [...(now.responses || []), { input, text }] })
+      }
+      Promise.resolve()
+        .then(() => bridge.sendSms({ to: cur.phone, text }))
+        .then(() => log('SMS sent'))
+        .catch((err) => { console.error('AB notify', err); log('SMS failed') })
+    })
+  } catch (e) {
+    console.error('AB notify native', e)
+  }
+}
+
+function fireFinished(status, tx) {
+  if (status === 'Completed') {
+    onTxEvent('completed', tx)
+    notifyNative(tx)
+  } else if (status === 'Failed') {
+    onTxEvent('failed', tx)
+  }
+}
+
+let importing = false
+
+// Copies the background engine's transactions into the app, applies the tokens it used,
+// and fires the same follow-ups as for the app's own transactions. Safe to call any time.
+export async function importNative() {
+  if (!isNative() || importing) return 0
+  importing = true
+  let changed = 0
+  try {
+    const st = await AutoBingwa.nativeState()
+    applyNativeCharges(st.chargesTotal)
+    const list = (st.transactions || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    for (const nt of list) {
+      const local = loadTransactions().find((t) => t.id === nt.id)
+      if (!local) {
+        addTransaction({ ...nt })
+        changed++
+        const added = loadTransactions().find((t) => t.id === nt.id)
+        onTxEvent('added', added)
+        const cfg = loadConfig()
+        if (cfg.autoSave && nt.phone && !nt.blacklisted) saveContact(savedContactName(nt.name || nt.phone, cfg), nt.phone)
+        fireFinished(nt.status, added)
+        continue
+      }
+      // The app took this one over (a retry, a release, a due schedule), or the copy is already current
+      if (local.engine === 'js' || (Number(local.rev) || 0) >= (Number(nt.rev) || 0)) continue
+      updateTransaction(nt.id, nt)
+      changed++
+      if (local.status !== nt.status) fireFinished(nt.status, loadTransactions().find((t) => t.id === nt.id))
+    }
+  } catch (e) {
+    console.error('AB import native', e)
+  } finally {
+    importing = false
+  }
+  return changed
+}
+
+const importTimer = setInterval(importNative, 3000)
+setTimeout(importNative, 1500)
+const onShow = () => { if (!document.hidden) importNative() }
+document.addEventListener('visibilitychange', onShow)
 
 // Starts scheduled transactions every 30 seconds
 const timer = setInterval(() => engine.tick(), 30000)
@@ -293,7 +403,9 @@ document.addEventListener('visibilitychange', onVisible)
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     clearInterval(timer)
+    clearInterval(importTimer)
     document.removeEventListener('visibilitychange', onVisible)
+    document.removeEventListener('visibilitychange', onShow)
   })
 }
 

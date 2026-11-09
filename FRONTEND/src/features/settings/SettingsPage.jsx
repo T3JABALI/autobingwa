@@ -1,5 +1,7 @@
 import { useAuth } from "../auth/AuthContext";
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { isNative, AutoBingwa } from '../../engine/native.js'
+import { engineStatus, localCounts, syncNow, setNativeEngine } from '../../engine/nativeSync.js'
 import { normalizePhone } from '../../engine/engine.js'
 import {
   PROFILE_KEY, CONFIG_KEY, CLIENTS_KEY, readJson, writeJson, loadConfig, savedContactName,
@@ -83,7 +85,42 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
   const [notice, setNotice] = useState('')
   const galleryRef = useRef(null)
   const cameraRef = useRef(null)
+  const [eng, setEng] = useState(null)
+  const [engBusy, setEngBusy] = useState(false)
+  const [own, setOwn] = useState(false)
+  const [ownMsg, setOwnMsg] = useState('')
 
+  async function loadEngine(force) {
+    if (!isNative()) return
+    setEngBusy(true)
+    try {
+      if (force) await syncNow(true)
+      setEng(await engineStatus())
+      const o = await AutoBingwa.nativeOwner().catch(() => null)
+      if (o) setOwn(Boolean(o.owner))
+    } finally {
+      setEngBusy(false)
+    }
+  }
+  async function toggleNative() {
+    if (!isNative()) return setOwnMsg('The background engine only exists in the Android app.')
+    setOwnMsg('')
+    setEngBusy(true)
+    try {
+      const r = await setNativeEngine(!own)
+      if (r && r.ok) {
+        setOwn(Boolean(r.owner))
+        setOwnMsg(r.owner ? 'On. New payments are now processed by the background engine.' : 'Off. The app handles payments again.')
+      } else {
+        setOwnMsg((r && r.reason) || 'Could not change this.')
+      }
+    } catch (e) {
+      setOwnMsg(String(e && e.message ? e.message : e))
+    } finally {
+      setEngBusy(false)
+    }
+  }
+  useEffect(() => { if (screen === 'main') loadEngine(true) }, [screen])
   function updateConfig(patch) {
     const next = { ...config, ...patch }
     setConfig(next)
@@ -201,6 +238,17 @@ const sxToggle = (label, desc, field) => (
     <Switch on={config[field]} onChange={() => updateConfig({ [field]: !config[field] })} label={label} />
   </div>
 )
+  const engLine = () => {
+    if (!isNative()) return 'The background service only exists in the Android app.'
+    if (!eng) return 'Checking the background service...'
+    if (!eng.synced) return 'The service has not received your settings yet. Tap Check now.'
+    const mine = localCounts()
+    const same = mine.offers === eng.offers && mine.blacklist === eng.blacklist
+      && mine.fallbackMappings === eng.fallbackMappings && mine.units === eng.units
+    const at = new Date(eng.syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const tokens = eng.unlimitedUntil > Date.now() ? 'unlimited tokens' : `${eng.units} tokens`
+    return `${same ? '✓ Matches the app' : '⚠ Does not match the app'}. Service copy: ${eng.offers} offers (${eng.offersEnabled} on), ${tokens}, ${eng.blacklist} blacklisted, ${eng.fallbackMappings} fallback plans, ${eng.mode || 'no'} mode. Updated ${at}.`
+  }
   return (
     <div className="st-page">
       <style>{`
@@ -377,7 +425,20 @@ const sxToggle = (label, desc, field) => (
         <span className="sx-dot" />
       </button>
     ))}
-
+    <p className="sx-label">Background engine</p>
+    <div className="sx-item">
+      <span><strong>Process payments in the background</strong><small>Payments keep processing even when the app is closed</small></span>
+      <Switch on={own} onChange={toggleNative} label="Process payments in the background" />
+    </div>
+    {ownMsg && <p className="sx-pad st-desc">{ownMsg}</p>}
+    <p className="sx-pad st-desc">{engLine()}</p>
+    {isNative() && (
+      <div className="sx-pad">
+        <button className="st-chip" disabled={engBusy} onClick={() => loadEngine(true)}>
+          {engBusy ? 'Checking...' : 'Check now'}
+        </button>
+      </div>
+    )}
     <p className="sx-label">Session</p>
     {user && user.email && <p className="sx-pad st-desc">Signed in as {user.email}</p>}
     <button className="sx-item sx-danger" onClick={logout}><strong>Sign out</strong></button>

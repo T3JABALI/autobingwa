@@ -70,7 +70,7 @@ public class SmsReceiver extends BroadcastReceiver {
 
         // A payment arrived but the web engine is not beating: bring the app forward now
         long now = System.currentTimeMillis();
-        if (payment && KeepAliveService.active
+        if (payment && KeepAliveService.active && !EngineCore.owns(context)
                 && now - AutoBingwaPlugin.lastBeat > 12000
                 && now - KeepAliveService.lastWakeAt > 15000) {
             Log.w(TAG, "payment arrived, web engine silent, waking the app");
