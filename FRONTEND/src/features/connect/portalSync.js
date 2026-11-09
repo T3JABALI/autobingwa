@@ -31,6 +31,7 @@ let timer = null
 let soonTimer = null
 let offData = null
 let busy = false
+let busySince = 0
 let checking = false
 let paying = false
 let lastBattery = { level: 0, charging: false }
@@ -52,14 +53,20 @@ const portalSwitchOn = () => {
 }
 
 async function post(path, body, headers = {}) {
-  const r = await fetch(SERVER + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
-    body: JSON.stringify(body),
-  })
-  return { ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) }
+  const ctrl = new AbortController()
+  const timeout = setTimeout(() => ctrl.abort(), 20000)
+  try {
+    const r = await fetch(SERVER + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    })
+    return { ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) }
+  } finally {
+    clearTimeout(timeout)
+  }
 }
-
 // Tells the portal how a command went
 async function report(c, auth, ok, msg, data) {
   try {
@@ -413,8 +420,9 @@ async function handleCommand(c, auth) {
 }
 
 async function tick() {
-  if (busy) return
+  if (busy && Date.now() - busySince < 45000) return
   busy = true
+  busySince = Date.now()
   try {
     const id = (localStorage.getItem(ID_KEY) || '').trim()
     if (!id) return // no Connect ID yet: generate one on the Autobingwa Connect page
@@ -440,6 +448,7 @@ async function tick() {
     )
     if (!r.ok) {
       console.error('portal sync failed', r.status, r.j.error)
+      if (r.status === 401) localStorage.removeItem(SECRET_KEY + id) // bad credentials: register again next tick
       return
     }
     for (const c of r.j.commands || []) {
@@ -466,11 +475,12 @@ function soon() {
   clearTimeout(soonTimer)
   soonTimer = setTimeout(tick, 1500)
 }
-
+const onVisible = () => { if (!document.hidden) soon() }
 export function startPortalSync() {
   stopPortalSync()
   offData = subscribe(soon)
   window.addEventListener('ab-balances', soon)
+    document.addEventListener('visibilitychange', onVisible)
   window.addEventListener('ab-connect', soon)
   tick()
   timer = setInterval(tick, INTERVAL)
@@ -484,4 +494,5 @@ export function stopPortalSync() {
   offData = null
   window.removeEventListener('ab-balances', soon)
   window.removeEventListener('ab-connect', soon)
+    document.removeEventListener('visibilitychange', onVisible)
 }

@@ -478,7 +478,8 @@ app.post('/device/sync',
       if (portalOn && b.snapshot) patch.snapshot = cleanSnapshot(b.snapshot)
       const hidden = patch.snapshot ? patch.snapshot.hidden : []
       if (patch.snapshot) delete patch.snapshot.hidden // no need to store this list on the device row
-      await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
+      const { error: upErr } = await sbAdmin.from('devices').update(patch).eq('id', req.dev.id)
+      if (upErr) console.error('device update failed', upErr.message)
       if (portalOn && patch.snapshot) {
         try {
           await saveTx(req.dev.id, patch.snapshot.recent)
