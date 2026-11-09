@@ -4,13 +4,13 @@ import android.app.Service;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
-import android.content.SharedPreferences;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -26,7 +26,7 @@ public class KeepAliveService extends Service {
     private static final long WAKE_MS = 6L * 60 * 60 * 1000; // renewed every scan, so it can never leak
     private static final long FRESH_MS = 10L * 60 * 1000;    // only messages newer than this can wake the app
     private ScheduledExecutorService scanner;
-        private ScheduledExecutorService pinger; // separate thread, so a slow network never delays the payment scan
+    private ScheduledExecutorService pinger; // separate thread, so a slow network never delays the payment scan
     private PowerManager.WakeLock wake;
     private int ticks = 0; // counts scans, one every 10 seconds
     private String lastKey = "";
@@ -107,6 +107,7 @@ public class KeepAliveService extends Service {
             return null;
         }
     }
+
     // Tells the portal this phone is alive. Uses /device/ping, which never takes the portal's commands.
     private void pingPortal() {
         HttpURLConnection c = null;
@@ -134,6 +135,7 @@ public class KeepAliveService extends Service {
             if (c != null) c.disconnect();
         }
     }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notifier.channels(this);
@@ -180,7 +182,7 @@ public class KeepAliveService extends Service {
                         Log.e("AutoBingwa", "scan loop", e);
                     }
                 }
-              }, 5, 10, TimeUnit.SECONDS);
+            }, 5, 10, TimeUnit.SECONDS);
         }
         if (pinger == null) {
             pinger = Executors.newSingleThreadScheduledExecutor();
@@ -206,7 +208,7 @@ public class KeepAliveService extends Service {
             scanner.shutdownNow();
             scanner = null;
         }
-                if (pinger != null) {
+        if (pinger != null) {
             pinger.shutdownNow();
             pinger = null;
         }

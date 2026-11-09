@@ -427,8 +427,9 @@ async function tick() {
   busySince = Date.now()
   try {
     const id = (localStorage.getItem(ID_KEY) || '').trim()
-    if (!id) return // no Connect ID yet: generate one on the Autobingwa Connect page
     const on = portalSwitchOn()
+    console.log('portal tick', JSON.stringify({ id, on, hasSecret: !!localStorage.getItem(SECRET_KEY + id) }))
+    if (!id) return // no Connect ID yet: generate one on the Autobingwa Connect page
 
     let secret = localStorage.getItem(SECRET_KEY + id)
     if (!secret) {
@@ -491,6 +492,7 @@ function soon() {
 const onVisible = () => { if (!document.hidden) soon() }
 
 export function startPortalSync() {
+  console.log('portal sync started')
   stopPortalSync()
   offData = subscribe(soon)
   window.addEventListener('ab-balances', soon)

@@ -164,6 +164,12 @@ public class AutoBingwaPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void heartbeat(PluginCall call) {
+        lastBeat = System.currentTimeMillis();
+        call.resolve();
+    }
+
     // The portal login details, so the service can keep the phone showing Connected while the web view sleeps
     @PluginMethod
     public void savePortal(PluginCall call) {
@@ -725,7 +731,8 @@ public class AutoBingwaPlugin extends Plugin {
             call.reject("Could not read the native state: " + e.getMessage());
         }
     }
-        @PluginMethod
+
+    @PluginMethod
     public void nativeRelease(PluginCall call) {
         String id = call.getString("id", "");
         if (id != null && !id.isEmpty()) EngineCore.release(getContext(), id);
