@@ -60,7 +60,7 @@ export async function engineStatus() {
 export function startNativeSync() {
   if (!isNative()) return
   syncNow(true)
-  const again = () => syncNow()
+  const again = () => { if (!document.hidden) syncNow() }
   window.addEventListener('autobingwa-data', again)
   window.addEventListener('storage', again)
   window.addEventListener('ab-tokens', again)

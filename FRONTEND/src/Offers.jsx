@@ -298,7 +298,10 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
         />
       ))}
 
-      <button className="fab" aria-label="Add offer" onClick={() => setSheet({ type: 'edit', offer: blank() })}>+</button>
+<button className="fab" aria-label="Add offer" onClick={() => setSheet({ type: 'edit', offer: blank() })}>
+  <span className="fab-plus">+</span>
+  <span>ADD OFFER</span>
+</button>
 
       {sheet && sheet.type === 'edit' && (
         <EditSheet start={sheet.offer} offers={offers} onClose={() => setSheet(null)} onSave={save} />

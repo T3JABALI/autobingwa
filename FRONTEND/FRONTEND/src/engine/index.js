@@ -354,16 +354,22 @@ let importing = false
 
 // Copies the background engine's transactions into the app, applies the tokens it used,
 // and fires the same follow-ups as for the app's own transactions. Safe to call any time.
+let lastNativeSig = ''
+
 export async function importNative() {
-  if (!isNative() || importing) return 0
+  if (!isNative() || importing || document.hidden) return 0
   importing = true
   let changed = 0
   try {
     const st = await AutoBingwa.nativeState()
     applyNativeCharges(st.chargesTotal)
     const list = (st.transactions || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    // Nothing new or changed since the last check: do no work at all
+    const sig = list.map((t) => `${t.id}:${t.rev || 0}`).join('|')
+    if (sig === lastNativeSig) return 0
+    const byId = new Map(loadTransactions().map((t) => [t.id, t]))
     for (const nt of list) {
-      const local = loadTransactions().find((t) => t.id === nt.id)
+      const local = byId.get(nt.id)
       if (!local) {
         addTransaction({ ...nt })
         changed++
@@ -380,6 +386,7 @@ export async function importNative() {
       changed++
       if (local.status !== nt.status) fireFinished(nt.status, loadTransactions().find((t) => t.id === nt.id))
     }
+    lastNativeSig = sig
   } catch (e) {
     console.error('AB import native', e)
   } finally {
