@@ -164,9 +164,14 @@ public class AutoBingwaPlugin extends Plugin {
         }
     }
 
+    // The portal login details, so the service can keep the phone showing Connected while the web view sleeps
     @PluginMethod
-    public void heartbeat(PluginCall call) {
-        lastBeat = System.currentTimeMillis();
+    public void savePortal(PluginCall call) {
+        getContext().getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE).edit()
+            .putString("portal_id", call.getString("id", ""))
+            .putString("portal_secret", call.getString("secret", ""))
+            .putBoolean("portal_on", Boolean.TRUE.equals(call.getBoolean("on", false)))
+            .apply();
         call.resolve();
     }
 

@@ -10,6 +10,10 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
+import android.content.SharedPreferences;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -22,6 +26,7 @@ public class KeepAliveService extends Service {
     private static final long WAKE_MS = 6L * 60 * 60 * 1000; // renewed every scan, so it can never leak
     private static final long FRESH_MS = 10L * 60 * 1000;    // only messages newer than this can wake the app
     private ScheduledExecutorService scanner;
+        private ScheduledExecutorService pinger; // separate thread, so a slow network never delays the payment scan
     private PowerManager.WakeLock wake;
     private int ticks = 0; // counts scans, one every 10 seconds
     private String lastKey = "";
@@ -102,7 +107,33 @@ public class KeepAliveService extends Service {
             return null;
         }
     }
-
+    // Tells the portal this phone is alive. Uses /device/ping, which never takes the portal's commands.
+    private void pingPortal() {
+        HttpURLConnection c = null;
+        try {
+            SharedPreferences sp = getSharedPreferences("autobingwa_prefs", Context.MODE_PRIVATE);
+            String id = sp.getString("portal_id", "");
+            String secret = sp.getString("portal_secret", "");
+            if (id.isEmpty() || secret.isEmpty() || !sp.getBoolean("portal_on", false)) return;
+            c = (HttpURLConnection) new URL("https://autobingwa-payments.onrender.com/device/ping").openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            c.setRequestProperty("X-Connect-Id", id);
+            c.setRequestProperty("X-Device-Secret", secret);
+            OutputStream os = c.getOutputStream();
+            os.write("{\"portalOn\":true}".getBytes("UTF-8"));
+            os.close();
+            int code = c.getResponseCode();
+            if (code != 200) Log.w("AutoBingwa", "portal ping answered " + code);
+        } catch (Exception e) {
+            Log.w("AutoBingwa", "portal ping failed: " + e.getMessage());
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notifier.channels(this);
@@ -149,7 +180,14 @@ public class KeepAliveService extends Service {
                         Log.e("AutoBingwa", "scan loop", e);
                     }
                 }
-            }, 5, 10, TimeUnit.SECONDS);
+              }, 5, 10, TimeUnit.SECONDS);
+        }
+        if (pinger == null) {
+            pinger = Executors.newSingleThreadScheduledExecutor();
+            pinger.scheduleWithFixedDelay(new Runnable() {
+                @Override
+                public void run() { pingPortal(); }
+            }, 3, 15, TimeUnit.SECONDS);
         }
         return START_STICKY;
     }
@@ -167,6 +205,10 @@ public class KeepAliveService extends Service {
         if (scanner != null) {
             scanner.shutdownNow();
             scanner = null;
+        }
+                if (pinger != null) {
+            pinger.shutdownNow();
+            pinger = null;
         }
         try {
             if (wake != null && wake.isHeld()) wake.release();

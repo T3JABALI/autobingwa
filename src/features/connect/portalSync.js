@@ -1,7 +1,7 @@
 // Sends this phone's live state to the AutoBingwa Portal and runs commands sent from it.
 import { Device } from '@capacitor/device'
 import { engine } from '../../engine/index.js'
-import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled } from '../../engine/native.js'
+import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled, AutoBingwa } from '../../engine/native.js'
 import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
 import { loadConfig, setPortal } from '../../engine/config.js'
 import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
@@ -34,6 +34,7 @@ let busy = false
 let busySince = 0
 let checking = false
 let paying = false
+let lastSaved = ''
 let lastBattery = { level: 0, charging: false }
 const inflight = new Set() // command ids being handled, so a resent command never runs twice
 
@@ -67,6 +68,7 @@ async function post(path, body, headers = {}) {
     clearTimeout(timeout)
   }
 }
+
 // Tells the portal how a command went
 async function report(c, auth, ok, msg, data) {
   try {
@@ -441,6 +443,16 @@ async function tick() {
     }
 
     const auth = { 'X-Connect-Id': id, 'X-Device-Secret': secret }
+
+    // Give the background service the login details first, so it can keep the phone
+    // Connected while the web view sleeps
+    const keep = id + '|' + secret + '|' + on
+    if (isNative() && keep !== lastSaved) {
+      AutoBingwa.savePortal({ id, secret, on })
+        .then(() => { lastSaved = keep })
+        .catch((e) => console.error('savePortal', e && e.message ? e.message : e))
+    }
+
     const r = await post(
       '/device/sync',
       { portalOn: on, snapshot: on ? await buildSnapshot() : undefined },
@@ -475,13 +487,15 @@ function soon() {
   clearTimeout(soonTimer)
   soonTimer = setTimeout(tick, 1500)
 }
+
 const onVisible = () => { if (!document.hidden) soon() }
+
 export function startPortalSync() {
   stopPortalSync()
   offData = subscribe(soon)
   window.addEventListener('ab-balances', soon)
-    document.addEventListener('visibilitychange', onVisible)
   window.addEventListener('ab-connect', soon)
+  document.addEventListener('visibilitychange', onVisible)
   tick()
   timer = setInterval(tick, INTERVAL)
 }
@@ -494,5 +508,5 @@ export function stopPortalSync() {
   offData = null
   window.removeEventListener('ab-balances', soon)
   window.removeEventListener('ab-connect', soon)
-    document.removeEventListener('visibilitychange', onVisible)
+  document.removeEventListener('visibilitychange', onVisible)
 }
