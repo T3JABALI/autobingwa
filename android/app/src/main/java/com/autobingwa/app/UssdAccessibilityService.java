@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -31,20 +32,30 @@ public class UssdAccessibilityService extends AccessibilityService {
     private volatile AccessibilityNodeInfo lastRoot = null;
     private volatile long lastNoWinLog = 0;
 
+    // The input box and Send button of the newest dialog, found while reading it.
+    // typeAndSend uses them directly so it does not have to search the screen again.
+    private volatile AccessibilityNodeInfo cachedBox = null;
+    private volatile AccessibilityNodeInfo cachedSend = null;
+    private volatile String cachedFor = "";
+    // A screen that did not look fully drawn yet; it must look the same on the next scan to count
+    private String pendingText = "";
+
     // Only a pure progress window counts as progress. A real message that merely contains "please wait" does not.
     private static final Pattern PROGRESS = Pattern.compile(
         "^((ussd code running|running ussd code|ussd running|running|please wait|loading|sending request|sending|connecting)[\\s.\\u2026]*)+$");
+
+    // While a transaction runs, also look at the USSD window this often
+    private static final long POLL_MS = 30;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable scan = new Runnable() {
         @Override public void run() { scanNow(); }
     };
-    // While a transaction runs, look at the USSD window every 120ms, not only when Android sends an event
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!active) return;
             scanNow();
-            handler.postDelayed(this, 120);
+            handler.postDelayed(this, POLL_MS);
         }
     };
 
@@ -62,15 +73,33 @@ public class UssdAccessibilityService extends AccessibilityService {
         lastFail = "";
         progressSeen = false;
         active = true;
-        UssdAccessibilityService s = instance;
+        final UssdAccessibilityService s = instance;
         if (s != null) {
             s.lastRoot = null;
+            s.cachedBox = null;
+            s.cachedSend = null;
+            s.cachedFor = "";
+            s.pendingText = "";
+            s.handler.removeCallbacks(s.poll); // never run two polling loops at once
+            s.handler.post(new Runnable() {
+                @Override public void run() { s.keyboardHidden(true); }
+            });
             s.handler.post(s.poll);
         }
     }
 
     public static void end() {
         active = false;
+        final UssdAccessibilityService s = instance;
+        if (s != null) {
+            s.handler.removeCallbacks(s.poll);
+            s.handler.removeCallbacks(s.scan);
+            s.cachedBox = null;
+            s.cachedSend = null;
+            s.handler.post(new Runnable() {
+                @Override public void run() { s.keyboardHidden(false); }
+            });
+        }
     }
 
     // True if a "USSD code running" window was seen since the last value was sent
@@ -78,9 +107,27 @@ public class UssdAccessibilityService extends AccessibilityService {
         return progressSeen;
     }
 
+    // Keeps the on-screen keyboard from opening over the USSD dialog while a purchase runs.
+    // It is switched back to normal as soon as the run ends.
+    private void keyboardHidden(boolean hide) {
+        if (Build.VERSION.SDK_INT < 24) return;
+        try {
+            AccessibilityService.SoftKeyboardController c = getSoftKeyboardController();
+            if (c != null) {
+                c.setShowMode(hide ? AccessibilityService.SHOW_MODE_HIDDEN : AccessibilityService.SHOW_MODE_AUTO);
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "keyboard mode not changed: " + e);
+        }
+    }
+
     @Override protected void onServiceConnected() { instance = this; }
     @Override public void onInterrupt() {}
-    @Override public boolean onUnbind(android.content.Intent i) { instance = null; return super.onUnbind(i); }
+    @Override public boolean onUnbind(android.content.Intent i) {
+        keyboardHidden(false);
+        instance = null;
+        return super.onUnbind(i);
+    }
 
     private boolean isOwnPkg(CharSequence p) {
         return p != null && p.toString().equalsIgnoreCase(getPackageName());
@@ -143,9 +190,9 @@ public class UssdAccessibilityService extends AccessibilityService {
             Log.d(TAG, "window changed to " + e.getPackageName() + " / " + e.getClassName());
         }
         if (!isPhonePkg(e.getPackageName()) && isOwnPkg(e.getPackageName())) return;
-        // Wait a moment so a half-drawn dialog is never read
+        // Look right away. A burst of events collapses into one look.
         handler.removeCallbacks(scan);
-        handler.postDelayed(scan, 100);
+        handler.post(scan);
     }
 
     private static boolean isButtonWord(String t) {
@@ -169,10 +216,24 @@ public class UssdAccessibilityService extends AccessibilityService {
             lastLogged = text;
             Log.d(TAG, "USSD window input=" + input[0] + " progress=" + progress + " text=" + text.replace('\n', ' '));
         }
-        if (progress) { progressSeen = true; return; }
+        if (progress) { progressSeen = true; pendingText = ""; return; }
 
         if (text.equals(lastText)) return; // the same dialog again, not a new screen
+
+        // A fully drawn dialog has its button (and its input box, when it asks for input).
+        // Those are found once here and kept for typeAndSend.
+        AccessibilityNodeInfo box = input[0] ? findEditable(root) : null;
+        AccessibilityNodeInfo send = sendButton(root);
+        boolean complete = send != null && (!input[0] || box != null);
+        if (!complete && !text.equals(pendingText)) {
+            pendingText = text; // maybe half drawn: it must look the same on the next scan
+            return;
+        }
+        pendingText = "";
         lastText = text;
+        cachedBox = box;
+        cachedSend = send;
+        cachedFor = text;
         events.offer(new Dialog(text, input[0]));
     }
 
@@ -268,14 +329,14 @@ public class UssdAccessibilityService extends AccessibilityService {
         return t == null ? "" : t.toString().trim();
     }
 
+    // Puts the value straight into the box WITHOUT focusing it, so the keyboard never opens.
+    // Only if that is refused does it focus the box and paste (the keyboard is hidden anyway during a run).
     private boolean setText(AccessibilityNodeInfo box, String value) {
-        try { box.refresh(); } catch (Exception e) { /* keep going */ }
-        box.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
         Bundle b = new Bundle();
         b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
         if (box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)) return true;
-        // Fallback: paste it
         try {
+            box.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(ClipData.newPlainText("ab", value));
             return box.performAction(AccessibilityNodeInfo.ACTION_PASTE);
@@ -284,13 +345,33 @@ public class UssdAccessibilityService extends AccessibilityService {
         }
     }
 
+    // Fast path: the box and button were found while the dialog was read, so use them directly.
+    // Returns false when anything looks off, and the normal path then searches the screen again.
+    private boolean fastTypeAndSend(String value) {
+        AccessibilityNodeInfo box = cachedBox;
+        AccessibilityNodeInfo send = cachedSend;
+        if (box == null || send == null || !cachedFor.equals(lastText)) return false;
+        long t0 = System.currentTimeMillis();
+        Bundle b = new Bundle();
+        b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        if (!box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)) return false; // old node, dialog moved on
+        if (!boxText(box).equals(value)) return false; // the normal path waits for it properly
+        if (!click(send)) return false;
+        progressSeen = false;
+        lastFail = "";
+        Log.d(TAG, "typeAndSend fast '" + value + "' took " + (System.currentTimeMillis() - t0) + "ms");
+        return true;
+    }
+
     // Types the value into the USSD dialog and presses Send. On failure, lastFail says why.
     public boolean typeAndSend(String value) {
+        if (fastTypeAndSend(value)) return true;
+
         AccessibilityNodeInfo root = phoneRoot();
         if (root == null) { lastFail = "no USSD window found"; return false; }
         AccessibilityNodeInfo box = findEditable(root);
         AccessibilityNodeInfo send = sendButton(root);
-Log.d(TAG, "typeAndSend pkg=" + root.getPackageName() + "/" + root.getClassName() + " box=" + (box != null) + " send=" + (send != null));
+        Log.d(TAG, "typeAndSend pkg=" + root.getPackageName() + "/" + root.getClassName() + " box=" + (box != null) + " send=" + (send != null));
         if (box == null) { lastFail = "input box not found"; return false; }
         if (send == null) { lastFail = "Send button not found"; return false; }
 
@@ -298,21 +379,25 @@ Log.d(TAG, "typeAndSend pkg=" + root.getPackageName() + "/" + root.getClassName(
         Log.d(TAG, "typeAndSend setText=" + set);
         if (!set) { lastFail = "the input box refused the text"; return false; }
 
-        // Wait only until the text really shows in the box (at most 300ms), then press Send
-        long end = System.currentTimeMillis() + 300;
-        while (!boxText(box).equals(value) && System.currentTimeMillis() < end) {
-            try { Thread.sleep(30); } catch (InterruptedException e) { break; }
-        }
+        // One quick check that the text is really in the box. Only if it is not, wait a little and try again.
         if (!boxText(box).equals(value)) {
-            setText(box, value);
-            try { Thread.sleep(60); } catch (InterruptedException e) { /* continue */ }
+            long end = System.currentTimeMillis() + 200;
+            while (!boxText(box).equals(value) && System.currentTimeMillis() < end) {
+                try { Thread.sleep(10); } catch (InterruptedException e) { break; }
+            }
+            if (!boxText(box).equals(value)) {
+                setText(box, value);
+                try { Thread.sleep(30); } catch (InterruptedException e) { /* continue */ }
+            }
         }
-        Log.d(TAG, "typeAndSend box shows '" + boxText(box) + "' (wanted '" + value + "')");
 
-        // Look the Send button up again, the dialog may have redrawn
-        AccessibilityNodeInfo root2 = phoneRoot();
-        AccessibilityNodeInfo send2 = root2 != null ? sendButton(root2) : null;
-        boolean clicked = click(send2 != null ? send2 : send);
+        // Press Send right away. Only if that fails, look the button up again (the dialog may have redrawn).
+        boolean clicked = click(send);
+        if (!clicked) {
+            AccessibilityNodeInfo root2 = phoneRoot();
+            AccessibilityNodeInfo send2 = root2 != null ? sendButton(root2) : null;
+            clicked = send2 != null && click(send2);
+        }
         Log.d(TAG, "typeAndSend clicked=" + clicked);
         if (!clicked) { lastFail = "the Send button did not respond"; return false; }
         progressSeen = false; // from here, any progress window belongs to this step
