@@ -13,14 +13,19 @@ import android.util.Log;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class KeepAliveService extends Service {
     static volatile boolean active = false;
     static volatile long lastWakeAt = 0;
     private static final long WAKE_MS = 6L * 60 * 60 * 1000; // renewed every scan, so it can never leak
+    private static final long FRESH_MS = 10L * 60 * 1000;    // only messages newer than this can wake the app
     private ScheduledExecutorService scanner;
     private PowerManager.WakeLock wake;
     private int ticks = 0; // counts scans, one every 10 seconds
+    private String lastKey = "";
+    private int wakeCount = 0;
 
     // Switches the USSD accessibility service back on if Android turned it off
     private void ensureAccessibility() {
@@ -57,10 +62,11 @@ public class KeepAliveService extends Service {
         }
     }
 
-    // Brings the app to the front for a moment. MainActivity sends it back to the background.
-    // Static, so the SMS receiver can call it too.
+    // Brings the app to the front so the web engine runs again. MainActivity sends it back afterwards.
+    // Never during a USSD purchase: it would cover the phone's USSD window.
     static void wakeNow(Context ctx) {
         try {
+            if (UssdFlow.busy) return;
             lastWakeAt = System.currentTimeMillis();
             Intent i = new Intent(ctx, MainActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -75,6 +81,27 @@ public class KeepAliveService extends Service {
     }
 
     private void wakeApp() { wakeNow(this); }
+
+    // The newest unprocessed message that arrived in the last 10 minutes, or null when none is waiting
+    private String waitingKey() {
+        try {
+            JSONArray q = SmsStore.peek(getApplicationContext());
+            long cutoff = System.currentTimeMillis() - FRESH_MS;
+            long newest = 0;
+            String key = null;
+            for (int i = 0; i < q.length(); i++) {
+                JSONObject o = q.optJSONObject(i);
+                if (o == null) continue;
+                long t = o.optLong("time", 0);
+                if (t < cutoff || t < newest) continue;
+                newest = t;
+                key = o.optString("id", "");
+            }
+            return key;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -92,8 +119,8 @@ public class KeepAliveService extends Service {
                     try {
                         holdCpu();
                         ticks++;
-                        if (ticks % 3 == 0) ensureAccessibility();                          // every 30 s
-                        if (ticks % 30 == 0) Notifier.motivate(getApplicationContext());    // every 5 min
+                        if (ticks % 3 == 0) ensureAccessibility();                       // every 30 s
+                        if (ticks % 30 == 0) Notifier.motivate(getApplicationContext()); // every 5 min
 
                         long now = System.currentTimeMillis();
                         long silent = now - AutoBingwaPlugin.lastBeat;
@@ -104,17 +131,18 @@ public class KeepAliveService extends Service {
                             if (n > 0) AutoBingwaPlugin.poke();
                         }
 
-                        // A payment is waiting and the web engine is not beating: bring the app forward now
-                        boolean waiting = SmsStore.peek(getApplicationContext()).length() > 0;
-                        if (waiting && silent > 10000 && now - lastWakeAt > 30000) {
-                            Log.w("AutoBingwa", "payment waiting, web engine silent " + silent + " ms, waking the app");
-                            wakeApp();
-                        }
-
-                        // General watchdog, much faster than before
-                        if (silent > 45000 && now - lastWakeAt > 60000) {
-                            Log.w("AutoBingwa", "web engine stalled, waking the app");
-                            wakeApp();
+                        // Bring the app forward ONLY when a fresh message is waiting and the web engine is silent.
+                        // Never in the middle of a purchase, and at most 3 times for the same message.
+                        String key = waitingKey();
+                        if (key == null) {
+                            lastKey = "";
+                            wakeCount = 0;
+                        } else if (silent > 10000 && !UssdFlow.busy && now - lastWakeAt > 30000) {
+                            if (key.equals(lastKey)) wakeCount++; else { lastKey = key; wakeCount = 1; }
+                            if (wakeCount <= 3) {
+                                Log.w("AutoBingwa", "message waiting, web engine silent " + silent + " ms, waking the app");
+                                wakeApp();
+                            }
                         }
                     } catch (Exception e) {
                         Log.e("AutoBingwa", "scan loop", e);
@@ -128,8 +156,8 @@ public class KeepAliveService extends Service {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
-        Log.i("AutoBingwa", "task removed, relaunching");
-        wakeApp();
+        // The user swiped the app away. Leave it closed. A fresh payment can still bring it back to process it.
+        Log.i("AutoBingwa", "task removed");
     }
 
     @Override

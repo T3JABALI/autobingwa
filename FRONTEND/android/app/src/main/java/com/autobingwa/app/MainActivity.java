@@ -53,6 +53,18 @@ public class MainActivity extends BridgeActivity {
         setIntent(intent);
     }
 
+    // After a wake, go back to the background, but never while a USSD purchase is running.
+    // Checks every 500 ms and waits at most 2 minutes.
+    private void backWhenIdle(final int tries) {
+        if (UssdFlow.busy && tries < 240) {
+            loop.postDelayed(new Runnable() {
+                @Override public void run() { backWhenIdle(tries + 1); }
+            }, 500);
+            return;
+        }
+        moveTaskToBack(true);
+    }
+
     @Override
     public void onResume() {
         super.onResume();
@@ -61,9 +73,9 @@ public class MainActivity extends BridgeActivity {
         if (in != null && in.getBooleanExtra("restart", false)) {
             in.removeExtra("restart");
             // let the web app load and resume automation, then go back to the background
-            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-                @Override public void run() { moveTaskToBack(true); }
-            }, 25000);
+            loop.postDelayed(new Runnable() {
+                @Override public void run() { backWhenIdle(0); }
+            }, 3500);
         }
     }
 }

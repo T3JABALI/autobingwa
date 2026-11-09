@@ -290,7 +290,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         if (root == null) { lastFail = "no USSD window found"; return false; }
         AccessibilityNodeInfo box = findEditable(root);
         AccessibilityNodeInfo send = sendButton(root);
-        Log.d(TAG, "typeAndSend box=" + (box != null) + " send=" + (send != null));
+Log.d(TAG, "typeAndSend pkg=" + root.getPackageName() + "/" + root.getClassName() + " box=" + (box != null) + " send=" + (send != null));
         if (box == null) { lastFail = "input box not found"; return false; }
         if (send == null) { lastFail = "Send button not found"; return false; }
 

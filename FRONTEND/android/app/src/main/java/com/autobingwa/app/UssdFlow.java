@@ -17,6 +17,7 @@ import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -27,10 +28,25 @@ public class UssdFlow {
     // Express: the whole code goes out in one request and the answer comes back without any dialog.
     public static volatile boolean express = true;
 
+    // True while a USSD run is in progress. The app never comes forward or goes back during this time.
+    public static volatile boolean busy = false;
+
+    // What the phone shows when the network refuses or drops a request
+    private static final Pattern TRANSIENT = Pattern.compile("connection problem|invalid mmi", Pattern.CASE_INSENSITIVE);
+
     private static final class Step {
         String status = "error";
         String message = "";
-        boolean windowLost = false;
+        boolean windowLost = false;   // nothing was bought, so dialing again is safe
+        boolean transientNet = false; // the network refused the first dial: wait longer before dialing again
+        String retryNote = "";
+    }
+
+    // Failures where the dialog was not in the state we expected. The step was never sent.
+    private static boolean lostWindow(String why) {
+        return "no USSD window found".equals(why)
+            || "input box not found".equals(why)
+            || "Send button not found".equals(why);
     }
 
     private static PhoneAccountHandle handleForSlot(Context ctx, int slot) {
@@ -52,7 +68,7 @@ public class UssdFlow {
         return null;
     }
 
-    static void dial(Context ctx, int slot, String code) {
+    private static void dial(Context ctx, int slot, String code) {
         TelecomManager tc = ctx.getSystemService(TelecomManager.class);
         Bundle extras = new Bundle();
         PhoneAccountHandle h = handleForSlot(ctx, slot);
@@ -223,6 +239,14 @@ public class UssdFlow {
             }
             add(responses, sent, d.text);
             if (!d.hasInput) {
+                if (i == 0 && steps.length > 0 && TRANSIENT.matcher(d.text).find()) {
+                    // The network refused the very first dial. Nothing was typed or bought, so dialing again is safe.
+                    r.status = "ended_early";
+                    r.windowLost = true;
+                    r.transientNet = true;
+                    r.retryNote = "The network said 'connection problem'. Waiting a few seconds, then dialing again";
+                    return r;
+                }
                 if (i < steps.length) r.status = "ended_early";
                 return r;
             }
@@ -260,10 +284,12 @@ public class UssdFlow {
                 }
             }
             if (!ok) {
+                String why = UssdAccessibilityService.lastFail;
                 r.status = "error";
-                r.windowLost = "no USSD window found".equals(UssdAccessibilityService.lastFail);
+                r.windowLost = lostWindow(why);
+                r.retryNote = "The USSD window changed before step " + (i + 1) + " could be typed (" + why + "). Dialing again";
                 r.message = "Could not type '" + value + "' into the USSD window at step " + (i + 1)
-                    + " (" + UssdAccessibilityService.lastFail + ")";
+                    + " (" + why + ")";
                 return r; // this step was never sent, so dialing again is safe
             }
             sent = value;
@@ -272,85 +298,7 @@ public class UssdFlow {
         }
         return r;
     }
-    // Dials ONE full code in the dialer window and returns the text of the first dialog that appears.
-    // Used for the airtime transfer: "You have transferred ... from your account to ..."
-    public static JSObject dialOnce(Context ctx, int slot, String code, long waitMs) {
-        synchronized (LOCK) {
-            // Silent route first: no dialer, no window, nothing on screen
-            if (Build.VERSION.SDK_INT >= 26) {
-                PowerManager pm0 = ctx.getSystemService(PowerManager.class);
-                PowerManager.WakeLock w = null;
-                try {
-                    w = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoBingwa:silent");
-                    w.acquire(waitMs + 15000);
-                    JSObject fast = runExpress(ctx, slot, code, new String[0], waitMs);
-                    if (fast != null) {
-                        String text0 = "";
-                        org.json.JSONArray arr = fast.optJSONArray("responses");
-                        if (arr != null && arr.length() > 0) {
-                            JSONObject o0 = arr.optJSONObject(0);
-                            if (o0 != null) text0 = o0.optString("text", "");
-                        }
-                        JSObject res = new JSObject();
-                        res.put("status", fast.optString("status", "error"));
-                        res.put("message", fast.optString("message", ""));
-                        res.put("text", text0);
-                        return res; // once sent, the result is final: never dial it again
-                    }
-                } finally {
-                    if (w != null && w.isHeld()) w.release();
-                }
-            }
-            JSObject out = new JSObject();
-            String status = "error";
-            String message = "";
-            String text = "";
-            PowerManager pm = ctx.getSystemService(PowerManager.class);
-            PowerManager.WakeLock cpu = null;
-            PowerManager.WakeLock screen = null;
-            boolean began = false;
-            try {
-                if (UssdAccessibilityService.instance == null) {
-                    out.put("status", "error");
-                    out.put("message", "Turn on the AutoBingwa accessibility service first");
-                    out.put("text", "");
-                    return out;
-                }
-                cpu = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoBingwa:once");
-                cpu.acquire(waitMs + 15000);
-                if (!pm.isInteractive()) {
-                    screen = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "AutoBingwa:screenOnce");
-                    screen.acquire(waitMs + 15000);
-                }
-                UssdAccessibilityService.begin();
-                began = true;
-                dial(ctx, slot, code);
-                UssdAccessibilityService.Dialog d = UssdAccessibilityService.events.poll(waitMs, TimeUnit.MILLISECONDS);
-                if (d == null) {
-                    status = "no_reply";
-                    message = "The code was dialed but no message appeared.";
-                } else {
-                    status = "complete";
-                    text = d.text;
-                }
-            } catch (Exception e) {
-                status = "error";
-                message = String.valueOf(e.getMessage());
-            } finally {
-                if (began) {
-                    UssdAccessibilityService.end();
-                    UssdAccessibilityService s = UssdAccessibilityService.instance;
-                    if (s != null) s.dismiss(); // taps OK on the confirmation
-                }
-                if (screen != null && screen.isHeld()) screen.release();
-                if (cpu != null && cpu.isHeld()) cpu.release();
-            }
-            out.put("status", status);
-            out.put("message", message);
-            out.put("text", text);
-            return out;
-        }
-    }
+
     // status: complete | ended_early | timeout (nothing was bought, safe to retry)
     //         | no_reply (last step sent, result unknown) | error | sig_mismatch
     public static JSObject run(Context ctx, int slot, String first, String[] steps,
@@ -375,6 +323,7 @@ public class UssdFlow {
             PowerManager.WakeLock cpu = null;
             PowerManager.WakeLock screen = null;
             boolean usedDialog = false;
+            busy = true;
             try {
                 cpu = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoBingwa:ussd");
                 cpu.acquire(totalMs + 15000);
@@ -392,17 +341,21 @@ public class UssdFlow {
                     screen.acquire(totalMs + 15000);
                 }
                 UssdAccessibilityService.begin();
+                String note = "";
+                long pause = 1200;
                 for (int attempt = 0; attempt < 3; attempt++) {
                     if (attempt > 0) {
                         UssdAccessibilityService s0 = UssdAccessibilityService.instance;
                         if (s0 != null) s0.dismiss();
-                        Thread.sleep(1200);
-                        add(responses, "-", "Another app closed the USSD window before the next step. Dialing again (attempt " + (attempt + 1) + " of 3)");
+                        Thread.sleep(pause);
+                        add(responses, "-", note + " (attempt " + (attempt + 1) + " of 3)");
                         UssdAccessibilityService.begin();
                     }
                     Step r = interactiveOnce(ctx, slot, first, steps, stepMs, keyDelayMs, totalMs, started, responses, sig);
                     status = r.status;
                     message = r.message;
+                    note = r.retryNote;
+                    pause = r.transientNet ? 5000 : 1200;
                     long left = totalMs - (System.currentTimeMillis() - started);
                     if (!r.windowLost || left < 20000) break;
                 }
@@ -417,6 +370,7 @@ public class UssdFlow {
                 }
                 if (screen != null && screen.isHeld()) screen.release();
                 if (cpu != null && cpu.isHeld()) cpu.release();
+                busy = false;
             }
             JSObject out = new JSObject();
             out.put("status", status);
