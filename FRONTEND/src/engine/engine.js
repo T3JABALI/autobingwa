@@ -437,7 +437,8 @@ export function createEngine({
           responses: [...rs, { input: '-', text: 'Retry pending is on, so the app is trying again. The first attempt may already have sold.' }],
         })
       }
-      await new Promise((r) => setTimeout(r, retryMs))
+      const gap = Number(getConfig().gapMs ?? (getMode() === 'Express' ? 100 : 300))
+      await new Promise((r) => setTimeout(r, gap))
     }
 
     chargeToken() // the app dialed: one token, whatever the outcome
@@ -498,7 +499,8 @@ export function createEngine({
         await process(next)
         manual.delete(next.id)
         // a short breather so the phone releases the USSD session before the next one
-        await new Promise((r) => setTimeout(r, Number(getConfig().gapMs ?? 400)))
+        const gap = Number(getConfig().gapMs ?? (getMode() === 'Express' ? 100 : 300))
+        await new Promise((r) => setTimeout(r, gap))
       }
     } finally {
       working = false

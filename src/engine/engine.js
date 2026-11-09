@@ -437,11 +437,11 @@ export function createEngine({
           responses: [...rs, { input: '-', text: 'Retry pending is on, so the app is trying again. The first attempt may already have sold.' }],
         })
       }
-      await new Promise((r) => setTimeout(r, retryMs))
+      const gap = Number(getConfig().gapMs ?? (getMode() === 'Express' ? 100 : 300))
+      await new Promise((r) => setTimeout(r, gap))
     }
 
-    // One token per chain: a fallback rides on the token its original already used
-    if (!tx.isFallback) chargeToken()
+    chargeToken() // the app dialed: one token, whatever the outcome
 
     // Fallback: only after a DEFINITE failure (all retries used) or "already recommended".
     // A timeout or no reply may have sold, so it never triggers a backup.
@@ -490,16 +490,17 @@ export function createEngine({
     try {
       for (;;) {
         // No token or a payment in progress: nothing new starts. Waiting transactions stay Pending.
-        if (held) break
+        if (held || !hasToken()) break
         const next = store
           .list()
-          .filter((t) => t.status === 'Pending' && (running || force || manual.has(t.id)) && (hasToken() || t.isFallback))
+          .filter((t) => t.status === 'Pending' && (running || force || manual.has(t.id)))
           .sort((a, b) => a.createdAt - b.createdAt)[0]
         if (!next) break
         await process(next)
         manual.delete(next.id)
         // a short breather so the phone releases the USSD session before the next one
-        await new Promise((r) => setTimeout(r, Number(getConfig().gapMs ?? 400)))
+        const gap = Number(getConfig().gapMs ?? (getMode() === 'Express' ? 100 : 300))
+        await new Promise((r) => setTimeout(r, gap))
       }
     } finally {
       working = false
@@ -580,15 +581,21 @@ export function createEngine({
 
   // ---------- Quick Dial ----------
   // Same path as a customer payment. Resolves with { ok, status, text } when the result is known.
-  function quickDial({ offerId, phone }) {
+  // id (optional): the portal's transaction id, so the portal and the app show ONE transaction.
+  function quickDial({ offerId, phone, id }) {
     const offer = getOffers().find((o) => sameId(o.id, offerId))
     if (!offer) return Promise.resolve({ ok: false, status: 'Failed', text: 'That offer no longer exists.' })
     if (!phone) return Promise.resolve({ ok: false, status: 'Failed', text: 'Enter a valid phone number.' })
     if (!hasToken()) return Promise.resolve({ ok: false, status: 'Failed', text: 'You have no active token. Buy a token to continue.' })
 
-    const tx = store.add(directTx(offer, phone, {
-      tag: 'QD', status: 'Pending', source: 'quickdial', responses: [],
-    }))
+    // The portal may send the same command again on the next sync. Never dial twice for one id.
+    if (id && store.list().some((t) => sameId(t.id, id))) {
+      return Promise.resolve({ ok: false, status: 'Duplicate', text: 'This transaction was already received.' })
+    }
+
+    const extra = { tag: 'QD', status: 'Pending', source: 'quickdial', responses: [] }
+    if (id) extra.id = String(id) // only when given, so a missing id never wipes the generated one
+    const tx = store.add(directTx(offer, phone, extra))
     manual.add(tx.id)
 
     const result = new Promise((resolve) => {
@@ -628,6 +635,7 @@ export function createEngine({
     pump,
     tick,
     quickDial,
+    offers: () => getOffers(), // lets the portal sync list the offers for Quick Dial
     hold(on) { held = Boolean(on); if (!held) pump() },
     isBusy: () => working,
     on: onEvent,

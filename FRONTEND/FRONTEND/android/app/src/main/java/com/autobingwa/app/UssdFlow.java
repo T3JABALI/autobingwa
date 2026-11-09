@@ -15,6 +15,7 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -27,6 +28,12 @@ public class UssdFlow {
 
     // Express: the whole code goes out in one request and the answer comes back without any dialog.
     public static volatile boolean express = true;
+
+    // Dialog route only: how many of the first steps go out WITH the first dial, in one request,
+    // so only the remaining steps are typed into the dialog. 0 = off (every step is typed).
+    // Always keeps at least the last step for the dialog, so the final screen is still read.
+    // Never used with a signature (a signature has to check every menu).
+    public static volatile int chain = 0;
 
     // True while a USSD run is in progress. The app never comes forward or goes back during this time.
     public static volatile boolean busy = false;
@@ -110,6 +117,7 @@ public class UssdFlow {
         final CountDownLatch latch = new CountDownLatch(1);
         final String[] reply = { null };
         final int[] failure = { 0 };
+        final long sentAt = System.currentTimeMillis();
         try {
             tm.sendUssdRequest(ussd, new TelephonyManager.UssdResponseCallback() {
                 @Override
@@ -153,7 +161,7 @@ public class UssdFlow {
             status = "no_reply";
             message = "Express request was interrupted after sending. Check the confirmation SMS.";
         }
-        Log.d(TAG, "express done: " + status + " " + message);
+        Log.d(TAG, "express done: " + status + " in " + (System.currentTimeMillis() - sentAt) + "ms " + message);
         JSObject out = new JSObject();
         out.put("status", status);
         out.put("message", message);
@@ -161,34 +169,35 @@ public class UssdFlow {
         return out;
     }
 
-    // After sending a MIDDLE step, give the next screen up to 4 seconds. If the SAME menu is still showing,
-    // the send did not go through, so send again (at most twice).
-    private static void resendIfStuck(String menuText, String value) throws InterruptedException {
+    // After sending a MIDDLE step, wait for the next screen. If it comes, it is returned straight away.
+    // If nothing comes for 4 seconds and the SAME menu is still showing, the send did not go through,
+    // so send again (at most twice).
+    private static UssdAccessibilityService.Dialog resendIfStuck(String menuText, String value) throws InterruptedException {
         UssdAccessibilityService s = UssdAccessibilityService.instance;
         for (int r = 0; r < 2 && s != null; r++) {
-            long end = System.currentTimeMillis() + 4000;
-            while (System.currentTimeMillis() < end) {
-                if (!UssdAccessibilityService.events.isEmpty()) return;
-                Thread.sleep(80);
-            }
-            if (!menuText.equals(s.currentText())) return;
+            UssdAccessibilityService.Dialog d = UssdAccessibilityService.events.poll(4000, TimeUnit.MILLISECONDS);
+            if (d != null) return d;
+            if (!menuText.equals(s.currentText())) return null;
             Log.d(TAG, "Same menu still on screen, sending '" + value + "' again (" + (r + 1) + ")");
             s.typeAndSend(value);
         }
+        return null;
     }
 
     // The last step confirms the purchase. It is only sent again when it clearly did not register.
-    private static void resendLastIfNotAccepted(String menuText, String value) throws InterruptedException {
+    private static UssdAccessibilityService.Dialog resendLastIfNotAccepted(String menuText, String value) throws InterruptedException {
         UssdAccessibilityService s = UssdAccessibilityService.instance;
-        if (s == null) return;
+        if (s == null) return null;
         long end = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < end) {
-            if (!UssdAccessibilityService.events.isEmpty() || UssdAccessibilityService.sawProgress()) return;
-            Thread.sleep(80);
+            UssdAccessibilityService.Dialog d = UssdAccessibilityService.events.poll(100, TimeUnit.MILLISECONDS);
+            if (d != null) return d;
+            if (UssdAccessibilityService.sawProgress()) return null;
         }
-        if (!menuText.equals(s.currentText())) return;
+        if (!menuText.equals(s.currentText())) return null;
         Log.d(TAG, "Last step '" + value + "' did not register, sending it once more");
         s.typeAndSend(value);
+        return null;
     }
 
     // One pass through the dialog route. With a signature, each menu option is found by its text.
@@ -222,12 +231,17 @@ public class UssdFlow {
         dial(ctx, slot, first);
         String sent = first;
         r.status = "complete";
+        UssdAccessibilityService.Dialog carry = null; // a screen already received while checking the last send
+        long sentAt = System.currentTimeMillis();
         for (int i = 0; i <= steps.length; i++) {
             boolean afterLast = (i == steps.length && steps.length > 0);
             long left = totalMs - (System.currentTimeMillis() - started);
             long base = afterLast ? Math.max(stepMs, 15000) : stepMs;
             long wait = Math.min(base, Math.max(left, 1000));
-            UssdAccessibilityService.Dialog d = UssdAccessibilityService.events.poll(wait, TimeUnit.MILLISECONDS);
+            UssdAccessibilityService.Dialog d = carry != null
+                ? carry
+                : UssdAccessibilityService.events.poll(wait, TimeUnit.MILLISECONDS);
+            carry = null;
             if (d == null) {
                 r.status = afterLast ? "no_reply" : "timeout";
                 if (afterLast && UssdAccessibilityService.sawProgress()) {
@@ -237,6 +251,7 @@ public class UssdFlow {
                 }
                 return r;
             }
+            Log.d(TAG, "TIMING screen " + i + " came back " + (System.currentTimeMillis() - sentAt) + "ms after sending '" + sent + "'");
             add(responses, sent, d.text);
             if (!d.hasInput) {
                 if (i == 0 && steps.length > 0 && TRANSIENT.matcher(d.text).find()) {
@@ -274,13 +289,14 @@ public class UssdFlow {
                 }
             }
 
-            if (keyDelayMs > 0) Thread.sleep(keyDelayMs);
+            // The dialog is already on screen and readable, so type at once (no extra pause)
+            long typeStart = System.currentTimeMillis();
             boolean ok = false;
-            for (int t = 0; t < 80 && !ok; t++) {   // up to 4 seconds for the dialog to be ready
+            for (int t = 0; t < 160 && !ok; t++) {   // up to 4 seconds for the dialog to be ready
                 ok = UssdAccessibilityService.instance.typeAndSend(value);
                 if (!ok) {
-                    if ("no USSD window found".equals(UssdAccessibilityService.lastFail) && t >= 20) break; // 1s: the window is gone
-                    Thread.sleep(50);
+                    if ("no USSD window found".equals(UssdAccessibilityService.lastFail) && t >= 40) break; // 1s: the window is gone
+                    Thread.sleep(25);
                 }
             }
             if (!ok) {
@@ -293,8 +309,9 @@ public class UssdFlow {
                 return r; // this step was never sent, so dialing again is safe
             }
             sent = value;
-            if (i < steps.length - 1) resendIfStuck(d.text, value);
-            else resendLastIfNotAccepted(d.text, value);
+            sentAt = System.currentTimeMillis();
+            Log.d(TAG, "TIMING step " + i + " typed and sent in " + (sentAt - typeStart) + "ms");
+            carry = (i < steps.length - 1) ? resendIfStuck(d.text, value) : resendLastIfNotAccepted(d.text, value);
         }
         return r;
     }
@@ -340,9 +357,20 @@ public class UssdFlow {
                     screen = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "AutoBingwa:screen");
                     screen.acquire(totalMs + 15000);
                 }
+
+                // Optional chaining: the first steps ride along with the first dial, the rest are typed.
+                String dialFirst = first;
+                String[] dialSteps = steps;
+                int k = (sig == null) ? Math.max(0, Math.min(chain, steps.length - 1)) : 0;
+                if (k > 0) {
+                    dialFirst = expressCode(first, Arrays.copyOfRange(steps, 0, k));
+                    dialSteps = Arrays.copyOfRange(steps, k, steps.length);
+                    Log.d(TAG, "chain " + k + " step(s) into the first dial: " + dialFirst);
+                }
+
                 UssdAccessibilityService.begin();
                 String note = "";
-                long pause = 1200;
+                long pause = 1000;
                 for (int attempt = 0; attempt < 3; attempt++) {
                     if (attempt > 0) {
                         UssdAccessibilityService s0 = UssdAccessibilityService.instance;
@@ -351,14 +379,15 @@ public class UssdFlow {
                         add(responses, "-", note + " (attempt " + (attempt + 1) + " of 3)");
                         UssdAccessibilityService.begin();
                     }
-                    Step r = interactiveOnce(ctx, slot, first, steps, stepMs, keyDelayMs, totalMs, started, responses, sig);
+                    Step r = interactiveOnce(ctx, slot, dialFirst, dialSteps, stepMs, keyDelayMs, totalMs, started, responses, sig);
                     status = r.status;
                     message = r.message;
                     note = r.retryNote;
-                    pause = r.transientNet ? 5000 : 1200;
+                    pause = r.transientNet ? 5000 : 1000;
                     long left = totalMs - (System.currentTimeMillis() - started);
                     if (!r.windowLost || left < 20000) break;
                 }
+                Log.d(TAG, "TIMING whole run " + (System.currentTimeMillis() - started) + "ms, status " + status);
             } catch (Exception e) {
                 status = "error";
                 message = String.valueOf(e.getMessage());
