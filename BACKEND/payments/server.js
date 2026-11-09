@@ -510,7 +510,22 @@ app.post('/device/sync',
       res.status(500).json({ error: 'Sync failed.' })
     }
   })
-
+app.post('/device/ping',
+  rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => String(req.headers['x-connect-id'] || 'none') }),
+  deviceAuth,
+  async (req, res) => {
+    try {
+      const portalOn = !!(req.body && req.body.portalOn)
+      const { error } = await sbAdmin.from('devices')
+        .update({ portal_enabled: portalOn, last_seen: new Date().toISOString() }).eq('id', req.dev.id)
+      if (error) console.error('ping update failed', error.message)
+      res.json({ ok: true })
+    } catch (e) {
+      console.error('ping', e)
+      res.status(500).json({ error: 'Ping failed.' })
+    }
+  })
 // The phone reports how a command went (quickdial, buy_tokens, credit_tokens, offer and signature commands)
 app.post('/device/command-result', deviceAuth, async (req, res) => {
   try {
