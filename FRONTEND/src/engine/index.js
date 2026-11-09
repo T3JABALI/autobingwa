@@ -94,9 +94,13 @@ const simulatedBridge = {
 
 // Real Android phone bridge
 const realBridge = {
-  async runUssd({ ussd, phone, mode, offer }) {
+  async runUssd({ ussd, phone, mode: engineMode, offer }) {
     const cfg = loadConfig()
-    const slot = slotOf(cfg.bingwaSim)
+    // The offer's own mode wins. Nothing saved uses the mode from the app settings.
+    const mode = offer && (offer.type === 'Express' || offer.type === 'Advanced') ? offer.type : engineMode
+    // The offer's own SIM choice wins. "Default" (or nothing saved) uses the SIM from the app settings.
+    const simName = offer && (offer.execSim === 'SIM 1' || offer.execSim === 'SIM 2') ? offer.execSim : cfg.bingwaSim
+    const slot = slotOf(simName)
     const timeouts = {
       stepTimeoutMs: (Number(cfg.stepTimeoutSec) || 20) * 1000,
       keyDelayMs: Number(cfg.keyDelayMs) || 80,
@@ -283,7 +287,7 @@ function onTxEvent(event, tx) {
 
     if (event === 'failed') {
       // The customer is about to get a backup plan, so no failure message
-            if (tx.hasFallback) return
+      if (tx.hasFallback) return
       if (loadTransactions().some((t) => t.fallbackFromId === tx.id)) return
       const text = (tx.responses || []).map((r) => r.text).join(' ')
       if (/already\s+been\s+recommended/i.test(text)) return sendAutoReply(tx, 'recommended')

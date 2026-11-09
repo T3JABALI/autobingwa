@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { memo, useCallback, useRef, useState } from 'react'
 import { applyEdit, checkUssd, normalizeUssd } from './engine/offerRules.js'
 import { learnSignature, ussdServiceEnabled, isNative } from './engine/native.js'
 import { parseMenu } from './engine/signature.js'
@@ -6,6 +6,8 @@ import { loadConfig } from './engine/config.js'
 import { confirmDialog } from './features/ui/dialog.js'
 import VerifiedBadge from './features/home/VerifiedBadge.jsx'
 import FingerprintIcon from './features/home/FingerprintIcon.jsx'
+import Icon from './features/ui/Icons.jsx'
+
 const CATS = ['ALL', 'DATA', 'TUNUKIWA', 'MINUTES', 'SMS']
 const PICK = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA'] // the four categories an offer can be added under
 const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buying!'
@@ -21,6 +23,11 @@ const catOf = (o) => {
 }
 const isVerified = (o) => Boolean(o.smart || o.signature || (o.sigLearned && o.sigEnabled))
 const isLocked = (o) => Boolean(o.smart || o.signature)
+
+// true when another offer already uses this price
+const priceTaken = (offers, price, id) =>
+  offers.some((o) => o.id !== id && Number(o.price) === Number(price))
+
 const t12 = (v) => {
   if (!v) return ''
   const [h, m] = v.split(':').map(Number)
@@ -29,7 +36,7 @@ const t12 = (v) => {
 const defaultWindow = () => ({ on: false, from: '06:00', until: '22:00', altId: '', notify: false, msg: '' })
 const blank = () => ({
   id: Date.now(), isNew: true, name: '', category: 'DATA', ussd: '', price: '', safPrice: '',
-  payment: 'Till SIM', execSim: 'SIM 1', notifSim: 'SIM 2', type: 'Advanced',
+  payment: 'Till SIM', execSim: 'Default', notifSim: 'SIM 2', type: '',
   autoRetry: false, retryCount: 1, retryPending: false, retryFailed: true,
   autoReschedule: false, rescheduleTime: '06:00',
   notifyOn: false, notifyMsg: '',
@@ -107,6 +114,49 @@ function Sheet({ title, onClose, children, footer }) {
   )
 }
 
+const OfferCard = memo(function OfferCard({ o, menuOpen, onToggle, onMenu, onCloseMenu, onSheet, onCopy, onRemove }) {
+  const win = Boolean(o.tw && o.tw.on)
+  return (
+    <div className={`of-card ${o.enabled ? '' : 'off'}`}>
+      <div className="of-top">
+        <div className="of-title">
+          <b>{o.name}</b>
+          {isVerified(o) && <VerifiedBadge />}
+        </div>
+        <Switch on={o.enabled} onChange={() => onToggle(o)} label={`Turn ${o.name} ${o.enabled ? 'off' : 'on'}`} />
+      </div>
+
+      <div className="of-mid">
+        <span className="of-price">KES {o.price}</span>
+        <code className="of-ussd">{o.ussd}</code>
+      </div>
+
+      <div className="of-bottom">
+        <button className={`of-win ${win ? 'glow' : ''}`} aria-label="Time window" onClick={() => onSheet('window', o)}>
+          <span className="of-ico"><Icon name="timer" size={20} /></span>
+          {win && <small>{t12(o.tw.from)} to {t12(o.tw.until)}</small>}
+        </button>
+
+        <div className="of-menuwrap">
+          <button className="of-dots" aria-label={`More actions for ${o.name}`} onClick={() => onMenu(o.id)}>⋮</button>
+          {menuOpen && (
+            <>
+              <button className="of-scrim" aria-label="Close menu" onClick={onCloseMenu} />
+              <div className="of-pop up">
+                <button onClick={() => onSheet('settings', o)}><span><Icon name="gear" /></span> Settings</button>
+                <button onClick={() => onSheet('edit', o)}><span><Icon name="edit" /></span> Edit</button>
+                <button onClick={() => onCopy(o)}><span><Icon name="copy" /></span> Copy USSD</button>
+                <button onClick={() => onSheet('signature', o)}><span><FingerprintIcon size={18} /></span> Signature</button>
+                <button className="danger" onClick={() => onRemove(o)}><span><Icon name="trash" /></span> Delete</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+})
+
 export default function Offers({ offers = [], onSave = () => {}, onDelete = () => {} }) {
   const [cat, setCat] = useState('ALL')
   const [menu, setMenu] = useState(false)
@@ -118,27 +168,37 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
   const shown = cat === 'ALL' ? offers : offers.filter((o) => catOf(o) === cat)
   const enabledCount = offers.filter((o) => o.enabled).length
 
-  const flash = (m) => {
+  // Always the latest props, so the handlers below can stay the same between renders (keeps the cards from re-drawing)
+  const live = useRef({})
+  live.current = { onSave, onDelete }
+
+  const flash = useCallback((m) => {
     setNote(m)
     setTimeout(() => setNote(''), 3000)
-  }
+  }, [])
   const save = (o) => {
     onSave(o)
     setSheet(null)
     flash('Saved')
   }
-  const toggle = (o) => onSave({ ...o, enabled: !o.enabled })
-  const remove = async (o) => {
+  const toggle = useCallback((o) => live.current.onSave({ ...o, enabled: !o.enabled }), [])
+  const openMenu = useCallback((id) => setCardMenu((c) => (c === id ? null : id)), [])
+  const closeMenu = useCallback(() => setCardMenu(null), [])
+  const openSheet = useCallback((type, o) => {
     setCardMenu(null)
-    if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
-      onDelete(o.id)
-      flash('Offer deleted')
-    }
-  }
-  const copyUssd = async (o) => {
+    setSheet({ type, offer: o })
+  }, [])
+  const copyUssd = useCallback(async (o) => {
     setCardMenu(null)
     flash((await copyText(o.ussd)) ? 'USSD copied' : 'Could not copy the USSD')
-  }
+  }, [flash])
+  const remove = useCallback(async (o) => {
+    setCardMenu(null)
+    if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
+      live.current.onDelete(o.id)
+      flash('Offer deleted')
+    }
+  }, [flash])
 
   function exportOffers() {
     const blob = new Blob([JSON.stringify(offers, null, 2)], { type: 'application/json' })
@@ -160,7 +220,14 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
       try {
         const data = JSON.parse(String(reader.result))
         const list = (Array.isArray(data) ? data : data.offers) || []
-        const ok = list.filter((o) => o && o.name && !checkUssd(o.ussd))
+        // skip bad offers and any offer whose price is already used
+        const seen = [...offers]
+        const ok = []
+        for (const o of list) {
+          if (!o || !o.name || checkUssd(o.ussd) || priceTaken(seen, o.price, o.id)) continue
+          ok.push(o)
+          seen.push(o)
+        }
         ok.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
         flash(`Imported ${ok.length} of ${list.length} offers`)
       } catch (err) {
@@ -218,66 +285,26 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
       )}
 
       {shown.map((o) => (
-        <div key={o.id} className={`of-card ${o.enabled ? '' : 'off'}`}>
-          <div className="of-top">
-            <div className="of-title">
-              <b>{o.name}</b>
-              {isVerified(o) && <VerifiedBadge />}
-            </div>
-            <Switch on={o.enabled} onChange={() => toggle(o)} label={`Turn ${o.name} ${o.enabled ? 'off' : 'on'}`} />
-          </div>
-
-          <div className="of-mid">
-            <span className="of-price">KES {o.price}</span>
-            <code className="of-ussd">{o.ussd}</code>
-          </div>
-
-          <div className="of-bottom">
-            <button
-              className="of-win"
-              aria-label="Time window"
-              onClick={() => setSheet({ type: 'window', offer: o })}
-            >
-              <span>🕒</span>
-              {o.tw && o.tw.on ? <small>{t12(o.tw.from)} to {t12(o.tw.until)}</small> : null}
-            </button>
-
-            <div className="of-menuwrap">
-              <button
-                className="of-dots"
-                aria-label={`More actions for ${o.name}`}
-                onClick={() => setCardMenu(cardMenu === o.id ? null : o.id)}
-              >
-                ⋮
-              </button>
-              {cardMenu === o.id && (
-                <>
-                  <button className="of-scrim" aria-label="Close menu" onClick={() => setCardMenu(null)} />
-                  <div className="of-pop up">
-                    <button onClick={() => { setCardMenu(null); setSheet({ type: 'edit', offer: o }) }}>
-                      <span>✎</span> Edit
-                    </button>
-                    <button onClick={() => copyUssd(o)}>
-                      <span>⧉</span> Copy USSD
-                    </button>
-                    <button onClick={() => { setCardMenu(null); setSheet({ type: 'signature', offer: o }) }}>
-                      <span><FingerprintIcon size={18} /></span> Signature
-                    </button>
-                    <button className="danger" onClick={() => remove(o)}>
-                      <span>🗑</span> Delete
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+        <OfferCard
+          key={o.id}
+          o={o}
+          menuOpen={cardMenu === o.id}
+          onToggle={toggle}
+          onMenu={openMenu}
+          onCloseMenu={closeMenu}
+          onSheet={openSheet}
+          onCopy={copyUssd}
+          onRemove={remove}
+        />
       ))}
 
       <button className="fab" aria-label="Add offer" onClick={() => setSheet({ type: 'edit', offer: blank() })}>+</button>
 
       {sheet && sheet.type === 'edit' && (
-        <EditSheet start={sheet.offer} onClose={() => setSheet(null)} onSave={save} />
+        <EditSheet start={sheet.offer} offers={offers} onClose={() => setSheet(null)} onSave={save} />
+      )}
+      {sheet && sheet.type === 'settings' && (
+        <SettingsSheet start={sheet.offer} onClose={() => setSheet(null)} onSave={save} />
       )}
       {sheet && sheet.type === 'window' && (
         <WindowSheet start={sheet.offer} offers={offers} onClose={() => setSheet(null)} onSave={save} />
@@ -289,7 +316,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
   )
 }
 
-function EditSheet({ start, onClose, onSave }) {
+function EditSheet({ start, offers, onClose, onSave }) {
   const [f, setF] = useState(() => ({
     ...start,
     category: catOf(start),
@@ -310,6 +337,10 @@ function EditSheet({ start, onClose, onSave }) {
     const bad = checkUssd(patch.ussd)
     if (bad) return setErr(bad)
     if (!patch.price || patch.price <= 0) return setErr('Enter the amount')
+    if (priceTaken(offers, patch.price, start.id)) {
+      const other = offers.find((o) => o.id !== start.id && Number(o.price) === Number(patch.price))
+      return setErr(`KES ${patch.price} is already used by ${other.name}. Each offer needs its own price.`)
+    }
     if (patch.notifyOn && !patch.notifyMsg) return setErr('Write the SMS message for the customer')
     const stamp = new Date().toLocaleString()
 
@@ -366,29 +397,6 @@ function EditSheet({ start, onClose, onSave }) {
       </div>
 
       <div className="switch-row">
-        <div><b>Auto retry</b><small>Try again if the purchase fails or is pending</small></div>
-        <Switch on={Boolean(f.autoRetry)} onChange={(v) => set('autoRetry', v)} label="Auto retry" />
-      </div>
-      {f.autoRetry && (
-        <>
-          <div className="two">
-            <label className="field"><span>Retry count</span>
-              <input type="number" min="1" max="10" value={f.retryCount} onChange={(e) => set('retryCount', e.target.value)} />
-            </label>
-            <div className="checks">
-              <label><input type="checkbox" checked={Boolean(f.retryPending)} onChange={(e) => set('retryPending', e.target.checked)} /> Retry pending</label>
-              <label><input type="checkbox" checked={f.retryFailed !== false} onChange={(e) => set('retryFailed', e.target.checked)} /> Retry failed</label>
-            </div>
-          </div>
-          {f.retryPending && (
-            <p className="of-hint">
-              Pending means the last step was sent but nothing confirmed it. Retrying it can buy the offer twice if the first try had already sold.
-            </p>
-          )}
-        </>
-      )}
-
-      <div className="switch-row">
         <div><b>Auto reschedule to the next day</b><small>If a purchase fails, save it for tomorrow and try again then</small></div>
         <Switch on={Boolean(f.autoReschedule)} onChange={(v) => set('autoReschedule', v)} label="Auto reschedule next day" />
       </div>
@@ -410,6 +418,83 @@ function EditSheet({ start, onClose, onSave }) {
       )}
 
       {err && <p className="err">{err}</p>}
+    </Sheet>
+  )
+}
+
+function SettingsSheet({ start, onClose, onSave }) {
+  const [s, setS] = useState(() => ({
+    type: start.type === 'Express' ? 'Express' : 'Advanced',
+    execSim: ['Default', 'SIM 1', 'SIM 2'].includes(start.execSim) ? start.execSim : 'Default',
+    retryConn: Boolean(start.retryConn ?? start.autoRetry),
+    retryFailed: Boolean(start.autoRetry) && start.retryFailed !== false,
+    retryCount: Math.min(10, Math.max(1, Number(start.retryCount) || 1)),
+  }))
+  const set = (k, v) => setS((p) => ({ ...p, [k]: v }))
+  const anyRetry = s.retryConn || s.retryFailed
+
+  // Saved directly (not through applyEdit), so changing settings never switches a signature off
+  function save() {
+    onSave({
+      ...start,
+      type: s.type,
+      execSim: s.execSim,
+      retryConn: s.retryConn,
+      retryFailed: s.retryFailed,
+      retryCount: s.retryCount,
+      autoRetry: anyRetry,
+      updated: new Date().toLocaleString(),
+    })
+  }
+
+  return (
+    <Sheet
+      title="Offer settings"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={save}>Save</button>
+        </>
+      }
+    >
+      <p className="of-hint"><b>{start.name}</b> · KES {start.price}</p>
+
+      <div className="switch-row">
+        <div><b>Advanced mode</b><small>Types each menu step, one by one</small></div>
+        <Switch on={s.type === 'Advanced'} onChange={(v) => set('type', v ? 'Advanced' : 'Express')} label="Advanced mode" />
+      </div>
+      <div className="switch-row">
+        <div><b>Express mode</b><small>Sends the whole code in one dial</small></div>
+        <Switch on={s.type === 'Express'} onChange={(v) => set('type', v ? 'Express' : 'Advanced')} label="Express mode" />
+      </div>
+
+      <label className="field">
+        <span><Icon name="sim" size={14} /> SIM card</span>
+        <select value={s.execSim} onChange={(e) => set('execSim', e.target.value)}>
+          <option value="Default">Default</option>
+          <option value="SIM 1">SIM 1</option>
+          <option value="SIM 2">SIM 2</option>
+        </select>
+      </label>
+
+      <div className="switch-row">
+        <div><b>Connection / invalid MMI retry</b><small>Try again after a connection problem or an invalid MMI code</small></div>
+        <Switch on={s.retryConn} onChange={(v) => set('retryConn', v)} label="Connection problem retry" />
+      </div>
+      <div className="switch-row">
+        <div><b>Retry on failed</b><small>Try again when the purchase fails</small></div>
+        <Switch on={s.retryFailed} onChange={(v) => set('retryFailed', v)} label="Retry on failed" />
+      </div>
+      {anyRetry && (
+        <div className="two">
+          <label className="field"><span>Number of retries</span>
+            <select value={s.retryCount} onChange={(e) => set('retryCount', Number(e.target.value))}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
     </Sheet>
   )
 }

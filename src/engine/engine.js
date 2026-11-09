@@ -90,6 +90,11 @@ const FB_LABEL = { recommended: 'Already recommended', failed: 'Purchase failed'
 // Final USSD screens that prove the purchase (Talkmore and similar offers send no SMS)
 const SUCCESS_SCREEN = /successfully\s+(purchased|bought|subscribed|activated|recommended)/i
 const FAIL_SCREEN = /not\s+successful|unsuccessful|not\s+been\s+successful|failed/i
+// A connection problem or invalid MMI code: the dial itself failed, nothing was bought
+const CONN_SCREEN = /connection\s+problem|invalid\s+mmi|mmi\s+code|network\s+(error|unavailable)/i
+// Per-offer settings win; Default / blank falls back to the app-wide setting
+const modeOf = (offer, fallback) => (offer && (offer.type === 'Express' || offer.type === 'Advanced') ? offer.type : fallback)
+const slotOf = (offer) => (offer && offer.execSim === 'SIM 1' ? 0 : offer && offer.execSim === 'SIM 2' ? 1 : null)
 
 function readRenewals() {
   try {
@@ -378,6 +383,9 @@ export function createEngine({
     const maxRetries = offer.autoRetry ? Math.max(0, Number(offer.retryCount) || 0) : 0
     const retryFailed = offer.retryFailed !== false
     const retryPending = Boolean(offer.retryPending)
+    const retryConn = Boolean(offer.retryConn ?? offer.autoRetry)
+    const mode = modeOf(offer, getMode())
+    const slot = slotOf(offer)
     const retryMs = (Number(cfg.retryAfterSec) || 15) * 1000
     const confirmMs = (Number(cfg.confirmWaitSec) || 45) * 1000
 
@@ -391,7 +399,7 @@ export function createEngine({
       attempt += 1
       const w = arm(tx)
       try {
-        result = await bridge.runUssd({ ussd: tx.ussd, phone: tx.phone, mode: getMode(), offer })
+        result = await bridge.runUssd({ ussd: tx.ussd, phone: tx.phone, mode, offer, slot })
       } catch (err) {
         result = { ok: false, status: 'error', responses: [{ input: '-', text: String(err && err.message ? err.message : err) }] }
       }
@@ -429,15 +437,21 @@ export function createEngine({
         kind = 'failed'
       }
 
+      // A connection problem / invalid MMI code is its own retry switch
+      const connProblem = kind === 'failed' &&
+        CONN_SCREEN.test(`${rs.map((r) => r.text).join(' ')} ${result.message || ''}`)
+
       store.update(tx.id, { attempts: attempt, responses: rs })
-      const again = (kind === 'failed' && retryFailed) || (kind === 'pending' && retryPending)
+      const again =
+        (kind === 'failed' && (connProblem ? retryConn : retryFailed)) ||
+        (kind === 'pending' && retryPending)
       if (kind === 'ok' || !again || attempt > maxRetries) break
       if (kind === 'pending') {
         store.update(tx.id, {
           responses: [...rs, { input: '-', text: 'Retry pending is on, so the app is trying again. The first attempt may already have sold.' }],
         })
       }
-      const gap = Number(getConfig().gapMs ?? (getMode() === 'Express' ? 100 : 300))
+      const gap = Number(getConfig().gapMs ?? (mode === 'Express' ? 100 : 300))
       await new Promise((r) => setTimeout(r, gap))
     }
 

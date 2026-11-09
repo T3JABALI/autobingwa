@@ -600,8 +600,17 @@ final class EngineCore {
             }
         }
 
-        String mode = cfg.optString("mode", "Advanced");
-        int slot = "SIM 1".equals(cfg.optString("bingwaSim", "SIM 2")) ? 0 : 1;
+// The offer's own mode wins. Nothing saved uses the mode from the app settings.
+String offerType = offer.optString("type", "");
+String mode = ("Express".equals(offerType) || "Advanced".equals(offerType))
+    ? offerType
+    : cfg.optString("mode", "Advanced");
+// The offer's own SIM wins. "Default" (or nothing saved) uses the SIM from the app settings.
+String simPref = offer.optString("execSim", "Default");
+String simName = ("SIM 1".equals(simPref) || "SIM 2".equals(simPref))
+    ? simPref
+    : cfg.optString("bingwaSim", "SIM 2");
+int slot = "SIM 1".equals(simName) ? 0 : 1;
         long stepMs = positive(cfg.optLong("stepTimeoutSec", 20), 20) * 1000;
         long keyMs = positive(cfg.optLong("keyDelayMs", 80), 80);
         long totalMs = positive(cfg.optLong("totalTimeoutSec", 90), 90) * 1000;

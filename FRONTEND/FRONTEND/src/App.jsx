@@ -3,7 +3,7 @@ import { tokensActive } from './engine/tokens.js'
 import SmartPlans from './features/smartplans/SmartPlans.jsx'
 import Signature from './Signature.jsx'
 import Offers from './Offers.jsx'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import QuickDialPage from './features/quickdial/QuickDialPage.jsx'
 import AutoRenewalPage from './features/autorenewal/AutoRenewalPage.jsx'
@@ -1326,9 +1326,23 @@ function App() {
   const [myOffers, setMyOffers] = useState(() => {
     try { return JSON.parse(localStorage.getItem('myOffers')) || [] } catch { return [] }
   })
-  useEffect(() => { localStorage.setItem('myOffers', JSON.stringify(myOffers)) }, [myOffers])
-  const saveOffer = o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o])
-  const deleteOffer = id => setMyOffers(p => p.filter(x => x.id !== id))
+  // Save to storage shortly after the last change, so a burst of taps writes once
+  useEffect(() => {
+    const write = () => {
+      try { localStorage.setItem('myOffers', JSON.stringify(myOffers)) } catch (e) { /* storage full */ }
+    }
+    const t = setTimeout(write, 300)
+    window.addEventListener('pagehide', write)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('pagehide', write)
+    }
+  }, [myOffers])
+  const saveOffer = useCallback(
+    o => setMyOffers(p => p.some(x => x.id === o.id) ? p.map(x => x.id === o.id ? o : x) : [...p, o]),
+    []
+  )
+  const deleteOffer = useCallback(id => setMyOffers(p => p.filter(x => x.id !== id)), [])
   useEffect(() => {
     const onOffer = (e) => {
       const d = e.detail || {}
@@ -1345,7 +1359,7 @@ function App() {
   const [automationRunning, setAutomationRunning] = useState(false)
   const [filter, setFilter] = useState('All')
   const [showBalances, setShowBalances] = useState(true)
-  const offers = myOffers.map(toOldShape)
+  const offers = useMemo(() => myOffers.map(toOldShape), [myOffers])
   const [profile, setProfile] = useState(loadProfile)
   const [mode, setMode] = useState(loadMode)
   const [clock, setClock] = useState(new Date())
