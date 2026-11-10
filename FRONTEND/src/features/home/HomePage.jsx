@@ -42,7 +42,15 @@ const HOME_EXTRA = `
   .hm-note { position: static !important; margin: 0 0 6px !important; z-index: auto !important; }
   .hm-s-all .hm-head { position: static !important; display: flex; align-items: center; gap: 12px; margin: 4px 0 10px; }
   .hm-s-all .hm-search { position: static !important; display: block; width: 100%; box-sizing: border-box; margin: 0 0 10px; }
-  .hm-s-all .hm-chips { margin-bottom: 10px; }
+  .hm-s-all .hm-chips {
+    display: flex !important; flex-wrap: nowrap !important; overflow-x: auto !important;
+    gap: 8px; margin: 0 -4px 14px !important; padding: 0 4px 6px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .hm-s-all .hm-chips::-webkit-scrollbar { display: none; }
+  .hm-s-all .hm-chip { flex: 0 0 auto !important; white-space: nowrap; }
+  .hm-s-all .hm-head h2 { margin: 0; }
+  .hm-s-all .hm-list { display: flex; flex-direction: column; gap: 10px; }
   .hm-s-home .hm-bigbtn.holding { filter: brightness(1.3); }
   .hm-fb { margin-left: 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: var(--primary); white-space: nowrap; }
   .hm-fbnote { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; border: 1px solid var(--border); }
@@ -131,6 +139,7 @@ export default function HomePage({
   automationRunning = false,
   onToggleAutomation,
   onOpenAnalytics,
+  onScreenChange,
 }) {
   const [txs, setTxs] = useState(loadTransactions)
   const [airtime, setAirtime] = useState(readAirtime)
@@ -262,6 +271,17 @@ export default function HomePage({
 
   const tx = view.id ? txs.find((t) => t.id === view.id) : null
   const screen = tx ? view.name : view.name === 'all' ? 'all' : 'home'
+
+  // Tell the app which screen is open (so the top bar hides), and start each screen at the top
+  useEffect(() => {
+    if (onScreenChange) onScreenChange(screen)
+    try {
+      window.scrollTo(0, 0)
+      const m = document.querySelector('.main')
+      if (m) m.scrollTo(0, 0)
+    } catch (e) { /* nothing to scroll */ }
+  }, [screen])
+  useEffect(() => () => { if (onScreenChange) onScreenChange('home') }, [])
 
   // ---- Actions ----
   // The refresh icon asks which SIM to check

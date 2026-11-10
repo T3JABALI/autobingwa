@@ -1367,6 +1367,7 @@ function App() {
   const [clock, setClock] = useState(new Date())
   const [modeOpen, setModeOpen] = useState(false)
   const [onboarded, setOnboarded] = useState(isOnboarded)
+  const [homeScreen, setHomeScreen] = useState('home') // which screen the Home page is showing
 
   // The one big Start / Stop button
   async function toggleAutomation() {
@@ -1562,7 +1563,7 @@ if (!onboarded) return (
             ☰
           </button>
 
-          {activePage === 'Home' && (<>
+          {activePage === 'Home' && homeScreen === 'home' && (<>
           <div className="greeting">
             <span>{greetingFor(clock)},</span>
             <strong>{firstNameOf(profile.fullName) || 'User'}</strong>
@@ -1589,6 +1590,7 @@ if (!onboarded) return (
               offers={offers}
               onOpenTokens={() => setActivePage('Tokens')}
               onOpenAnalytics={() => setActivePage('Analytics')}
+              onScreenChange={setHomeScreen}
             />
           </>
         ) : activePage === 'OldHome' ? (
