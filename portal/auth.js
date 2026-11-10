@@ -64,8 +64,9 @@
     appLoaded = true
     const o = document.getElementById('auth')
     if (o) o.remove()
+    if (nav) nav.style.display = ''
     const s = document.createElement('script')
-    s.src = '/app.js'
+    s.src = '/app.js?v=3'
     document.body.appendChild(s)
   }
 

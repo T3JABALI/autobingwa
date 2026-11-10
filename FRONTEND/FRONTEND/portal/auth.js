@@ -1,154 +1,130 @@
-(() => {
-const SUPABASE_URL = 'https://smoukalewmuorpowfiqr.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtb3VrYWxld211b3Jwb3dmaXFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MDEzOTQsImV4cCI6MjEwOTE3NzM5NH0.CRCQSjcAXQof50F0tdy3cFM6chyd-gk58pn4bPpkSfk';
-const SERVER_URL = 'https://autobingwa-payments.onrender.com';
-const PHONE_DOMAIN = 'portal.autobingwaportal.co.ke';
-const MIN_PW = 8;
+(function () {
+  const SUPABASE_URL = 'https://smoukalewmuorpowfiqr.supabase.co'
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtb3VrYWxld211b3Jwb3dmaXFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MDEzOTQsImV4cCI6MjEwOTE3NzM5NH0.CRCQSjcAXQof50F0tdy3cFM6chyd-gk58pn4bPpkSfk'
+  const API_URL = 'https://autobingwa-payments.onrender.com'
+  const EMAIL_DOMAIN = 'portal.autobingwaportal.co.ke'
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const $app = document.getElementById('app');
-const $nav = document.getElementById('nav');
-let appLoaded = false;
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  const norm = (v) => {
+    let p = String(v || '').replace(/[\s\-+]/g, '')
+    if (/^0(7|1)\d{8}$/.test(p)) p = '254' + p.slice(1)
+    else if (/^(7|1)\d{8}$/.test(p)) p = '254' + p
+    return /^254(7|1)\d{8}$/.test(p) ? p : ''
+  }
+  const emailOf = (phone) => phone + '@' + EMAIL_DOMAIN
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-window.PORTAL_TOKEN = null;
-window.getAuthToken = async () => {
-  const { data } = await sb.auth.getSession();
-  return data.session ? data.session.access_token : null;
-};
-window.portalSignOut = async () => { await sb.auth.signOut(); };
-window.portalChangePin = async (current, next) => {
-  const { data } = await sb.auth.getUser();
-  if (!data.user) throw new Error('Please log in again');
-  const chk = await sb.auth.signInWithPassword({ email: data.user.email, password: current });
-  if (chk.error) throw new Error('Your current password is wrong');
-  const { error } = await sb.auth.updateUser({ password: next });
-  if (error) throw new Error(error.message);
-};
+  /* ---- Functions that app.js uses ---- */
+  window.getAuthToken = async () => {
+    const { data } = await sb.auth.getSession()
+    return data.session ? data.session.access_token : ''
+  }
+  window.portalSignOut = async () => {
+    try { await sb.auth.signOut() } catch (e) {}
+    location.reload()
+  }
+  window.portalChangePin = async (current, next) => {
+    const { data } = await sb.auth.getSession()
+    const email = data.session && data.session.user.email
+    if (!email) throw new Error('Please log in again.')
+    const chk = await sb.auth.signInWithPassword({ email, password: current })
+    if (chk.error) throw new Error('Your current password is wrong.')
+    const up = await sb.auth.updateUser({ password: next })
+    if (up.error) throw new Error('Could not update the password.')
+  }
 
-sb.auth.onAuthStateChange((ev, s) => {
-  window.PORTAL_TOKEN = s ? s.access_token : null;
-  if (ev === 'SIGNED_OUT') location.reload();
-});
+  /* ---- Look ---- */
+  const css = document.createElement('style')
+  css.textContent = `
+  #auth{position:fixed;inset:0;z-index:100;overflow:auto;background:radial-gradient(120% 60% at 50% 0,#162466,#0a0f26 60%,#070b1c);color:#fff;font-family:system-ui,sans-serif;padding:14px 14px;font-size:13px}
+  #auth .box{max-width:400px;margin:0 auto}
+  #auth .logo{display:flex;align-items:center;gap:10px;margin:6px 0 14px}
+  #auth .mark{width:44px;height:44px;border-radius:12px;object-fit:contain;background:#fff}
+  #auth .t1{letter-spacing:3px;font-weight:700;font-size:16px}
+  #auth .t2{letter-spacing:5px;font-size:10px;color:#7f93ff;margin-top:3px}
+  #auth .card{background:#131a3a;border:1px solid #27306a;border-radius:18px;padding:16px 16px}
+  #auth h2{margin:0 0 4px;font-size:20px}
+  #auth p{color:#8e9ad6;font-size:12px;margin:0 0 8px;line-height:1.4}
+  #auth label{display:block;font-size:12px;color:#8e9ad6;margin-top:8px}
+  #auth input{width:100%;box-sizing:border-box;margin-top:4px;padding:10px 12px;border-radius:10px;border:1px solid #27306a;background:#0c1230;color:#fff;font-size:14px}
+  #auth .pw{position:relative}
+  #auth .pw button{position:absolute;right:4px;top:5px;background:none;border:0;color:#8e9ad6;padding:6px;font-size:12px;cursor:pointer}
+  #auth .go{width:100%;margin-top:12px;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:600;color:#fff;background:linear-gradient(90deg,#4361e0,#5f7df5);cursor:pointer}
+  #auth .go:disabled{opacity:.6}
+  #auth .alt{background:none;border:0;color:#8e9ad6;width:100%;margin-top:10px;font-size:12.5px;cursor:pointer}
+  #auth .alt b{color:#7f93ff}
+  #auth .ok{background:#0f2a22;border:1px solid #1f6b4f;color:#8ff0c4;padding:8px 10px;border-radius:10px;font-size:12px;margin-bottom:8px}
+  #auth .er{color:#ff8a8a;font-size:12px;min-height:16px;margin-top:6px}`
+  document.head.appendChild(css)
 
-const normPhone = v => {
-  const p = String(v || '').replace(/[\s+-]/g, '').replace(/^254/, '0');
-  return /^0[17]\d{8}$/.test(p) ? '254' + p.slice(1) : '';
-};
-const toEmail = p => p + '@' + PHONE_DOMAIN;
-const err = m => { document.getElementById('aerr').textContent = m || ''; };
-const busy = (f, b) => f.querySelectorAll('button,input').forEach(x => (x.disabled = b));
+  const nav = document.getElementById('nav')
+  let appLoaded = false
+  function startApp() {
+    if (appLoaded) return
+    appLoaded = true
+    const o = document.getElementById('auth')
+    if (o) o.remove()
+    if (nav) nav.style.display = ''
+    const s = document.createElement('script')
+    s.src = '/app.js?v=3'
+    document.body.appendChild(s)
+  }
 
-const svg = (d, s = 20) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const ICON_PHONE = svg('<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>');
-const ICON_LOCK = svg('<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>');
-const ICON_EYE = svg('<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', 22);
-const BARS = svg('<path d="M5 19v.01M9 19v-3M13 19v-6M17 19V8"/>', 28).replace('stroke-width="2"', 'stroke-width="2.8"');
+  function showAuth(mode, opts = {}) {
+    if (nav) nav.style.display = 'none'
+    let o = document.getElementById('auth')
+    if (!o) { o = document.createElement('div'); o.id = 'auth'; document.body.appendChild(o) }
+    const login = mode === 'login'
+    o.innerHTML = `<div class="box">
+      <div class="logo"><img class="mark" src="/logo.png" alt="" onerror="this.style.display='none'"><div><div class="t1">AUTOBINGWA</div><div class="t2">PORTAL</div></div></div>
+      <div class="card">
+        <h2>${login ? 'Sign in' : 'Create account'}</h2>
+        <p>${login ? 'Log in with your phone number and password.' : 'Use your phone number and choose a password of at least 8 characters.'}</p>
+        ${opts.notice ? `<div class="ok">${esc(opts.notice)}</div>` : ''}
+        <label>Phone number<input id="au-ph" type="tel" inputmode="tel" autocomplete="username" placeholder="0712345678" value="${esc(opts.phone || '')}"></label>
+        <label>Password<div class="pw"><input id="au-pw" type="password" autocomplete="${login ? 'current-password' : 'new-password'}"><button type="button" id="au-eye">Show</button></div></label>
+        ${login ? '' : '<label>Confirm password<input id="au-pw2" type="password" autocomplete="new-password"></label>'}
+        <div class="er" id="au-er" role="alert"></div>
+        <button class="go" id="au-go">${login ? 'Sign in' : 'Create account'}</button>
+        <button class="alt" id="au-alt">${login ? 'New here? <b>Create an account</b>' : 'Already have an account? <b>Sign in</b>'}</button>
+      </div></div>`
+    const $ = (id) => document.getElementById(id)
+    $('au-eye').onclick = () => {
+      const h = $('au-pw').type === 'password'
+      $('au-pw').type = h ? 'text' : 'password'
+      $('au-eye').textContent = h ? 'Hide' : 'Show'
+    }
+    $('au-alt').onclick = () => showAuth(login ? 'signup' : 'login')
+    $('au-go').onclick = async () => {
+      const er = $('au-er'), btn = $('au-go')
+      const phone = norm($('au-ph').value), pw = $('au-pw').value
+      er.textContent = ''
+      if (!phone) return (er.textContent = 'Enter a valid phone number, for example 0712345678.')
+      if (!pw) return (er.textContent = 'Enter your password.')
+      btn.disabled = true
+      try {
+        if (login) {
+          const { error } = await sb.auth.signInWithPassword({ email: emailOf(phone), password: pw })
+          if (error) throw new Error('Wrong phone number or password.')
+          startApp()
+        } else {
+          if (pw.length < 8) throw new Error('Password must be at least 8 characters.')
+          if (pw !== $('au-pw2').value) throw new Error('The passwords do not match.')
+          const r = await fetch(API_URL + '/portal/signup', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, password: pw }),
+          })
+          const j = await r.json().catch(() => ({}))
+          if (!r.ok) throw new Error(j.error || 'Could not create the account.')
+          showAuth('login', { phone: $('au-ph').value, notice: 'You have successfully created your portal account. Please log in to continue.' })
+          return
+        }
+      } catch (e) {
+        er.textContent = e.message || 'Something went wrong.'
+        btn.disabled = false
+      }
+    }
+  }
 
-function phoneField() {
-  return `<label class="alabel" for="ph">Phone number</label>
-    <div class="awrap"><span class="aico">${ICON_PHONE}</span>
-    <input class="ainput" id="ph" name="ph" type="tel" inputmode="tel" placeholder="07xx or 011x" autocomplete="username"></div>`;
-}
-function pwField(id, label, ac) {
-  return `<label class="alabel" for="${id}">${label}</label>
-    <div class="awrap"><span class="aico">${ICON_LOCK}</span>
-    <input class="ainput haseye" id="${id}" name="${id}" type="password" placeholder="••••••••" autocomplete="${ac}">
-    <button type="button" class="aeye" data-eye="${id}" aria-label="Show or hide password">${ICON_EYE}</button></div>`;
-}
-
-function screen(title, sub, body, foot) {
-  document.body.classList.add('authpage');
-  $nav.style.display = 'none';
-  $app.innerHTML = `<section class="auth">
-    <div class="abrand"><span class="alogo">${BARS}</span><span class="atext"><b>AUTOBINGWA</b><i>PORTAL</i></span></div>
-    <div class="acard">
-      <h1>${title}</h1><p class="asub">${sub}</p>
-      <form id="af" novalidate>${body}<p id="aerr" class="aerr" role="alert"></p></form>
-      ${foot ? `<p class="afoot">${foot}</p>` : ''}
-    </div></section>`;
-  $app.querySelectorAll('[data-eye]').forEach(b => {
-    b.onclick = () => {
-      const i = document.getElementById(b.dataset.eye);
-      i.type = i.type === 'password' ? 'text' : 'password';
-    };
-  });
-  return document.getElementById('af');
-}
-const link = (id, fn) => document.getElementById(id).addEventListener('click', e => { e.preventDefault(); fn(); });
-
-function showBlocked(msg) {
-  const f = screen('No portal access', msg, `<button class="abtn">Log out</button>`);
-  f.onsubmit = async e => { e.preventDefault(); await sb.auth.signOut(); };
-}
-
-async function enter() {
-  const { data, error } = await sb.from('portal_accounts').select('user_id').maybeSingle();
-  if (error) return showBlocked('We could not check your portal access. Please log out and try again.');
-  if (!data) return showBlocked('This account has no portal access. Log out and create a portal account with your phone number.');
-  document.body.classList.remove('authpage');
-  $nav.style.display = '';
-  if (appLoaded) return;
-  appLoaded = true;
-  $app.innerHTML = '';
-  const s = document.createElement('script');
- s.src = '/app.js?v=2'
-  document.body.appendChild(s);
-}
-
-function showLogin() {
-  const f = screen('Welcome back', 'Log in to manage your devices from anywhere.',
-    phoneField() + pwField('pw', 'Password', 'current-password') +
-    `<p class="aforgot"><a href="#" id="l2">Forgot password?</a></p>
-     <button class="abtn">Log in</button>`,
-    'New to AutoBingwa Portal? <a href="#" id="l1">Create an account</a>');
-  link('l1', showSignup);
-  link('l2', () => err('Password reset is not available yet. Please contact AutoBingwa support.'));
-  f.onsubmit = async e => {
-    e.preventDefault(); err();
-    const phone = normPhone(f.ph.value), password = f.pw.value;
-    if (!phone) return err('Enter a valid phone number, for example 0712345678.');
-    if (!password) return err('Enter your password.');
-    busy(f, true);
-    const { error } = await sb.auth.signInWithPassword({ email: toEmail(phone), password });
-    busy(f, false);
-    if (error) return err('Wrong phone number or password.');
-    enter();
-  };
-}
-
-function showSignup() {
-  const f = screen('Create your account', 'Pair your phones and run them from one place.',
-    phoneField() +
-    pwField('pw', 'Password (at least ' + MIN_PW + ' characters)', 'new-password') +
-    pwField('pw2', 'Confirm password', 'new-password') +
-    `<button class="abtn">Create account</button>`,
-    'Already have an account? <a href="#" id="l1">Log in</a>');
-  link('l1', showLogin);
-  f.onsubmit = async e => {
-    e.preventDefault(); err();
-    const phone = normPhone(f.ph.value), password = f.pw.value;
-    if (!phone) return err('Enter a valid phone number, for example 0712345678.');
-    if (password.length < MIN_PW) return err('Password must be at least ' + MIN_PW + ' characters.');
-    if (password !== f.pw2.value) return err('The passwords do not match.');
-    busy(f, true);
-    let r;
-    try {
-      r = await fetch(SERVER_URL + '/portal/signup', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, password })
-      });
-    } catch (x) { busy(f, false); return err('Could not reach the server. Please try again.'); }
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { busy(f, false); return err(j.error || 'Could not create the account.'); }
-    const { error } = await sb.auth.signInWithPassword({ email: toEmail(phone), password });
-    busy(f, false);
-    if (error) return showLogin();
-    enter();
-  };
-}
-
-(async () => {
-  const { data } = await sb.auth.getSession();
-  data.session ? enter() : showLogin();
-})();
-})();
+  sb.auth.getSession().then(({ data }) => (data.session ? startApp() : showAuth('login')))
+})()
