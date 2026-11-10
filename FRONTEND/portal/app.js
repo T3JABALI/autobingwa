@@ -39,7 +39,7 @@ plans:[
 {id:'p4',name:'900 MB Midnight',cat:'DATA',price:57,safPrice:55,ussd:'*544*6*8*AB*00*1*0*6*1#',signed:true,on:false}]};
 const PACKS=[['1,000 units',90,'u1000'],['600 units',50,'u600'],['250 units',25,'u250'],['100 units',15,'u100'],['1 day unlimited',30,'d1'],['7 days unlimited',200,'d7'],['30 days unlimited',550,'d30']];
 const SUBS=[{n:'2 devices',p:100,f:['Link 1 or 2 devices','2 days of portal history','30 days of access']},{n:'5 devices',p:200,pop:1,f:['Link up to 5 devices','5 days of portal history','30 days of access']},{n:'Unlimited',p:400,f:['Link unlimited devices','1 week of portal history','30 days of access']}];
-   const PICK=['DATA','MINUTES','SMS','TUNUKIWA','BINGWA'],PCATS=['ALL','DATA','BINGWA','TUNUKIWA','MINUTES','SMS'];
+const PICK=['DATA','MINUTES','SMS','TUNUKIWA','BINGWA'],PCATS=['ALL','DATA','BINGWA','TUNUKIWA','MINUTES','SMS'];
 const DEF_MSG='Hi {name}, your {offer} has been sent. Thank you for buying!';
 const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ls={get(k,d){try{return localStorage.getItem(k)||d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
@@ -52,6 +52,7 @@ if(!r.ok)throw new Error(j.error||'The server answered '+r.status);return j}
 const P={home:'M3 11l9-8 9 8M5 10v10h14V10',phone:'M7 2h10v20H7zM11 18h2',list:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',db:'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',more:'M5 12h.01M12 12h.01M19 12h.01',chev:'M9 6l6 6-6 6',back:'M19 12H5M12 19l-7-7 7-7',plus:'M12 5v14M5 12h14',refresh:'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',eyeoff:'M3 3l18 18M10.6 6.1A9.6 9.6 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.8M6.5 7.5A17 17 0 0 0 2 12s4 6 10 6c1.4 0 2.7-.3 3.8-.8',bolt:'M13 2L4 14h7l-1 8 9-12h-7z',edit:'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',trash:'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',out:'M9 21H5V3h4M16 17l5-5-5-5M21 12H9',dial:'M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.6 21 3 13.4 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z',card:'M3 6h18v12H3zM3 10h18',coin:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v10M9.5 9.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4',gear:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3 12h2M19 12h2M12 3v2M12 19v2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4',copy:'M9 9h11v11H9zM5 15V5h10',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2',finger:'M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2'};
 const ic=(n,s=22)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n]}"/></svg>`;
 const vb=(s=16)=>`<svg class="vb" viewBox="0 0 24 24" width="${s}" height="${s}" role="img" aria-label="Verified"><path d="M12 2l2.6 2 3.2-.2 1 3 2.7 1.8-1 3.1 1 3.1-2.7 1.8-1 3-3.2-.2L12 22l-2.6-2-3.2.2-1-3L2.5 15.4l1-3.1-1-3.1L5.2 7.4l1-3 3.2.2z" fill="currentColor"/><path d="M8.5 12.2l2.4 2.4 4.6-4.9" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const brand='<div class="brand"><img src="/logo.png" alt="" width="40" height="40"><h1 class="h1">AUTOBINGWA PORTAL</h1></div>';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const ago=m=>m<1?'Just now':m<60?m+'m ago':m<1440?Math.floor(m/60)+'h ago':Math.floor(m/1440)+'d ago';
@@ -84,7 +85,7 @@ const parseMenu=s=>String(s||'').split('\n').map(l=>l.match(/^\s*(\d+)\s*[.:)\-]
 const sigRows=(sig,l)=>sig.steps.map((s,i)=>{if(s.kind==='input')return{ok:1,t:"Types the customer's phone number"};if(s.kind==='literal')return s.unmatched?{ok:0,t:`Option ${s.value} was not found on the screen`}:{ok:1,t:`Types ${s.value}`};const raw=l&&l.screens&&l.screens[i]?(parseMenu(l.screens[i]).find(o=>String(o.n)===String(s.hint))||{}).text:'';return{ok:1,t:`Picks "${raw||s.label||s.text||'option'}" (option ${s.hint} today)`}});
 const mockSig=()=>({complete:true,steps:[{kind:'literal',value:'5'},{kind:'literal',value:'2'},{kind:'input'},{kind:'menu',hint:'1',label:'Data'},{kind:'literal',value:'1'}]});
 const sw=(k,on,l,a='pft')=>`<button type="button" class="sw${on?' on':''}" role="switch" aria-checked="${on}" aria-label="${esc(l)}" data-a="${a}" data-k="${k}"><i></i></button>`;
-const srow=(t,s,k,on)=>`<div class="srow"><span class="grow"><b>${t}</b><small>${s}</small></span>${sw(k,on,t)}</div>`;
+const srow=(t,s,k,on,a='pft')=>`<div class="srow"><span class="grow"><b>${t}</b><small>${s}</small></span>${sw(k,on,t,a)}</div>`;
 const gv=id=>{const e=document.getElementById(id);return e?e.value:undefined},gc=id=>{const e=document.getElementById(id);return e?e.checked:undefined};
 function readPf(){const f=S.pf;if(!f)return;const m={name:'pn',cat:'pc',ussd:'pu',price:'pp',safPrice:'ps',retryCount:'prc',rescheduleTime:'prt',notifyMsg:'pnm'};for(const k in m){const v=gv(m[k]);if(v!==undefined)f[k]=v}
 const a=gc('prp'),b=gc('prf');if(a!==undefined)f.retryPending=a;if(b!==undefined)f.retryFailed=b}
@@ -93,7 +94,7 @@ function readWf(){const w=S.wf;if(!w)return;const m={from:'wf',until:'wu',altId:
 const devRow=d=>`<button class="card drow${d.id===S.dev?' act':''}" data-a="dev" data-id="${d.id}"><i class="dot${d.online?' on':''}"></i><span class="grow"><b>${esc(d.name)}</b><small>${d.online?'Online':'Offline'}, ${d.running?'running':'stopped'}</small></span>${ic('chev')}</button>`;
 const txRow=t=>`<button class="card tx" data-a="otx" data-id="${t.id}"><span class="av">${esc(ini(t.name))}</span><span class="grow"><b>${esc(t.name)}</b><small>${t.phone}, ${esc(t.offer)}, KES ${t.amt}</small></span><span class="rt"><b class="${TONE[t.st]||''}">${t.st}</b><small>${ago(t.m)}</small></span></button>`;
 function homeMain(){const d=dev(),t=DB.tx.filter(x=>x.dev===d.id);
-return `<h1 class="h1">AUTOBINGWA PORTAL</h1><p class="sub">Here's what's happening on <b>${esc(DB.biz)}</b> (${esc(DB.cid)}) right now</p>
+return `${brand}<p class="sub">Here's what's happening on <b>${esc(DB.biz)}</b> (${esc(DB.cid)}) right now</p>
 ${DB.devices.map(devRow).join('')}
 <div class="stats"><div class="st" style="--c:var(--ok)"><b>${d.ok??t.filter(x=>x.st==='Completed').length}</b><span>Successful</span></div><div class="st" style="--c:var(--bad)"><b>${d.failed??t.filter(x=>x.st==='Failed').length}</b><span>Failed</span></div><button class="st" style="--c:var(--ac)" data-a="go" data-p="more" data-m="tokens"><b>${d.tok}</b><span>Tokens</span></button></div>
 <div class="card"><div class="flex"><small class="grow">${esc(d.name)}</small><button class="ib" data-a="eye" aria-pressed="${S.hide}" aria-label="${S.hide?'Show':'Hide'} amounts">${ic(S.hide?'eyeoff':'eye')}</button><button class="ib" data-a="air" aria-label="Check airtime">${ic('refresh')}</button></div>
@@ -101,7 +102,7 @@ ${DB.devices.map(devRow).join('')}
 <div class="two"><div class="card"><small>Battery</small><div class="big">${d.bat}%</div><span class="pill" style="--c:var(--${d.chg?'ok':'wn'})">${ic('bolt',14)} ${d.chg?'Charging':'Not charging'}</span></div><div class="card"><small>Commission this week</small><div class="big sm">${mk('KES '+money(d.com))}</div></div></div>
 <div class="sec"><h2>Recent transactions</h2><button class="lnk" data-a="go" data-p="tx">View all</button></div>${t.slice(0,5).map(txRow).join('')||'<p class="mu c">No transactions yet.</p>'}`}
 const connectForm=()=>`<label>Connect ID<input id="cid" class="in" autocapitalize="characters" autocomplete="off" placeholder="AUB-XXXXX"></label><label>Phone name<input id="cnm" class="in" maxlength="40" placeholder="For example: Bundles Store Mtaani"></label><p id="cerr" class="err" role="alert"></p><button class="btn full" data-a="cdo">${ic('phone',18)} Connect phone</button>`;
-const connectCard=first=>`<h1 class="h1">AUTOBINGWA PORTAL</h1><p class="sub">${first?'Connect your first phone to start seeing its live activity.':'Connect another phone.'}</p><div class="card"><b>Connect a phone</b><p class="mu">In the AutoBingwa app, switch on <b>AutoBingwa Portal</b>, then copy the Connect ID shown there.</p>${connectForm()}</div>`;
+const connectCard=first=>`${brand}<p class="sub">${first?'Connect your first phone to start seeing its live activity.':'Connect another phone.'}</p><div class="card"><b>Connect a phone</b><p class="mu">In the AutoBingwa app, switch on <b>AutoBingwa Portal</b>, then copy the Connect ID shown there.</p>${connectForm()}</div>`;
 function home(){if(!DB.devices.length)return connectCard(true);const d=dev();
 const w=d.portalOn===false?'AutoBingwa Portal is switched off on this phone. Switch it on from Devices, or in the app Settings.':!d.online?'Showing the last values this phone sent. Open AutoBingwa on the phone to see live activity.':'';
 return (w?`<div class="card warn"><b>${esc(d.name)} is ${d.portalOn===false?'disconnected':'offline'}</b><p class="mu">${w}</p></div>`:'')+homeMain()}
@@ -153,10 +154,10 @@ ${f.notifyOn?`<label>SMS message<textarea id="pnm" class="in" rows="3">${esc(f.n
 <div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="psave">Save</button></div>`}
 function wformHtml(){const w=S.wf,p=pl(w.pid),alts=DB.plans.filter(x=>String(x.id)!==String(w.pid)&&x.on);
 return `<h3>Time window</h3><p class="hint"><b>${esc(p.name)}</b> · KES ${esc(p.price)}</p>
-${srow('Restrict to a time window','Only sell this offer between the hours below','on',!!w.on)}
+${srow('Restrict to a time window','Only sell this offer between the hours below','on',!!w.on,'wft')}
 ${w.on?`<div class="two"><label>Available from<input id="wf" class="in" type="time" value="${esc(w.from)}"></label><label>Available until<input id="wu" class="in" type="time" value="${esc(w.until)}"></label></div>
 <label>Alternative offer outside this window (required)<select id="wa" class="in"><option value="">Choose an offer</option>${alts.map(x=>`<option value="${esc(x.id)}"${String(w.altId)===String(x.id)?' selected':''}>${esc(x.name)} · KES ${esc(x.price)}</option>`).join('')}</select>${alts.length?'':'<small>Add or enable another offer first.</small>'}</label>
-${srow('Notify the customer','Send an SMS when the alternative offer is used','notify',!!w.notify)}
+${srow('Notify the customer','Send an SMS when the alternative offer is used','notify',!!w.notify,'wft')}
 ${w.notify?`<label>SMS message<textarea id="wm" class="in" rows="3" placeholder="This offer is not available now, so we sent you an alternative.">${esc(w.msg)}</textarea></label>`:''}`:''}
 <p id="we" class="err" role="alert"></p>
 <div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="wsave">Save</button></div>`}

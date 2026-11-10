@@ -12,6 +12,7 @@ import ClientsPage from './features/clients/ClientsPage.jsx'
 import ContactsPage from './features/contacts/ContactsPage.jsx'
 import AutoRepliesPage from './features/autoreplies/AutoRepliesPage.jsx'
 import ConnectPage from './features/connect/ConnectPage.jsx'
+import PortalSync from './features/connect/PortalSync.jsx'
 import FallbackPage from './features/fallback/FallbackPage.jsx'
 import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from './features/settings/SettingsPage.jsx'
 import HomePage from './features/home/HomePage.jsx'
@@ -1453,7 +1454,17 @@ useEffect(() => {
     const t = setInterval(heartbeat, 5000)
     return () => clearInterval(t)
   }, [automationRunning])
-
+   // Portal remote control: the web portal's Start/Stop commands arrive as 'ab-remote' events
+   useEffect(() => {
+     const h = (e) => {
+       const t = e.detail && e.detail.type
+       if (t === 'start' && !automationRunning) toggleAutomation()
+       if (t === 'stop' && automationRunning) toggleAutomation()
+     }
+     window.addEventListener('ab-remote', h)
+     return () => window.removeEventListener('ab-remote', h)
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [automationRunning])
   function changeMode(id) {
     setMode(id)
     saveMode(id)
@@ -1772,9 +1783,10 @@ if (!onboarded) return (
           onSettings={() => setActivePage('Settings')}
         />
       )}
-      <Toaster />
-      <DialogHost />
-      {activePage === 'Home' && <UpdatePrompt />}
+         <Toaster />
+         <DialogHost />
+         <PortalSync />
+         {activePage === 'Home' && <UpdatePrompt />}
       <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />
       {modeOpen && (
         <ModeDialog mode={mode} onSelect={changeMode} onClose={() => setModeOpen(false)} />
