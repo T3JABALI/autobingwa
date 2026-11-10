@@ -14,6 +14,7 @@ import AutoRepliesPage from './features/autoreplies/AutoRepliesPage.jsx'
 import ConnectPage from './features/connect/ConnectPage.jsx'
 import PortalSync from './features/connect/PortalSync.jsx'
 import FallbackPage from './features/fallback/FallbackPage.jsx'
+import ReferralDashboard, { ReferralIcon } from './features/referral/ReferralDashboard.jsx'
 import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from './features/settings/SettingsPage.jsx'
 import HomePage from './features/home/HomePage.jsx'
 import ModeDialog from './features/home/ModeDialog.jsx'
@@ -46,12 +47,12 @@ const initialTransactions = [
 const navigation = [
   'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
   'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
-  'Auto Replies', 'Autobingwa Connect', 'Fallback Plans',
+  'Auto Replies', 'Autobingwa Connect', 'Fallback Plans', 'Referrals',
   'Settings', 'Updates', 'Phone Setup',
 
 ]
 
-const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', '⚙', '◷', '✓']
+const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', <ReferralIcon size={18} key="ref" />, '⚙', '◷', '✓']
 
 const chartValues = [120, 190, 290, 280, 460, 490, 820]
 
@@ -1743,6 +1744,10 @@ if (!onboarded) return (
         ) : activePage === 'Fallback Plans' ? (
           <section className="panel fit fit-fallback">
             <FallbackPage offers={offers} onBack={() => setActivePage('Home')} />
+          </section>
+        ) : activePage === 'Referrals' ? (
+          <section className="panel">
+            <ReferralDashboard />
           </section>
         ) : activePage === 'Sitelink' ? (
           <section className="panel">
