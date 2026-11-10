@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import pg from 'pg'
+
 import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import rateLimit from 'express-rate-limit'
@@ -9,6 +10,7 @@ import { initPortalTables, getSubPlan, activePlans, mountPortalAdminRoutes, save
 import { initSmartTables, mountSmartRoutes } from './smartPlansAdmin.js'
 import { initIncomeTables, mountIncomeRoutes, recordAirtime } from './incomeAdmin.js'
 import { initUsersTables, mountUsersRoutes } from './usersAdmin.js'
+import { initReferralTables, mountReferralRoutes } from './referrals.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -66,6 +68,7 @@ async function initDb() {
        await initSmartTables(pool)
       await initIncomeTables(pool)
       await initUsersTables(pool)
+      await initReferralTables(pool)
        dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -152,6 +155,7 @@ mountPortalAdminRoutes({ app, pool, requireAdmin, sbAdmin }) // CHANGED: portal 
 mountSmartRoutes({ app, pool, requireAdmin, sbAdmin })
 mountIncomeRoutes({ app, pool, requireAdmin, sbAdmin })
 mountUsersRoutes({ app, pool, requireAdmin, sbAdmin })
+mountReferralRoutes({ app, pool, sbAdmin })
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.

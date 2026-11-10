@@ -606,6 +606,8 @@ export default function HomePage({
             <span className="hm-offer">{tx.offerName}</span>
           </div>
 
+          <p className="hm-fbnote">Airtime cost saved: <b>KES {Number(tx.cost) || 0}</b></p>
+
           {tagOf(tx) && (
             <p className="hm-fbnote">
               <b>{tagOf(tx)}</b>{' '}

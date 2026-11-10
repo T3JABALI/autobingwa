@@ -4,6 +4,7 @@ import { pinToPassword } from './pin';
 import './auth.css';
 
 const isPin = (p) => /^\d{5}$/.test(p);
+const API = (import.meta.env.VITE_TOKEN_API || '').replace(/\/+$/, '')
 const TITLES = {
   login: 'Welcome back',
   signup: 'Create account',
@@ -18,6 +19,7 @@ export default function AuthPage() {
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
   const [code, setCode] = useState('');
+  const [refCode, setRefCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -41,7 +43,19 @@ export default function AuthPage() {
     run(async () => {
       if (mode === 'signup') {
         checkNewPin();
-        const { data, error } = await supabase.auth.signUp({ email, password: pinToPassword(pin) });
+        // Optional referral code: checked first so a typo is caught before the account is made
+        const rc = refCode.trim().toUpperCase();
+        if (rc) {
+          if (!/^[A-Z0-9]{5}$/.test(rc)) throw new Error('A referral code has 5 letters or numbers.');
+          const chk = await fetch(API + '/referral/check/' + rc).then((r) => r.json()).catch(() => null);
+          if (!chk) throw new Error('Could not check the referral code. Check your internet and try again.');
+          if (!chk.ok) throw new Error('That referral code does not exist. Check it or leave it empty.');
+        }
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password: pinToPassword(pin),
+          options: rc ? { data: { ref_code: rc } } : undefined,
+        });
         if (error) throw error;
         if (data.user && data.user.identities?.length === 0)
           throw new Error('An account with this email already exists. Please log in.');
@@ -99,19 +113,31 @@ export default function AuthPage() {
           <input className="au-input" type="email" placeholder="Email" autoComplete="email"
             value={email} onChange={(e) => setEmail(e.target.value)} required />
         )}
-        {showCode && (
-          <input className="au-input au-code" inputMode="numeric" maxLength={6} placeholder="Code from email"
-            value={code} onChange={digits(setCode, 6)} required />
-        )}
-        {showPin && (
-          <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
-            placeholder={mode === 'reset' ? 'New 5-digit PIN' : '5-digit PIN'}
-            value={pin} onChange={digits(setPin, 5)} required />
-        )}
-        {showPin2 && (
-          <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
-            placeholder="Confirm PIN" value={pin2} onChange={digits(setPin2, 5)} required />
-        )}
+{showCode && (
+  <input className="au-input au-code" inputMode="numeric" maxLength={8}
+    placeholder="Code from email"
+    value={code} onChange={digits(setCode, 8)} required />
+)}
+{showPin && (
+  <>
+    <div className="au-row">
+      <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
+        placeholder={mode === 'reset' ? 'New PIN' : 'PIN'}
+        value={pin} onChange={digits(setPin, 5)} required />
+      {showPin2 && (
+        <input className="au-input au-code" type="password" inputMode="numeric" maxLength={5}
+          placeholder="Confirm PIN" value={pin2} onChange={digits(setPin2, 5)} required />
+      )}
+    </div>
+    {showPin2 && <p className="au-hint">Choose a 5-digit PIN you will remember</p>}
+  </>
+)}
+{mode === 'signup' && (
+  <input className="au-input au-code" maxLength={5} autoCapitalize="characters"
+    placeholder="Referral code (optional)"
+    value={refCode}
+    onChange={(e) => setRefCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5))} />
+)}
 
         {info && <div className="au-info">{info}</div>}
         {error && <div className="au-error">{error}</div>}

@@ -1551,6 +1551,7 @@ if (!onboarded) return (
       </aside>
 
       <main className="main">
+        
         <header className="topbar">
           <button
             className="menu-button"
@@ -1560,6 +1561,7 @@ if (!onboarded) return (
             ☰
           </button>
 
+          {activePage === 'Home' && (<>
           <div className="greeting">
             <span>{greetingFor(clock)},</span>
             <strong>{firstNameOf(profile.fullName) || 'User'}</strong>
@@ -1572,9 +1574,10 @@ if (!onboarded) return (
             <div className="mode-stack">
               <button className="mode-chip" onClick={() => setModeOpen(true)} aria-label="Change processing mode">
                 {mode} Mode ▾
-              </button>
+                      </button>
             </div>
           </div>
+          </>)}
         </header>
 
         {activePage === 'Home' ? (
