@@ -94,6 +94,16 @@ export function grantTokens(plan, via, ref) {
   window.dispatchEvent(new Event('autobingwa-data')) // the Tokens card and Home refresh
   window.dispatchEvent(new Event('ab-tokens')) // lets the engine continue waiting transactions
 
+  // Remember the last plan that was paid for, so Auto renew can buy it again
+  if ((via === 'airtime' || via === 'mpesa') && !String(plan.id).startsWith('coupon-')) {
+    try {
+      localStorage.setItem('tokens:lastPlan', JSON.stringify({
+        id: plan.id, label: plan.label, price: plan.price,
+        ...(Number(plan.days) > 0 ? { days: Number(plan.days) } : { units: Number(plan.units) || 0 }),
+      }))
+    } catch (e) { /* ignore */ }
+  }
+
   // A bought Unlimited Weekly or Monthly token earns the referrer a free day (airtime or M-Pesa)
   if ((via === 'airtime' || via === 'mpesa') && REFERRAL_PLANS.includes(plan.id)) {
     writeRefQueue([...readRefQueue(), { planId: plan.id, via, ref: ref || entry.id, at: Date.now() }])

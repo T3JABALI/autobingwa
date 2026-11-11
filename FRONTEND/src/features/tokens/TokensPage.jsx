@@ -3,6 +3,8 @@ import { parsePhone } from '../quickdial/ussd.js'
 import { loadWallet, subscribe } from '../home/dataStore.js'
 import { loadHistory } from '../../engine/tokens.js'
 import { isNative } from '../../engine/native.js'
+import { autoRenewOn, setAutoRenew, describeAutoRenew } from '../../engine/autoRenew.js'
+import { confirmDialog } from '../ui/dialog.js'
 import { reportAirtime, flushAirtimeReports } from '../../engine/incomeReport.js'
 import {
   payWithAirtime, verifyAirtimePayment, cancelAirtimePayment, pendingAirtimePayment,
@@ -61,11 +63,12 @@ export default function TokensPage({ onBack }) {
   const [couponMsg, setCouponMsg] = useState(null) // { ok, text }
   const [couponBusy, setCouponBusy] = useState(false)
   const [simSlot, setSimSlot] = useState(() => (Number(localStorage.getItem('tokens:paySim')) === 1 ? 1 : 0))
+  const [autoInfo, setAutoInfo] = useState(describeAutoRenew)
   const busy = useRef(false)
   const native = isNative()
 
   useEffect(() => {
-    const refreshWallet = () => { setWallet(loadWallet()); setNow(Date.now()) }
+    const refreshWallet = () => { setWallet(loadWallet()); setNow(Date.now()); setAutoInfo(describeAutoRenew()) }
     const off = subscribe(refreshWallet)
      const t = setInterval(() => setNow(Date.now()), 30000)
     refreshPlans()
@@ -89,6 +92,7 @@ export default function TokensPage({ onBack }) {
   function refresh() {
     setWallet(loadWallet())
     setNow(Date.now())
+    setAutoInfo(describeAutoRenew())
   }
 
   // Loads the live token list from the server. Returns null when the server cannot be reached.
@@ -127,6 +131,28 @@ export default function TokensPage({ onBack }) {
   function showProblem(kind, message) {
     setProblem({ kind, message })
     setScreen('problem')
+  }
+
+  async function toggleAuto() {
+    if (autoInfo.on) {
+      setAutoRenew(false)
+      setAutoInfo(describeAutoRenew())
+      return
+    }
+    if (!native) return setError('Auto renew only works inside the Android app')
+    const plan = autoInfo.plan
+    const text = plan
+      ? `When your tokens run out, the app will send KES ${plan.price} of airtime from SIM ${simSlot + 1} to buy ${plan.label} again, without asking you.`
+      : 'When your tokens run out, the app will send airtime to buy the plan you last bought, without asking you. Buy a token once first, so it knows which plan to repeat.'
+    if (!(await confirmDialog(text, { title: 'Turn on auto renew?', confirmLabel: 'Turn on' }))) return
+    setError('')
+    setAutoRenew(true)
+    setAutoInfo(describeAutoRenew())
+  }
+
+  function chooseAutoSim(s) {
+    setSimSlot(s)
+    try { localStorage.setItem('tokens:paySim', String(s)) } catch (e) { /* ignore */ }
   }
 
   async function redeem() {
@@ -336,6 +362,17 @@ export default function TokensPage({ onBack }) {
         .tk-coupon-msg { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
         .tk-coupon-msg.ok { color: var(--tk-ok); }
         .tk-coupon-msg.bad { color: var(--danger, #D32F2F); }
+        .tk-auto { margin-top: 8px; }
+        .tk-auto-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .tk-auto h3 { margin: 0 0 2px; font-size: 14px; }
+        .tk-auto-sub { margin: 2px 0 0; font-size: 12px; color: var(--tk-soft); }
+        .tk-sw { flex: 0 0 auto; width: 50px; height: 28px; padding: 3px; border: 0; border-radius: 999px; background: var(--tk-border); cursor: pointer; display: flex; align-items: center; }
+        .tk-sw i { display: block; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .15s; }
+        .tk-sw.on { background: var(--tk-accent); }
+        .tk-sw.on i { transform: translateX(22px); }
+        .tk-auto-sims { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+        .tk-auto-sims button { padding: 6px 14px; border: 2px solid var(--tk-border); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+        .tk-auto-sims button.on { border-color: var(--tk-accent); background: var(--tk-hover); }
       `}</style>
 
       <div className="tk-inner">
@@ -372,6 +409,37 @@ export default function TokensPage({ onBack }) {
                 <button onClick={redeem} disabled={couponBusy || coupon.length !== 8}>{couponBusy ? 'Please wait…' : 'Redeem'}</button>
               </div>
               {couponMsg && <p className={`tk-coupon-msg ${couponMsg.ok ? 'ok' : 'bad'}`} role="status">{couponMsg.text}</p>}
+            </div>
+
+            <div className="tk-coupon tk-auto">
+              <div className="tk-auto-row">
+                <div>
+                  <h3>Auto renew</h3>
+                  <p className="tk-auto-sub">When your tokens run out, the app buys your last plan again with airtime.</p>
+                </div>
+                <button
+                  type="button" role="switch" aria-checked={autoInfo.on} aria-label="Auto renew"
+                  className={`tk-sw ${autoInfo.on ? 'on' : ''}`} onClick={toggleAuto}
+                ><i /></button>
+              </div>
+              {autoInfo.on && (
+                <>
+                  <p className="tk-auto-sub">
+                    {autoInfo.plan
+                      ? `Next renewal: ${autoInfo.plan.label} · KES ${autoInfo.plan.price}`
+                      : 'Buy a token once so the app knows which plan to repeat.'}
+                  </p>
+                  <div className="tk-auto-sims">
+                    <span>Pay from</span>
+                    {[0, 1].map((s) => (
+                      <button key={s} type="button" className={simSlot === s ? 'on' : ''} onClick={() => chooseAutoSim(s)}>SIM {s + 1}</button>
+                    ))}
+                  </div>
+                  {autoInfo.state && (
+                    <p className={`tk-coupon-msg ${autoInfo.state.ok ? 'ok' : 'bad'}`}>{autoInfo.state.message}</p>
+                  )}
+                </>
+              )}
             </div>
 
             <h2 className="tk-sub">Available Packages</h2>

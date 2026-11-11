@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { subscribe } from '../home/dataStore.js'
 import { tokensActive } from '../../engine/tokens.js'
 import { recoverTokenPayments } from '../../engine/tokenPay.js'
+import { autoRenewOn, startAutoRenew } from '../../engine/autoRenew.js'
 
 const STEPS = [
   ['Buy a token', 'Open Tokens and choose the plan that suits your sales.'],
@@ -10,14 +11,15 @@ const STEPS = [
 ]
 
 export default function TokenGate({ onBuy, hidden = false }) {
-  const [show, setShow] = useState(() => !tokensActive())
+  const [show, setShow] = useState(() => !tokensActive() && !autoRenewOn())
 
   useEffect(() => {
-    recoverTokenPayments()
+      recoverTokenPayments()
+    const stopAuto = startAutoRenew()
     let was = tokensActive()
     const check = () => {
       const now = tokensActive()
-      if (was && !now) setShow(true) // just ran out
+      if (was && !now && !autoRenewOn()) setShow(true) // just ran out
       if (now) setShow(false)
       was = now
     }
@@ -27,6 +29,7 @@ export default function TokenGate({ onBuy, hidden = false }) {
     const timer = setInterval(check, 30000) // catches an unlimited plan that expires
     return () => {
       off()
+      stopAuto()
       window.removeEventListener('ab-need-tokens', need)
       clearInterval(timer)
     }

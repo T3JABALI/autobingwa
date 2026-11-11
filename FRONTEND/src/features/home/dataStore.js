@@ -73,6 +73,20 @@ function announce(tx) {
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
+// Keep the app fast: only the newest 500 finished transactions are kept
+const KEEP = 500
+const isOpen = (s) => s === 'Pending' || s === 'Processing' || s === 'Scheduled' || s === 'Paused'
+function trim(list) {
+  if (list.length <= KEEP) return list
+  let drop = list.length - KEEP
+  const keep = []
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (drop > 0 && !isOpen(list[i].status)) { drop--; continue }
+    keep.push(list[i])
+  }
+  return keep.reverse()
+}
+
 // Airtime goes down when a transaction completes.
 function applyCompletion(tx) {
   const cost = Number(tx.cost) || 0
@@ -102,7 +116,7 @@ export function addTransaction(data) {
     applyCompletion(tx)
   }
   announce(tx)
-  write(TX_KEY, [tx, ...loadTransactions()])
+  write(TX_KEY, trim([tx, ...loadTransactions()]))
   return tx
 }
 

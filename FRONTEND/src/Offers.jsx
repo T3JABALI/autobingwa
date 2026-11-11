@@ -114,7 +114,7 @@ function Sheet({ title, onClose, children, footer }) {
   )
 }
 
-const OfferCard = memo(function OfferCard({ o, menuOpen, onToggle, onMenu, onCloseMenu, onSheet, onCopy, onRemove }) {
+const OfferCard = memo(function OfferCard({ o, menuOpen, menuDir, onToggle, onMenu, onCloseMenu, onSheet, onCopy, onRemove }) {
   const win = Boolean(o.tw && o.tw.on)
   return (
     <div className={`of-card ${o.enabled ? '' : 'off'}`}>
@@ -138,11 +138,15 @@ const OfferCard = memo(function OfferCard({ o, menuOpen, onToggle, onMenu, onClo
         </button>
 
         <div className="of-menuwrap">
-          <button className="of-dots" aria-label={`More actions for ${o.name}`} onClick={() => onMenu(o.id)}>⋮</button>
+          <button
+            className="of-dots"
+            aria-label={`More actions for ${o.name}`}
+            onClick={(e) => onMenu(o.id, e.currentTarget.getBoundingClientRect().top > window.innerHeight / 2 ? 'up' : 'down')}
+          >⋮</button>
           {menuOpen && (
             <>
               <button className="of-scrim" aria-label="Close menu" onClick={onCloseMenu} />
-              <div className="of-pop up">
+              <div className={`of-pop ${menuDir || 'down'}`}>
                 <button onClick={() => onSheet('settings', o)}><span><Icon name="gear" /></span> Settings</button>
                 <button onClick={() => onSheet('edit', o)}><span><Icon name="edit" /></span> Edit</button>
                 <button onClick={() => onCopy(o)}><span><Icon name="copy" /></span> Copy USSD</button>
@@ -161,6 +165,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
   const [cat, setCat] = useState('ALL')
   const [menu, setMenu] = useState(false)
   const [cardMenu, setCardMenu] = useState(null)
+  const [menuDir, setMenuDir] = useState('down')
   const [sheet, setSheet] = useState(null)
   const [note, setNote] = useState('')
   const fileRef = useRef(null)
@@ -182,7 +187,10 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
     flash('Saved')
   }
   const toggle = useCallback((o) => live.current.onSave({ ...o, enabled: !o.enabled }), [])
-  const openMenu = useCallback((id) => setCardMenu((c) => (c === id ? null : id)), [])
+  const openMenu = useCallback((id, dir) => {
+    setMenuDir(dir)
+    setCardMenu((c) => (c === id ? null : id))
+  }, [])
   const closeMenu = useCallback(() => setCardMenu(null), [])
   const openSheet = useCallback((type, o) => {
     setCardMenu(null)
@@ -289,6 +297,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
           key={o.id}
           o={o}
           menuOpen={cardMenu === o.id}
+          menuDir={cardMenu === o.id ? menuDir : ''}
           onToggle={toggle}
           onMenu={openMenu}
           onCloseMenu={closeMenu}

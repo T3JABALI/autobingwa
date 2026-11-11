@@ -1598,3 +1598,56 @@ button, [role="tab"], [role="switch"] {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+/* ===== Slim top bar: only the ☰ button on every page except the main Home screen ===== */
+.app.slim-top .topbar {
+  position: static !important;
+  min-height: 0 !important; height: auto !important;
+  margin: 0 0 8px !important; padding: 8px 0 0 !important;
+  background: transparent !important; border: 0 !important; box-shadow: none !important;
+  backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  z-index: auto !important;
+}
+.app.slim-top .main { padding-top: 0 !important; }
+.app.slim-top .menu-button { width: 44px; height: 44px; }
+
+/* ===== Transactions page: back arrow + title, then search, then filters, then the list ===== */
+.hm-page.hm-s-all { display: block !important; padding-top: 4px; }
+.hm-page.hm-s-all > * { position: static !important; top: auto !important; }
+.hm-s-all .hm-head {
+  display: flex !important; align-items: center; gap: 12px;
+  min-height: 44px; margin: 0 0 12px !important; padding: 0 !important;
+}
+.hm-s-all .hm-head h2 { margin: 0; font-size: 22px; }
+.hm-s-all .hm-search {
+  display: block !important; width: 100% !important; box-sizing: border-box;
+  height: 48px !important; margin: 0 0 12px !important;
+}
+.hm-s-all .hm-chips {
+  display: flex !important; flex-wrap: nowrap !important; align-items: center !important;
+  gap: 8px; height: auto !important; min-height: 46px !important; max-height: none !important;
+  margin: 0 0 14px !important; padding: 2px 2px 6px !important;
+  overflow-x: auto !important; overflow-y: hidden !important;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.hm-s-all .hm-chips::-webkit-scrollbar { display: none; }
+.hm-s-all .hm-chip {
+  flex: 0 0 auto !important; height: auto !important; min-height: 38px !important;
+  padding: 8px 14px !important; line-height: 1.2 !important; white-space: nowrap;
+}
+.hm-s-all .hm-list { display: flex !important; flex-direction: column; gap: 10px; }
+
+/* ===== Offers: the ⋮ menu always opens downward, and the page has room to scroll it into view ===== */
+.of .of-pop.down {
+  top: 100% !important; bottom: auto !important; margin: 6px 0 0 !important; z-index: 60 !important;
+}
+.of .of-pop.up {
+  bottom: 100% !important; top: auto !important; margin: 0 0 6px !important; z-index: 60 !important;
+}
+.of .of-head .of-pop {
+  top: 100% !important; bottom: auto !important; margin: 6px 0 0 !important; z-index: 60 !important;
+}
+.of { padding-bottom: 160px !important; }
+
+/* ===== Touch ===== */
+.hm-row { content-visibility: auto; contain-intrinsic-size: auto 78px; transition: none !important; }
+.hm-row:active { filter: brightness(1.15); }

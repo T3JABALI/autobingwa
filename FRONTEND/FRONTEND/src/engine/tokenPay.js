@@ -1,6 +1,7 @@
 import { engine } from './index.js'
 import { AutoBingwa, isNative, refreshAirtime } from './native.js'
 import { loadConfig } from './config.js'
+import { setAirtimeBalance } from './balances.js'
 import { grantTokens } from './tokens.js'
 import { parsePhone } from '../features/quickdial/ussd.js'
 
@@ -12,6 +13,20 @@ const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'
 const EXPIRE_MS = 10 * 60000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Reads the phone's answer to *140*amount*number#:
+// "You have transferred 5.00 KSH from your account to 0143926894. Your account balance is : 3363.24 KSH, ..."
+export function parseTransfer(text) {
+  const t = String(text || '').replace(/\s+/g, ' ')
+  const m = t.match(/transferred\s+([\d,]+(?:\.\d+)?)\s*(?:ksh|kes)\s+from\s+your\s+account\s+to\s+(\+?[\d\s]*\d)/i)
+  if (!m) return null
+  const b = t.match(/balance\s+is\s*:?\s*([\d,]+(?:\.\d+)?)\s*(?:ksh|kes)/i)
+  return {
+    amount: Number(m[1].replace(/,/g, '')),
+    to: m[2].replace(/\D/g, ''),
+    balance: b ? Number(b[1].replace(/,/g, '')) : null,
+  }
+}
 
 const read = (key) => {
   try { return JSON.parse(localStorage.getItem(key) || 'null') } catch (e) { return null }
@@ -82,12 +97,23 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
     // Saved BEFORE dialing, so a crash can never dial twice
     write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed' })
     onStatus('Sending airtime...')
+    let screen = ''
     try {
-      await AutoBingwa.runUssd({ code: `*140*${amount}*${AIRTIME_NUMBER}#`, slot, express: true })
+      const res = await AutoBingwa.runUssd({ code: `*140*${amount}*${AIRTIME_NUMBER}#`, slot, express: true })
+      screen = String((res && res.text) || '')
     } catch (e) {
       console.error('AB airtime dial', e) // the balance check below decides what really happened
     }
-    await sleep(6000)
+    // 1) The phone's own answer is the surest proof: right amount, right number
+    const got = parseTransfer(screen)
+    if (got && Math.abs(got.amount - amount) < 0.01 && got.to.slice(-9) === AIRTIME_NUMBER.slice(-9)) {
+      write(PENDING, { ...(read(PENDING) || {}), status: 'paid', screen })
+      if (got.balance !== null) setAirtimeBalance(got.balance, slot)
+      onStatus('Payment confirmed by the phone...')
+    } else {
+      // 2) No usable answer screen: the balance drop decides, as before
+      await sleep(6000)
+    }
     try {
       const r = await verifyAirtimePayment({ onStatus })
       if (r.status === 'unconfirmed') keepHold = true
