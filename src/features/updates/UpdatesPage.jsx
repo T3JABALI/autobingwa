@@ -3,7 +3,7 @@ import { installUpdate } from './updates'
 import './updates.css'
 
 export default function UpdatesPage({ onBack }) {
-  const { loading, error, current, releases, latest, available, refresh } = useUpdates()
+  const { loading, error, current, latest, available, refresh } = useUpdates()
 
   return (
     <div className="up-page">
@@ -15,7 +15,14 @@ export default function UpdatesPage({ onBack }) {
         </button>
       </div>
 
-      {current && <p className="up-muted" style={{ marginBottom: 12 }}>Installed version: {current.versionName}</p>}
+      <div className="up-box">
+        <p className="up-muted" style={{ margin: 0 }}>Current version</p>
+        <strong style={{ fontSize: 22 }}>{current ? current.versionName : '—'}</strong>
+        {!available && !loading && !error && (
+          <p className="up-muted" style={{ margin: '6px 0 0' }}>You are up to date</p>
+        )}
+      </div>
+
       {error && <p className="up-err">{error}</p>}
 
       {available && latest && (
@@ -29,22 +36,6 @@ export default function UpdatesPage({ onBack }) {
             onClick={() => installUpdate(latest.apk_url)}>Update now</button>
         </div>
       )}
-
-      {!available && !loading && !error && (
-        <div className="up-box"><strong>You are up to date</strong></div>
-      )}
-
-      {releases.length > 0 && <h2 className="up-sub">Release history</h2>}
-      {releases.map((r) => (
-        <div className="up-box" key={r.id}>
-          <div className="up-row">
-            <strong>Version {r.version_name}</strong>
-            {current && r.version_code === current.versionCode && <span className="up-badge">Installed</span>}
-          </div>
-          <p className="up-muted">{new Date(r.created_at).toLocaleDateString()}</p>
-          {r.notes && <p className="up-notes-page">{r.notes}</p>}
-        </div>
-      ))}
     </div>
   )
 }

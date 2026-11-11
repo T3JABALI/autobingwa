@@ -1,7 +1,7 @@
 import { App } from '@capacitor/app'
 import { AutoBingwa, isNative } from './native.js'
 
-export const UPDATE_URL = 'https://t3jabali.github.io/autobingwa-updates/version.json '
+export const UPDATE_URL = 'https://t3jabali.github.io/autobingwa-updates/version.json'
 const CACHE_KEY = 'update:last'
 
 // The version installed on this phone. "build" is the Android versionCode.
