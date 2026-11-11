@@ -3,132 +3,153 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>AutoBingwa Updates</title>
+<title>AutoBingwa USSD Updates</title>
+<script>try{var t=localStorage.getItem('ab-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0c110d; --panel:#141c15; --card:#1d2a1e; --card2:#243526; --line:#2f4231;
-  --lime:#c4e58a; --green:#00873a; --green-h:#00a047; --text:#f2f5ee; --muted:#a9b8a6; --gold:#e8c86a;
-  --r:22px;
+  --bg:#15221a; --panel:#1b2b21; --card:#223629; --card2:#2a4331; --line:#3a5642;
+  --accent:#cdef93; --brandbg:#c4e58a; --brandfg:#1d2a1e; --green:#12a150; --green-h:#16b85b;
+  --text:#f4f8f0; --muted:#b5c6b3; --ok:#4fd88a; --r:18px;
   --head:"Bricolage Grotesque","Trebuchet MS",system-ui,sans-serif;
   --body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
+:root[data-theme="light"]{
+  --bg:#f3f8ee; --panel:#ffffff; --card:#e8f2dd; --card2:#d9ebc5; --line:#cbdcba;
+  --accent:#2f7a1c; --brandbg:#b9e27c; --brandfg:#183019; --green:#0a8f43; --green-h:#087a39;
+  --text:#14251a; --muted:#536a5a; --ok:#0a8f43;
+}
 *{box-sizing:border-box;margin:0}
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font:400 16px/1.6 var(--body);padding-top:env(safe-area-inset-top,0)}
+body{background:var(--bg);color:var(--text);font:400 15px/1.55 var(--body);padding-top:env(safe-area-inset-top,0)}
 a{color:inherit;text-decoration:none}
 button{font:inherit;color:inherit;cursor:pointer}
-:focus-visible{outline:2px solid var(--lime);outline-offset:3px}
-.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
-h1,h2,h3{font-family:var(--head);line-height:1.12}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.wrap{max-width:960px;margin:0 auto;padding:0 16px}
+h1,h2,h3{font-family:var(--head);line-height:1.15}
 
-/* header */
-header{position:sticky;top:0;z-index:20;background:rgba(12,17,13,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.bar{display:flex;align-items:center;justify-content:space-between;height:68px}
-.brand{display:flex;align-items:center;gap:12px;background:none;border:0}
-.logo{width:42px;height:42px;border-radius:13px;background:var(--lime);display:grid;place-items:center;color:#1d2a1e}
-.brand b{display:block;font:800 17px/1 var(--head);letter-spacing:.04em}
-.brand small{display:block;margin-top:4px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--lime);text-transform:uppercase}
-nav.desk{display:none;gap:6px}
-nav a,.mnav a{padding:8px 16px;border-radius:99px;color:var(--muted);font-weight:500}
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;justify-content:space-between;height:58px;gap:8px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{width:36px;height:36px;border-radius:11px;background:var(--brandbg);color:var(--brandfg);display:grid;place-items:center;flex:none}
+.brand b{display:block;font:800 16px/1.1 var(--head);white-space:nowrap}
+.brand small{display:block;margin-top:2px;font-size:11px;font-weight:600;color:var(--accent)}
+.tools{display:flex;align-items:center;gap:2px}
+nav.desk{display:none;gap:4px;margin-right:8px}
+nav a,.mnav a{padding:8px 14px;border-radius:99px;color:var(--muted);font-weight:500}
 nav a:hover,nav a.on{color:var(--text);background:var(--card)}
-.burger{background:none;border:0;padding:8px;color:var(--muted)}
-.mnav{display:none;background:var(--card);border-radius:var(--r);margin:0 0 14px;padding:8px}
+.ib{background:none;border:0;padding:8px;color:var(--muted);border-radius:10px;display:grid;place-items:center}
+.ib:hover{color:var(--text);background:var(--card)}
+.mnav{display:none;background:var(--card);border-radius:var(--r);margin:0 0 10px;padding:6px}
 .mnav.open{display:block}
-.mnav a{display:block;text-align:center;padding:14px}
+.mnav a{display:block;text-align:center;padding:12px}
 @media(min-width:760px){nav.desk{display:flex}.burger,.mnav{display:none!important}}
 
-/* hero */
-.hero{text-align:center;padding:36px 0 28px}
-.pill{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:99px;background:var(--card);border:1px solid var(--line);font-size:13px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--lime)}
-.appicon{width:150px;height:150px;border-radius:38px;background:var(--card2);display:grid;place-items:center;margin:40px auto 28px;color:var(--lime)}
-.hero h1{font-size:clamp(34px,7vw,58px);font-weight:800;letter-spacing:.01em;text-transform:uppercase}
-.hero h2{font-size:clamp(28px,5.5vw,44px);font-weight:700;color:var(--lime);margin:18px auto 0;max-width:620px}
-.hero p{color:var(--muted);max-width:520px;margin:20px auto 0;font-size:17px}
-.ctas{display:flex;flex-direction:column;gap:12px;max-width:420px;margin:32px auto 0}
+.hero{text-align:center;padding:20px 0 6px}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:99px;background:var(--card);border:1px solid var(--line);font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+.appicon{width:84px;height:84px;border-radius:24px;background:var(--card2);display:grid;place-items:center;margin:20px auto 14px;color:var(--accent)}
+.hero h1{font-size:clamp(26px,8vw,40px);font-weight:800;text-transform:uppercase}
+.hero h2{font-size:clamp(19px,5.6vw,28px);font-weight:700;color:var(--accent);margin:10px auto 0;max-width:520px}
+.hero p{color:var(--muted);max-width:480px;margin:12px auto 0}
+.ctas{display:flex;flex-direction:column;gap:10px;max-width:400px;margin:20px auto 0}
 @media(min-width:600px){.ctas{flex-direction:row;max-width:none;justify-content:center}}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:16px 28px;border-radius:99px;font-weight:600;border:1.5px solid var(--line);background:none;transition:background .15s,transform .15s}
-.btn.pri{background:var(--green);border-color:var(--green)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:13px 22px;border-radius:99px;font-weight:600;border:1.5px solid var(--line);background:none;transition:background .15s,transform .15s}
+.btn.pri{background:var(--green);border-color:var(--green);color:#fff}
 .btn.pri:hover{background:var(--green-h)}
 .btn.sec:hover{background:var(--card)}
 .btn:active{transform:scale(.98)}
-.tag{margin-top:30px;font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.tag{margin-top:16px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 
-/* stats */
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:14px;border-top:1px solid var(--line);padding-top:36px;margin-top:36px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;border-top:1px solid var(--line);padding-top:22px;margin-top:22px}
 @media(min-width:760px){.stats{grid-template-columns:repeat(4,1fr)}}
-.stat{background:var(--card);border-radius:var(--r);padding:22px}
-.stat b{display:block;font:800 clamp(28px,5vw,38px)/1.1 var(--head);color:var(--lime)}
-.stat span{display:block;margin-top:10px;font-size:14px;color:var(--muted);font-weight:500}
+.stat{background:var(--card);border-radius:var(--r);padding:16px}
+.stat b{display:block;font:800 clamp(22px,6vw,30px)/1.1 var(--head);color:var(--accent)}
+.stat span{display:block;margin-top:6px;font-size:13px;color:var(--muted);font-weight:500}
 
-/* features */
-section.block{padding:56px 0 8px}
-section.block>h2{font-size:clamp(26px,4.5vw,36px)}
-section.block>p{color:var(--muted);margin-top:8px}
-.feat{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
+section.block{padding:30px 0 4px}
+section.block>h2{font-size:clamp(21px,5vw,28px)}
+section.block>p{color:var(--muted);margin-top:4px}
+.feat{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
 @media(min-width:760px){.feat{grid-template-columns:repeat(4,1fr)}}
-.f{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px}
-.f svg{color:var(--lime)}
-.f h3{font-size:18px;margin:22px 0 8px;font-weight:700}
-.f p{font-size:14px;color:var(--muted);line-height:1.5}
-.ready{background:var(--card2);border-radius:28px;padding:30px;margin-top:36px}
-.ready h2{font-size:clamp(26px,4.5vw,36px);color:var(--lime)}
-.ready p{color:var(--muted);margin:12px 0 22px;font-size:17px}
+.f{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.f svg{color:var(--accent)}
+.f h3{font-size:16px;margin:12px 0 4px;font-weight:700}
+.f p{font-size:13px;color:var(--muted);line-height:1.45}
+.ready{background:var(--card2);border-radius:22px;padding:20px;margin-top:22px}
+.ready h2{font-size:clamp(21px,5vw,28px);color:var(--accent)}
+.ready p{color:var(--muted);margin:8px 0 16px}
 
-/* downloads */
-.back{display:inline-flex;gap:8px;align-items:center;color:var(--muted);background:none;border:0;padding:24px 0 8px}
+.back{display:inline-flex;gap:7px;align-items:center;color:var(--muted);background:none;border:0;padding:16px 0 6px;font-size:14px}
 .back:hover{color:var(--text)}
-.badge{display:inline-block;padding:6px 14px;border-radius:99px;background:var(--card);color:#2fbf6a;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
-.dl h1{font-size:clamp(32px,6vw,48px);font-weight:800;margin:16px 0 10px}
-.dl>p{color:var(--muted);font-size:17px}
-.avail{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:var(--card);border-radius:var(--r);padding:22px;margin:26px 0 16px}
-.avail h3{font-size:20px}
-.avail p{color:var(--muted);font-size:14px;width:100%}
-.count{padding:6px 14px;border-radius:99px;background:var(--bg);color:#2fbf6a;font-size:12px;font-weight:700;letter-spacing:.06em}
-.rel{display:block;width:100%;text-align:left;background:var(--panel);border:1.5px solid var(--line);border-radius:var(--r);padding:20px;margin-bottom:14px;transition:border-color .15s}
+.badge{display:inline-block;padding:5px 12px;border-radius:99px;background:var(--card);color:var(--ok);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.dl h1,.hp h1{font-size:clamp(26px,6.5vw,38px);font-weight:800;margin:10px 0 6px}
+.dl>p,.hp>p{color:var(--muted)}
+.avail{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border-radius:var(--r);padding:14px 16px;margin:18px 0 12px}
+.avail h3{font-size:18px}
+.avail p{color:var(--muted);font-size:13px;width:100%}
+.count{padding:5px 12px;border-radius:99px;background:var(--bg);color:var(--ok);font-size:11px;font-weight:700;letter-spacing:.05em}
+.msg{color:var(--muted);padding:10px 2px 14px}
+.rel{display:block;width:100%;text-align:left;background:var(--panel);border:1.5px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:10px;transition:border-color .15s}
 .rel:hover{border-color:var(--muted)}
-.rel.sel{border-color:var(--lime);border-width:2.5px;padding:19px}
+.rel.sel{border-color:var(--accent);border-width:2.5px;padding:13px}
 .rel .top{display:flex;justify-content:space-between;align-items:center}
-.lbl{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:6px 14px;border-radius:99px}
-.lbl.latest{background:var(--card);color:#2fbf6a}
-.lbl.stable{background:#2a2f2a;color:var(--muted)}
-.rel .mid{display:flex;align-items:center;gap:16px;margin:16px 0}
-.mico{width:68px;height:68px;border-radius:18px;background:var(--card2);display:grid;place-items:center;color:var(--lime);flex:none}
-.rel h3{font-size:20px;font-weight:700}
-.rel .v{color:var(--muted);margin-top:4px}
-.rel .bot{display:flex;justify-content:space-between;color:var(--muted)}
+.lbl{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:5px 12px;border-radius:99px}
+.lbl.latest{background:var(--card);color:var(--ok)}
+.lbl.stable{background:var(--card);color:var(--muted)}
+.rel .mid{display:flex;align-items:center;gap:12px;margin:12px 0}
+.mico{width:52px;height:52px;border-radius:15px;background:var(--card2);display:grid;place-items:center;color:var(--accent);flex:none}
+.rel h3{font-size:17px;font-weight:700}
+.rel .v{color:var(--muted);font-size:14px}
+.rel .bot{display:flex;justify-content:space-between;color:var(--muted);font-size:14px}
 .rel .bot b{color:var(--text)}
 .rel .chev{margin-left:auto;color:var(--muted)}
-.tick{color:var(--lime)}
-.detail{border-top:1px solid var(--line);margin-top:30px;padding:30px 0 10px}
-.detail h2{font-size:clamp(28px,5vw,40px);margin:14px 0}
-.chips{display:flex;gap:10px;flex-wrap:wrap}
-.chip{background:var(--card);padding:7px 16px;border-radius:99px;font-weight:500;font-size:14px}
-.meta{background:var(--card);border-radius:var(--r);padding:6px 22px;margin:22px 0}
-.meta div{display:flex;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid var(--line)}
+.tick{color:var(--accent)}
+.detail{border-top:1px solid var(--line);margin-top:22px;padding:22px 0 6px}
+.detail h2{font-size:clamp(22px,5.5vw,32px);margin:10px 0}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{background:var(--card);padding:5px 13px;border-radius:99px;font-weight:500;font-size:13px}
+.meta{background:var(--card);border-radius:var(--r);padding:2px 16px;margin:16px 0}
+.meta div{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
 .meta div:last-child{border:0}
 .meta span{color:var(--muted)}
 .meta b{font-weight:600;text-align:right}
-.detail h3{font-size:22px;margin:28px 0 10px}
-.detail>p{color:var(--muted);font-size:17px}
-.list{list-style:none;padding:0;margin-top:14px;display:grid;gap:14px}
-.list li{display:flex;gap:14px;align-items:flex-start;font-size:16px}
-.list svg{flex:none;margin-top:2px;color:var(--lime)}
-.cta-dl{width:100%;margin-top:28px}
-.note{margin-top:16px;padding:14px 18px;border-radius:14px;background:var(--panel);border:1px dashed var(--line);color:var(--muted);font-size:14px}
-.help{max-width:680px;padding-bottom:20px}
-.help details{background:var(--card);border-radius:18px;padding:18px 22px;margin-top:12px}
-.help summary{font-weight:600;cursor:pointer}
-.help details p{color:var(--muted);margin-top:10px}
+.detail h3{font-size:18px;margin:20px 0 6px}
+.detail>p{color:var(--muted)}
+.list{list-style:none;padding:0;margin-top:10px;display:grid;gap:10px}
+.list li{display:flex;gap:10px;align-items:flex-start;font-size:15px}
+.list svg{flex:none;margin-top:2px;color:var(--accent)}
+.cta-dl{width:100%;margin-top:20px}
+.note{margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--panel);border:1px dashed var(--line);color:var(--muted);font-size:13px}
 
-footer{margin-top:60px;border-top:1px solid var(--line);background:var(--panel);text-align:center;padding:36px 20px calc(36px + env(safe-area-inset-bottom,0))}
-footer .fb{display:inline-flex;align-items:center;gap:10px;font:800 18px var(--head);letter-spacing:.04em}
-footer .fb svg{color:var(--lime)}
-footer p{color:var(--muted);margin-top:12px;font-size:15px}
-footer nav{display:flex;justify-content:center;gap:10px;margin-top:14px}
-.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0));transform:translate(-50%,40px);background:var(--card2);border:1px solid var(--lime);padding:14px 22px;border-radius:99px;opacity:0;pointer-events:none;transition:.25s;font-size:14px;z-index:50;max-width:90vw;text-align:center}
+.hp{padding-bottom:10px}
+.hp h2{font-size:clamp(19px,5vw,24px);margin:24px 0 10px}
+.steps{list-style:none;padding:0;display:grid;gap:8px}
+.steps li{display:flex;gap:12px;align-items:flex-start;background:var(--card);border-radius:14px;padding:12px 14px;font-size:14px}
+.steps li::before{counter-increment:s;content:counter(s);flex:none;width:26px;height:26px;border-radius:50%;background:var(--brandbg);color:var(--brandfg);display:grid;place-items:center;font:700 13px var(--body)}
+.steps{counter-reset:s}
+.steps b{display:block;font-size:15px}
+.steps span{color:var(--muted)}
+.hp details{background:var(--card);border-radius:14px;padding:13px 16px;margin-bottom:8px}
+.hp summary{font-weight:600;cursor:pointer;font-size:15px}
+.hp details p{color:var(--muted);margin-top:8px;font-size:14px}
+.contact{background:var(--card2);border-radius:22px;padding:20px;margin-top:24px;text-align:center}
+.contact h2{margin:0 0 4px!important}
+.contact p{color:var(--muted);font-size:14px}
+.contact .num{display:block;font:800 22px var(--head);color:var(--accent);margin:10px 0 14px}
+.crow{display:grid;gap:10px}
+@media(min-width:480px){.crow{grid-template-columns:1fr 1fr}}
+.btn.wa{border-color:var(--green);color:var(--text)}
+.btn.wa:hover{background:var(--card)}
+
+footer{margin-top:36px;border-top:1px solid var(--line);background:var(--panel);text-align:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom,0))}
+footer .fb{display:inline-flex;align-items:center;gap:8px;font:800 16px var(--head)}
+footer .fb svg{color:var(--accent)}
+footer p{color:var(--muted);margin-top:6px;font-size:13px}
+footer nav{display:flex;justify-content:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+footer nav a{font-size:14px;padding:6px 12px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0));transform:translate(-50%,40px);background:var(--card2);border:1px solid var(--accent);padding:12px 20px;border-radius:99px;opacity:0;pointer-events:none;transition:.25s;font-size:14px;z-index:50;max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .view{display:none}.view.on{display:block}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
@@ -150,21 +171,28 @@ footer nav{display:flex;justify-content:center;gap:10px;margin-top:14px}
   <symbol id="back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
   <symbol id="radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="11" r="2"/><path d="M12 13v7M7.8 6.8a6 6 0 0 0 0 8.4m8.4-8.4a6 6 0 0 1 0 8.4M4.9 4a10 10 0 0 0 0 14m14.2-14a10 10 0 0 1 0 14"/></symbol>
   <symbol id="menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h16M9 16h11"/></symbol>
+  <symbol id="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M19 5l-1.5 1.5m-11 11L5 19"/></symbol>
+  <symbol id="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/></symbol>
+  <symbol id="call" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></symbol>
+  <symbol id="chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1.4-4.3A8 8 0 1 1 8.5 18.7L4 20Z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-.8.8a4 4 0 0 1-1.8-1.8l.8-.8-1-2L9 9.5Z"/></symbol>
 </svg>
 
 <header>
   <div class="wrap">
     <div class="bar">
-      <a class="brand" href="#/" aria-label="AutoBingwa Updates home">
-        <span class="logo"><svg width="24" height="24"><use href="#bolt"/></svg></span>
-        <span><b>AUTOBINGWA</b><small>Updates &amp; Release Centre</small></span>
+      <a class="brand" href="#/" aria-label="AutoBingwa USSD home">
+        <span class="logo"><svg width="22" height="22"><use href="#bolt"/></svg></span>
+        <span><b>AutoBingwa USSD</b><small>Updates &amp; Release Centre</small></span>
       </a>
-      <nav class="desk" aria-label="Main">
-        <a href="#/" data-nav="home">Home</a>
-        <a href="#/downloads" data-nav="downloads">APK Downloads</a>
-        <a href="#/help" data-nav="help">Help Centre</a>
-      </nav>
-      <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false"><svg width="28" height="28"><use href="#menu"/></svg></button>
+      <div class="tools">
+        <nav class="desk" aria-label="Main">
+          <a href="#/" data-nav="home">Home</a>
+          <a href="#/downloads" data-nav="downloads">APK Downloads</a>
+          <a href="#/help" data-nav="help">Help Centre</a>
+        </nav>
+        <button class="ib" id="theme" aria-label="Switch light or dark mode"></button>
+        <button class="ib burger" id="burger" aria-label="Open menu" aria-expanded="false"><svg width="26" height="26"><use href="#menu"/></svg></button>
+      </div>
     </div>
     <div class="mnav" id="mnav">
       <a href="#/">Home</a><a href="#/downloads">APK Downloads</a><a href="#/help">Help Centre</a>
@@ -174,17 +202,16 @@ footer nav{display:flex;justify-content:center;gap:10px;margin-top:14px}
 
 <main class="wrap">
 
-  <!-- HOME -->
   <section class="view" id="v-home">
     <div class="hero">
-      <span class="pill"><svg width="18" height="18"><use href="#radio"/></svg>The Auto Bingwa release hub</span>
-      <div class="appicon"><svg width="64" height="64"><use href="#bolt"/></svg></div>
+      <span class="pill"><svg width="16" height="16"><use href="#radio"/></svg>The AutoBingwa release hub</span>
+      <div class="appicon"><svg width="44" height="44"><use href="#bolt"/></svg></div>
       <h1>AutoBingwa Updates</h1>
       <h2>Your business. Your speed. Your control.</h2>
       <p>Discover the latest AutoBingwa releases, powerful features and improvements. Get the tools you need to run your operations smarter.</p>
       <div class="ctas">
-        <a class="btn pri" href="#/downloads"><svg width="20" height="20"><use href="#dl"/></svg>Explore APK Downloads</a>
-        <a class="btn sec" href="#/help"><svg width="20" height="20"><use href="#help"/></svg>Visit Help Centre</a>
+        <a class="btn pri" href="#/downloads"><svg width="19" height="19"><use href="#dl"/></svg>Explore APK Downloads</a>
+        <a class="btn sec" href="#/help"><svg width="19" height="19"><use href="#help"/></svg>Visit Help Centre</a>
       </div>
       <p class="tag">Android application · Official release centre</p>
     </div>
@@ -195,22 +222,21 @@ footer nav{display:flex;justify-content:center;gap:10px;margin-top:14px}
       <h2>Built for smarter operations</h2>
       <p>Tools that make everyday business activities easier.</p>
       <div class="feat">
-        <div class="f"><svg width="30" height="30"><use href="#bolt"/></svg><h3>Smart Automation</h3><p>Execute saved USSD flows.</p></div>
-        <div class="f"><svg width="30" height="30"><use href="#db"/></svg><h3>Token Management</h3><p>Manage your token activity.</p></div>
-        <div class="f"><svg width="30" height="30"><use href="#chart"/></svg><h3>Business Tracking</h3><p>Monitor your transactions.</p></div>
-        <div class="f"><svg width="30" height="30"><use href="#shield"/></svg><h3>Reliable Experience</h3><p>Improved app stability.</p></div>
+        <div class="f"><svg width="26" height="26"><use href="#bolt"/></svg><h3>Smart Automation</h3><p>Execute saved USSD flows.</p></div>
+        <div class="f"><svg width="26" height="26"><use href="#db"/></svg><h3>Token Management</h3><p>Manage your token activity.</p></div>
+        <div class="f"><svg width="26" height="26"><use href="#chart"/></svg><h3>Business Tracking</h3><p>Monitor your transactions.</p></div>
+        <div class="f"><svg width="26" height="26"><use href="#shield"/></svg><h3>Reliable Experience</h3><p>Improved app stability.</p></div>
       </div>
       <div class="ready">
         <h2>Ready for the latest version?</h2>
         <p>Find your preferred AutoBingwa APK and explore what's new.</p>
-        <a class="btn pri" href="#/downloads" style="width:100%">View all releases<svg width="20" height="20"><use href="#arrow"/></svg></a>
+        <a class="btn pri" href="#/downloads" style="width:100%">View all releases<svg width="19" height="19"><use href="#arrow"/></svg></a>
       </div>
     </section>
   </section>
 
-  <!-- DOWNLOADS -->
   <section class="view dl" id="v-downloads">
-    <a class="back" href="#/"><svg width="18" height="18"><use href="#back"/></svg>Back to updates</a><br>
+    <a class="back" href="#/"><svg width="17" height="17"><use href="#back"/></svg>Back to updates</a><br>
     <span class="badge">Official download centre</span>
     <h1>Download AutoBingwa</h1>
     <p>Choose the APK release that suits your Android device.</p>
@@ -222,24 +248,17 @@ footer nav{display:flex;justify-content:center;gap:10px;margin-top:14px}
     <div class="detail" id="detail"></div>
   </section>
 
-  <!-- HELP -->
-  <section class="view" id="v-help">
-    <a class="back" href="#/"><svg width="18" height="18"><use href="#back"/></svg>Back to updates</a>
-    <div class="help">
-      <h1 style="font-size:clamp(32px,6vw,48px);margin:10px 0 8px">Help Centre</h1>
-      <p style="color:var(--muted)">Quick answers about installing and updating AutoBingwa.</p>
-      <details><summary>How do I install the APK?</summary><p>Download the file, open it, and allow "Install unknown apps" for your browser when Android asks.</p></details>
-      <details><summary>Which version should I choose?</summary><p>Choose the latest release for all features. Choose Lite if your phone has limited storage or is older.</p></details>
-      <details><summary>Will I lose my data when I update?</summary><p>No. Install the new APK over the existing app and your saved flows and history stay in place.</p></details>
-      <details><summary>The app won't open after updating</summary><p>Restart your phone, then open the app again. If it still fails, contact support below.</p></details>
-      <div class="note">Support contact details will be added here once they are connected.</div>
-    </div>
+  <section class="view hp" id="v-help">
+    <a class="back" href="#/"><svg width="17" height="17"><use href="#back"/></svg>Back to updates</a>
+    <h1>Help Centre</h1>
+    <p>Set up the app and get quick answers.</p>
+    <div id="helpbody"></div>
   </section>
 
 </main>
 
 <footer>
-  <div class="fb"><svg width="22" height="22"><use href="#bolt"/></svg>AUTOBINGWA</div>
+  <div class="fb"><svg width="20" height="20"><use href="#bolt"/></svg>AutoBingwa USSD</div>
   <p>Powering smarter business operations.</p>
   <p>© <span id="yr">2026</span> AutoBingwa. All rights reserved.</p>
   <nav><a href="#/">Home</a><a href="#/downloads">Downloads</a><a href="#/help">Support</a></nav>
@@ -248,76 +267,157 @@ footer nav{display:flex;justify-content:center;gap:10px;margin-top:14px}
 <div class="toast" id="toast" role="status"></div>
 
 <script>
-/* ===== DATA: the backend will replace this later with fetch('/api/updates') ===== */
-const SITE = {
+/* ===== CONNECT TO SUPABASE =====
+   Supabase dashboard > Project Settings > API.
+   Replace ONLY the text between the quotes. Leave both empty to preview with sample data. */
+const SUPABASE_URL  = "https://smoukalewmuorpowfiqr.supabase.co";   // PASTE HERE: Project URL, e.g. https://abcdxyz.supabase.co
+const SUPABASE_ANON = "sb_publishable_fpzaTJK1WYibPlbBEfmh9Q_QTzEDgDf";   // PASTE HERE: the "anon public" key. NEVER the service_role key
+
+/* ===== Default content (the admin page can override these from the database) ===== */
+const CONTENT = {
   stats: [
     {v:"12,000+", l:"Total Downloads"},
     {v:"4.5 ★",   l:"User Rating"},
     {v:"4 sec",   l:"Average Run Time"},
     {v:"24/7",    l:"Access Anytime"}
+  ],
+  contact: { phone:"+254797411114", whatsapp:"254797411114", whatsappText:"Hello AutoBingwa, I need help." },
+  setup: [
+    {t:"Download the APK", d:"Open the Downloads page, choose a release and tap Download."},
+    {t:"Allow installs", d:"If Android asks, turn on “Install unknown apps” for your browser or file manager."},
+    {t:"Install the app", d:"Open the downloaded file and tap Install. Install over your old version to keep your data."},
+    {t:"Log in or create an account", d:"Open AutoBingwa and sign in with your email and PIN."},
+    {t:"Allow permissions", d:"Accept the permissions the app asks for. For Advanced mode, switch on the AutoBingwa accessibility service. The Phone Setup page in the app guides you."},
+    {t:"Keep it running", d:"Allow AutoBingwa to run in the background and turn off battery saving for it, so automation is not stopped."}
+  ],
+  faqs: [
+    {q:"Which version should I choose?", a:"Choose the latest release for all features. Choose Lite if your phone is older or has little storage."},
+    {q:"Will I lose my data when I update?", a:"No. Install the new APK over the existing app and your saved flows and history stay in place."},
+    {q:"The app won't open after updating", a:"Restart your phone and open the app again. If it still fails, contact us using the buttons below."}
   ]
 };
-const RELEASES = [
-  { id:"android", label:"latest", name:"AutoBingwa Android", version:"v2.4.0", date:"11 November 2026", size:"18.6 MB",
+const FALLBACK = [
+  { id:"android", label:"latest", name:"AutoBingwa Android", version:"v1.0.9", date:"11 November 2026", size:"18.6 MB",
     about:"The complete AutoBingwa experience, designed for agents who want to manage their business faster.",
-    included:["Automated USSD transaction execution","Smart Data Plans and token management","Transaction history and activity tracking","Improved speed and stability"],
-    url:"" },
-  { id:"lite", label:"stable", name:"AutoBingwa Lite", version:"v2.1.0", date:"28 October 2026", size:"12.4 MB",
-    about:"A lighter build for older phones or devices with limited storage. Core features, smaller download.",
-    included:["Automated USSD transaction execution","Basic token management","Transaction history","Low storage and memory use"],
-    url:"" }
+    included:["Automated USSD transaction execution","Smart Data Plans and token management","Transaction history and activity tracking","Improved speed and stability"], url:"" }
 ];
 
 /* ===== helpers ===== */
 const $ = s => document.querySelector(s);
 const ico = (n,s=22) => `<svg width="${s}" height="${s}"><use href="#${n}"/></svg>`;
-const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let selected = RELEASES[0].id;
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let RELEASES = [], state = 'loading', selected = null;
 
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toast.t); toast.t = setTimeout(()=>t.classList.remove('show'), 3200);
 }
+function fmtDate(d){
+  const x = new Date(d + 'T00:00:00');
+  return isNaN(x) ? (d || '') : x.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+}
+function mapRel(x){
+  const file = (x.name + '-' + x.version + '.apk').replace(/\s+/g,'-');
+  const path = x.apk_path ? x.apk_path.split('/').map(encodeURIComponent).join('/') : '';
+  return { id:x.id, label:x.label || 'stable', name:x.name, version:x.version, date:fmtDate(x.release_date),
+    size:x.size || '', about:x.about || '', included:Array.isArray(x.included) ? x.included : [],
+    url: path ? `${SUPABASE_URL}/storage/v1/object/public/apks/${path}?download=${encodeURIComponent(file)}` : '' };
+}
+async function sb(path){
+  const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, { headers:{ apikey:SUPABASE_ANON, Authorization:'Bearer ' + SUPABASE_ANON } });
+  if(!r.ok) throw new Error(r.status);
+  return r.json();
+}
+async function load(){
+  if(!SUPABASE_URL || !SUPABASE_ANON){ RELEASES = FALLBACK; state = 'ready'; renderAll(); return; }
+  try{
+    const [rel, cont] = await Promise.all([
+      sb('releases?select=*&published=eq.true&order=release_date.desc,created_at.desc'),
+      sb('site_content?select=key,value')
+    ]);
+    RELEASES = rel.map(mapRel);
+    cont.forEach(c => { if(c.key in CONTENT && c.value) CONTENT[c.key] = c.value; });
+    state = 'ready';
+  }catch(e){ state = 'error'; }
+  renderAll();
+}
 
 /* ===== renderers ===== */
 function renderStats(){
-  $('#stats').innerHTML = SITE.stats.map(s=>`<div class="stat"><b>${esc(s.v)}</b><span>${esc(s.l)}</span></div>`).join('');
+  $('#stats').innerHTML = CONTENT.stats.map(s=>`<div class="stat"><b>${esc(s.v)}</b><span>${esc(s.l)}</span></div>`).join('');
 }
 function renderReleases(){
-  $('#count').textContent = RELEASES.length + (RELEASES.length===1?' VERSION':' VERSIONS');
-  $('#rels').innerHTML = RELEASES.map(r=>`
-    <button class="rel ${r.id===selected?'sel':''}" data-id="${r.id}" aria-pressed="${r.id===selected}">
-      <div class="top"><span class="lbl ${r.label}">${r.label==='latest'?'Latest release':'Stable version'}</span>
-        ${r.id===selected?`<span class="tick">${ico('check',26)}</span>`:''}</div>
-      <div class="mid"><span class="mico">${ico('phone',30)}</span>
+  const box = $('#rels'), det = $('#detail');
+  $('#count').textContent = state === 'ready' ? RELEASES.length + (RELEASES.length === 1 ? ' VERSION' : ' VERSIONS') : '';
+  if(state === 'loading'){ box.innerHTML = '<p class="msg">Loading releases…</p>'; det.innerHTML = ''; return; }
+  if(state === 'error'){
+    box.innerHTML = '<p class="msg">Could not load releases. Check your internet and try again.</p><button class="btn pri" id="retry">Try again</button>';
+    det.innerHTML = ''; $('#retry').onclick = () => { state = 'loading'; renderReleases(); load(); }; return;
+  }
+  if(!RELEASES.length){ box.innerHTML = '<p class="msg">No releases are published yet. Please check back soon.</p>'; det.innerHTML = ''; return; }
+  if(!RELEASES.find(r => r.id === selected)) selected = RELEASES[0].id;
+  box.innerHTML = RELEASES.map(r=>`
+    <button class="rel ${r.id===selected?'sel':''}" data-id="${esc(r.id)}" aria-pressed="${r.id===selected}">
+      <div class="top"><span class="lbl ${r.label==='latest'?'latest':'stable'}">${r.label==='latest'?'Latest release':'Stable version'}</span>
+        ${r.id===selected?`<span class="tick">${ico('check',24)}</span>`:''}</div>
+      <div class="mid"><span class="mico">${ico('phone',26)}</span>
         <div><h3>${esc(r.name)}</h3><div class="v">${esc(r.version)}</div></div>
-        <span class="chev">${ico('chev',22)}</span></div>
+        <span class="chev">${ico('chev',20)}</span></div>
       <div class="bot"><span>${esc(r.date)}</span><b>${esc(r.size)}</b></div>
     </button>`).join('');
   renderDetail();
 }
 function renderDetail(){
-  const r = RELEASES.find(x=>x.id===selected);
+  const r = RELEASES.find(x => x.id === selected); if(!r) return;
   $('#detail').innerHTML = `
     <span class="badge">Release details</span>
     <h2>${esc(r.name)}</h2>
-    <div class="chips"><span class="chip">${esc(r.version)}</span><span class="chip">${esc(r.size)}</span></div>
+    <div class="chips"><span class="chip">${esc(r.version)}</span>${r.size?`<span class="chip">${esc(r.size)}</span>`:''}</div>
     <div class="meta">
       <div><span>Release date</span><b>${esc(r.date)}</b></div>
       <div><span>Package format</span><b>Android APK</b></div>
       <div><span>Platform</span><b>Android</b></div>
     </div>
     <h3>About this release</h3><p>${esc(r.about)}</p>
-    <h3>What's included</h3>
-    <ul class="list">${r.included.map(i=>`<li>${ico('check',22)}<span>${esc(i)}</span></li>`).join('')}</ul>
-    <button class="btn pri cta-dl" id="dlbtn">${ico('dl',20)}Download ${esc(r.name)}</button>
-    <div class="note">Make sure "Install unknown apps" is allowed on your phone before installing the APK.</div>`;
-  $('#dlbtn').onclick = () => {
-    if(r.url){ location.href = r.url; } else { toast('Download link is not connected yet.'); }
-  };
+    ${r.included.length?`<h3>What's included</h3><ul class="list">${r.included.map(i=>`<li>${ico('check',20)}<span>${esc(i)}</span></li>`).join('')}</ul>`:''}
+    <button class="btn pri cta-dl" id="dlbtn">${ico('dl',19)}Download ${esc(r.name)}</button>
+    <div class="note">Not sure how to install? Open the <a href="#/help" style="text-decoration:underline">Help Centre</a> for the setup steps.</div>`;
+  $('#dlbtn').onclick = () => { if(r.url){ location.href = r.url; } else { toast('This download is not available yet.'); } };
 }
+function renderHelp(){
+  const c = CONTENT.contact || {};
+  const tel = 'tel:' + String(c.phone || '').replace(/[^\d+]/g,'');
+  const wa = 'https://wa.me/' + String(c.whatsapp || '').replace(/\D/g,'') + (c.whatsappText ? '?text=' + encodeURIComponent(c.whatsappText) : '');
+  $('#helpbody').innerHTML = `
+    <h2>How to set up the APK</h2>
+    <ol class="steps">${CONTENT.setup.map(s=>`<li><div><b>${esc(s.t)}</b><span>${esc(s.d)}</span></div></li>`).join('')}</ol>
+    <h2>Common questions</h2>
+    ${CONTENT.faqs.map(f=>`<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join('')}
+    <div class="contact">
+      <h2>Need help?</h2>
+      <p>Talk to us directly.</p>
+      <span class="num">${esc(c.phone)}</span>
+      <div class="crow">
+        <a class="btn pri" href="${esc(tel)}">${ico('call',19)}Call</a>
+        <a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">${ico('chat',19)}WhatsApp</a>
+      </div>
+    </div>`;
+}
+function renderAll(){ renderStats(); renderReleases(); renderHelp(); }
 
-/* ===== router (hash based, works on any static host) ===== */
+/* ===== theme ===== */
+function setThemeIcon(){
+  const light = document.documentElement.dataset.theme === 'light';
+  $('#theme').innerHTML = ico(light ? 'moon' : 'sun', 22);
+}
+$('#theme').onclick = () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try{ localStorage.setItem('ab-theme', next); }catch(e){}
+  setThemeIcon();
+};
+
+/* ===== router ===== */
 function route(){
   const h = (location.hash.replace('#/','') || 'home').split('?')[0];
   const view = ['home','downloads','help'].includes(h) ? h : 'home';
@@ -325,12 +425,10 @@ function route(){
   document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('on', a.dataset.nav===view));
   $('#mnav').classList.remove('open'); $('#burger').setAttribute('aria-expanded','false');
   window.scrollTo(0,0);
-  document.title = {home:'AutoBingwa Updates',downloads:'Download AutoBingwa',help:'Help Centre · AutoBingwa'}[view];
+  document.title = {home:'AutoBingwa USSD Updates',downloads:'Download AutoBingwa',help:'Help Centre · AutoBingwa'}[view];
 }
 addEventListener('hashchange', route);
-$('#burger').onclick = () => {
-  const o = $('#mnav').classList.toggle('open'); $('#burger').setAttribute('aria-expanded', o);
-};
+$('#burger').onclick = () => { const o = $('#mnav').classList.toggle('open'); $('#burger').setAttribute('aria-expanded', o); };
 $('#rels').addEventListener('click', e => {
   const b = e.target.closest('.rel'); if(!b) return;
   selected = b.dataset.id; renderReleases();
@@ -338,7 +436,7 @@ $('#rels').addEventListener('click', e => {
 });
 
 $('#yr').textContent = new Date().getFullYear();
-renderStats(); renderReleases(); route();
+setThemeIcon(); renderAll(); route(); load();
 </script>
 </body>
 </html>
