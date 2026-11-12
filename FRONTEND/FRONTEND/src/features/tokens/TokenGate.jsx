@@ -39,19 +39,23 @@ export default function TokenGate({ onBuy, hidden = false }) {
 
   return (
     <div className="tg-back">
-      <style>{`
-        .tg-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.7); }
-        .tg { width: 100%; max-width: 400px; padding: 26px 20px 20px; border-radius: 24px; background: #121829; color: #fff; border: 1px solid #1f2740; }
-        .tg-badge { width: 58px; height: 58px; margin: 0 auto 14px; border-radius: 50%; background: #13301d; display: grid; place-items: center; font-size: 26px; }
-        .tg h3 { margin: 0 0 6px; text-align: center; font-size: 21px; }
-        .tg > p { margin: 0 0 22px; text-align: center; font-size: 14px; color: #9aa4bd; line-height: 1.5; }
-        .tg-step { display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; margin-bottom: 10px; border-radius: 16px; background: #0d1322; }
-        .tg-n { width: 30px; height: 30px; border-radius: 50%; background: #2e9e45; display: grid; place-items: center; font-weight: 800; font-size: 14px; flex-shrink: 0; }
-        .tg-step strong { display: block; font-size: 15px; }
-        .tg-step span { display: block; margin-top: 2px; color: #9aa4bd; font-size: 13px; line-height: 1.4; }
-        .tg button { display: block; width: 100%; padding: 16px; border: 0; border-radius: 999px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; }
-        .tg .go { margin-top: 18px; background: #2e9e45; color: #fff; }
-        .tg .later { margin-top: 6px; background: transparent; color: #9aa4bd; font-weight: 600; }
+       <style>{`
+        .tg-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.65); }
+        .tg { width: 100%; max-width: 360px; padding: 20px 16px 14px; border-radius: 22px;
+          background: var(--card, #0A2F2C); color: var(--text, #E6F7F1); border: 1px solid var(--border, #1B4D47); box-shadow: var(--shadow, none); }
+        .tg-badge { width: 48px; height: 48px; margin: 0 auto 10px; border-radius: 50%; background: var(--hover, #0F3B37);
+          display: grid; place-items: center; font-size: 22px; }
+        .tg h3 { margin: 0 0 4px; text-align: center; font-size: 18px; line-height: 1.3; }
+        .app .tg > p { margin: 0 0 14px; text-align: center; font-size: 13px; line-height: 1.5; color: var(--soft, #8FB8AE) !important; }
+        .tg-step { display: flex; gap: 10px; align-items: center; padding: 9px 12px; margin-bottom: 8px; border-radius: 14px;
+          background: var(--bg, #031F1D); border: 1px solid var(--border, #1B4D47); }
+        .tg-n { width: 26px; height: 26px; border-radius: 50%; background: var(--primary, #3CD6B5); color: var(--on-primary, #03241F);
+          display: grid; place-items: center; font-weight: 800; font-size: 13px; flex-shrink: 0; }
+        .tg-step strong { display: block; font-size: 14px; line-height: 1.3; }
+        .app .tg-step div span { display: block; margin-top: 1px; font-size: 12px; line-height: 1.4; color: var(--soft, #8FB8AE) !important; }
+        .tg button { display: block; width: 100%; padding: 13px; border: 0; border-radius: 999px; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+        .tg .go { margin-top: 12px; background: var(--primary, #3CD6B5); color: var(--on-primary, #03241F); }
+        .tg .later { margin-top: 4px; background: transparent; color: var(--soft, #8FB8AE); font-weight: 600; }
       `}</style>
       <div className="tg" role="dialog" aria-modal="true" aria-label="No active token">
         <div className="tg-badge">⚡</div>

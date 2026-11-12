@@ -41,3 +41,4 @@
 .rf-empty { text-align: center; opacity: .7; padding: 18px 0; font-size: 13px; }
 .rf-ok { color: #4ade80; font-size: 13px; text-align: center; font-weight: 600; }
 .rf-err { color: var(--danger, #e5484d); font-size: 13px; text-align: center; font-weight: 600; }
+.rf-off { padding: 10px 12px; border-radius: 12px; font-size: 12px; line-height: 1.4; text-align: center; border: 1px solid rgba(250,180,40,.6); background: rgba(250,180,40,.14); }

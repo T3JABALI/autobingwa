@@ -257,7 +257,8 @@ export default function HomePage({
   const matches = (t) => inFilter(t, filter)
   const countFor = (f) => visible.filter((t) => inFilter(t, f)).length
   const sorted = [...visible].sort((a, b) => b.createdAt - a.createdAt)
-  const recent = sorted.filter(matches).slice(0, 5)
+// Home only shows today's transactions. Older ones live in the full list (the arrow).
+const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).slice(0, 5)
 
   // Full list page: category + search (name, phone, M-Pesa message/ID, offer)
   const q = query.trim().toLowerCase()
@@ -548,11 +549,13 @@ export default function HomePage({
 
             {recent.length === 0 ? (
               <div className="hm-card hm-empty">
-                {txs.length === 0 ? (
-                  <p>No transactions yet. They appear here automatically after each purchase.</p>
-                ) : (
-                  <p>No {filter.toLowerCase()} transactions.</p>
-                )}
+             {txs.length === 0 ? (
+  <p>No transactions yet. They appear here automatically after each purchase.</p>
+) : filter === 'All' ? (
+  <p>No transactions today yet. Tap the arrow to see older ones.</p>
+) : (
+  <p>No {filter.toLowerCase()} transactions today.</p>
+)}
               </div>
             ) : (
               <div className="hm-list">{recent.map((t) => row(t, 'home'))}</div>

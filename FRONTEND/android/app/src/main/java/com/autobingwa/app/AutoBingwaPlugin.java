@@ -49,7 +49,7 @@ import org.json.JSONObject;
 public class AutoBingwaPlugin extends Plugin {
     private static AutoBingwaPlugin instance;
     static volatile long lastBeat = 0;
-
+static volatile long lastPortalBeat = 0;
     @Override
     public void load() {
         instance = this;
@@ -171,15 +171,35 @@ public class AutoBingwaPlugin extends Plugin {
     }
 
     // The portal login details, so the service can keep the phone showing Connected while the web view sleeps
-    @PluginMethod
-    public void savePortal(PluginCall call) {
-        getContext().getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE).edit()
-            .putString("portal_id", call.getString("id", ""))
-            .putString("portal_secret", call.getString("secret", ""))
-            .putBoolean("portal_on", Boolean.TRUE.equals(call.getBoolean("on", false)))
-            .apply();
-        call.resolve();
+   @PluginMethod
+public void savePortal(PluginCall call) {
+    android.content.Context ctx = getContext();
+    boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+    android.content.SharedPreferences sp = ctx.getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE);
+    sp.edit()
+        .putString("portal_id", call.getString("id", ""))
+        .putString("portal_secret", call.getString("secret", ""))
+        .putBoolean("portal_on", on)
+        .apply();
+    try {
+        if (on) {
+            // the portal needs the service so the phone keeps syncing with the screen off
+            ContextCompat.startForegroundService(ctx, new Intent(ctx, KeepAliveService.class));
+        } else if (!sp.getBoolean("keepalive", false)) {
+            ctx.stopService(new Intent(ctx, KeepAliveService.class));
+        }
+    } catch (Exception e) {
+        // Android can refuse a service start from the background; the next sync tries again
     }
+    call.resolve();
+}
+// JS calls this on every portal sync, so native knows the web view is alive
+@PluginMethod
+public void portalBeat(PluginCall call) {
+    lastPortalBeat = System.currentTimeMillis();
+    call.resolve();
+}
+
 
     // Opens the Android installer for the downloaded APK
     @PluginMethod
@@ -672,13 +692,15 @@ public class AutoBingwaPlugin extends Plugin {
         call.resolve();
     }
 
-    @PluginMethod
-    public void stopKeepAlive(PluginCall call) {
-        getContext().getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE)
-            .edit().putBoolean("keepalive", false).apply();
+@PluginMethod
+public void stopKeepAlive(PluginCall call) {
+    android.content.SharedPreferences sp = getContext().getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE);
+    sp.edit().putBoolean("keepalive", false).apply();
+    if (!sp.getBoolean("portal_on", false)) {
         getContext().stopService(new Intent(getContext(), KeepAliveService.class));
-        call.resolve();
     }
+    call.resolve();
+}
 
     @PluginMethod
     public void phoneAlert(PluginCall call) {

@@ -48,7 +48,9 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
   const save = () => {
     const p = Number(price)
     if (!p || p <= 0) return setErr('Enter your selling price')
-    onDownload({
+       const clash = owned.find((o) => Number(o.price) === p)
+    if (clash) return setErr(`KES ${p} is already used by ${clash.name}. Each offer needs its own price.`)
+      onDownload({
       id: Date.now(),
       sid: pick.sid,
       smart: true,
@@ -142,6 +144,11 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
                 <span>Your selling price (KES)</span>
                 <input type="number" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
               </label>
+                            {owned.some((o) => Number(o.price) === Number(price)) && (
+                <p className="err">
+                  KES {price} is already used by {owned.find((o) => Number(o.price) === Number(price)).name}. Choose a different price.
+                </p>
+              )}
               {err && <p className="err">{err}</p>}
             </div>
             <div className="sheet-bar">

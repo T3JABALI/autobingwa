@@ -133,8 +133,37 @@ export function updateTransaction(id, patch) {
   write(TX_KEY, list.map((t) => (t.id === id ? next : t)))
 }
 
+const DELETED_KEY = 'transactions:deleted'
+
+// IDs and M-Pesa codes of deleted transactions, so they are never created again
+export function loadDeletedKeys() {
+  const v = read(DELETED_KEY, [])
+  return Array.isArray(v) ? v : []
+}
+export const wasDeleted = (key) => Boolean(key) && loadDeletedKeys().includes(String(key))
+
+// Deleting one transaction deletes its whole fallback chain (the original and its backups),
+// because the user sees them as one transaction.
 export function deleteTransaction(id) {
-  write(TX_KEY, loadTransactions().filter((t) => t.id !== id))
+  const list = loadTransactions()
+  const gone = new Set([String(id)])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const t of list) {
+      const from = t.fallbackFromId ? String(t.fallbackFromId) : ''
+      if (from && gone.has(from) && !gone.has(String(t.id))) { gone.add(String(t.id)); grew = true } // a backup of a deleted one
+      if (from && gone.has(String(t.id)) && !gone.has(from)) { gone.add(from); grew = true } // the original behind a deleted backup
+    }
+  }
+  const marks = []
+  list.forEach((t) => {
+    if (!gone.has(String(t.id))) return
+    marks.push(String(t.id))
+    if (t.mpesaId) marks.push(String(t.mpesaId))
+  })
+  write(DELETED_KEY, [...new Set([...loadDeletedKeys(), ...marks])].slice(-1000))
+  write(TX_KEY, list.filter((t) => !gone.has(String(t.id))))
 }
 
 // One-time cleanup of the old sample transactions

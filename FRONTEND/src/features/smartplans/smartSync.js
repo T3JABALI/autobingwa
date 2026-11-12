@@ -8,12 +8,13 @@ const twKey = (t) => (t ? { on: Boolean(t.on), from: t.from, until: t.until } : 
 export function applyCatalog(offer, plan) {
   if (!offer.sid || !plan) return null
   if (offer.catRev === plan.rev) return null
+  const c = offer.custom || {}
   const next = {
     ...offer,
-    name: plan.name,
-    ussd: plan.ussd,
-    steps: plan.steps,
-    safPrice: plan.safPrice,
+    name: c.name ? offer.name : plan.name,
+ussd: plan.ussd,
+steps: plan.steps,
+    safPrice: c.safPrice ? offer.safPrice : plan.safPrice,
     sig: plan.sig,
     sigLearned: Boolean(plan.sig),
     sigEnabled: Boolean(plan.sig),

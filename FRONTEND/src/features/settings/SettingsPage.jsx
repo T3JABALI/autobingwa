@@ -125,8 +125,8 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
     const next = { ...config, ...patch }
     setConfig(next)
     writeJson(CONFIG_KEY, next)
+    syncNow() // send the new switches to the background service straight away
   }
-
   // One SIM runs payments, USSD, airtime balance and commission. One SIM sends replies.
   function chooseSim(field, sim) {
     if (field === 'bingwaSim') {

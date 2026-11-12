@@ -27,6 +27,7 @@ import {
   chargeToken,
   removeDemoData,
   applyNativeCharges,
+  wasDeleted,
 } from '../features/home/dataStore.js'
 import { startNativeSync } from './nativeSync.js'
 function readJson(key, fallback) {
@@ -56,7 +57,10 @@ const store = {
     updateTransaction(id, p)
     return loadTransactions().find((t) => t.id === id)
   },
-  remove: deleteTransaction,
+  remove: (id) => {
+    releaseNative(id) // the background engine stops owning it
+    deleteTransaction(id)
+  },
 }
 
 
@@ -370,6 +374,7 @@ export async function importNative() {
     const byId = new Map(loadTransactions().map((t) => [t.id, t]))
     for (const nt of list) {
       const local = byId.get(nt.id)
+      if (!local && (wasDeleted(nt.id) || wasDeleted(nt.mpesaId))) continue // the user deleted it
       if (!local) {
         addTransaction({ ...nt })
         changed++

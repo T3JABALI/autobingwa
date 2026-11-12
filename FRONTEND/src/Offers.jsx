@@ -337,6 +337,7 @@ function EditSheet({ start, offers, onClose, onSave }) {
   }))
   const [err, setErr] = useState('')
   const lock = isLocked(start)
+  const ussdLocked = Boolean(start.smart) && !start.isNew // smart plan USSD comes from the admin
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
 
   function turnNotify(on) {
@@ -344,7 +345,8 @@ function EditSheet({ start, offers, onClose, onSave }) {
   }
 
   function save() {
-    const patch = toPatch(f, lock)
+    const patch = toPatch(f, false)
+    if (ussdLocked) patch.ussd = normalizeUssd(start.ussd)
     if (!patch.name) return setErr('Enter the offer name')
     const bad = checkUssd(patch.ussd)
     if (bad) return setErr(bad)
@@ -361,8 +363,16 @@ function EditSheet({ start, offers, onClose, onSave }) {
       return onSave({ ...rest, ...patch, updated: stamp })
     }
     // Nothing changed: just close, so the signature is not switched off for no reason
-    if (JSON.stringify(patch) === JSON.stringify(toPatch(start, lock))) return onClose()
-    // Smart offers keep their USSD and signature. A manual offer's signature is switched off, so it is learnt again.
+    const was = toPatch(start, false)
+    if (JSON.stringify(patch) === JSON.stringify(was)) return onClose()
+    // Smart plans: save the edit directly. The signature is never touched.
+    // 'custom' remembers which fields you changed, so a catalog update does not overwrite them.
+    if (start.smart) {
+      const custom = { ...(start.custom || {}) }
+for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
+      return onSave({ ...start, ...patch, custom, updated: stamp })
+    }
+    // A manual offer's signature is switched off, so it is learnt again.
     onSave({ ...applyEdit(start, patch), updated: stamp })
   }
 
@@ -377,34 +387,45 @@ function EditSheet({ start, offers, onClose, onSave }) {
         </>
       }
     >
-      {lock && <p className="of-hint">This is a verified Smart plan. Only the amount and the settings below can be changed.</p>}
+      {lock && <p className="of-hint">This is a verified Smart plan. You can change everything here except its USSD code and signature, which come from AutoBingwa.</p>}
       {!lock && !start.isNew && start.sigLearned && (
         <p className="of-hint">Saving a change switches this offer's signature off. You will need to learn it again.</p>
       )}
 
       <label className="field"><span>Offer name</span>
-        <input value={f.name} disabled={lock} onChange={(e) => set('name', e.target.value)} placeholder="1GB 1HR" />
+       <input value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="1GB 1HR" />
       </label>
 
       <label className="field"><span>Category</span>
-        <select value={f.category} disabled={lock} onChange={(e) => set('category', e.target.value)}>
+      <select value={f.category} onChange={(e) => set('category', e.target.value)}>
           {PICK.map((c) => (
             <option key={c} value={c}>{c.charAt(0) + c.slice(1).toLowerCase()}</option>
           ))}
         </select>
       </label>
 
-      <label className="field"><span>USSD code</span>
-        <input value={f.ussd} disabled={lock} onChange={(e) => set('ussd', e.target.value)} placeholder="*180*5*2*AB*1*1#" />
-        <small>Use AB where the customer phone number goes.</small>
-      </label>
+<label className="field"><span>USSD code</span>
+  <input
+    value={f.ussd}
+    onChange={(e) => set('ussd', e.target.value)}
+    placeholder="*180*5*2*AB*1*1#"
+    readOnly={ussdLocked}
+    disabled={ussdLocked}
+    style={ussdLocked ? { opacity: 0.6 } : undefined}
+  />
+  <small>
+    {ussdLocked
+      ? 'This USSD path was learned by the admin and cannot be edited.'
+      : 'Use AB where the customer phone number goes.'}
+  </small>
+</label>
 
       <div className="two">
         <label className="field"><span>Amount (KES)</span>
           <input type="number" inputMode="decimal" value={f.price} onChange={(e) => set('price', e.target.value)} />
         </label>
         <label className="field"><span>Safaricom price (KES)</span>
-          <input type="number" inputMode="decimal" value={f.safPrice} disabled={lock} onChange={(e) => set('safPrice', e.target.value)} />
+          <input type="number" inputMode="decimal" value={f.safPrice} onChange={(e) => set('safPrice', e.target.value)} />
         </label>
       </div>
 

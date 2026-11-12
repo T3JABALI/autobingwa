@@ -1,5 +1,6 @@
 // Sends this phone's live state to the AutoBingwa Portal and runs commands sent from it.
 import { Device } from '@capacitor/device'
+import { App } from '@capacitor/app'
 import { engine } from '../../engine/index.js'
 import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled, AutoBingwa } from '../../engine/native.js'
 import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
@@ -8,7 +9,7 @@ import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
 import { payWithAirtime } from '../../engine/tokenPay.js'
 import { grantTokens, tokensActive } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
-import { subscribe, loadTransactions, loadAirtime, loadWallet } from '../home/dataStore.js'
+import { subscribe, loadTransactions, loadAirtime, loadWallet, loadDeletedKeys } from '../home/dataStore.js'
 
 const SERVER = 'https://autobingwa-payments.onrender.com'
 const ID_KEY = 'connect:id'
@@ -36,6 +37,9 @@ let checking = false
 let paying = false
 let lastSaved = ''
 let lastBattery = { level: 0, charging: false }
+let worker = null
+let appListener = null
+let cmdListener = null
 const inflight = new Set() // command ids being handled, so a resent command never runs twice
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -256,7 +260,7 @@ async function buildSnapshot() {
     running: engine.isRunning(),
     offers: offersForPortal(),
     recent,
-    hidden,
+    hidden: [...hidden, ...loadDeletedKeys().slice(-300)],
   }
 }
 
@@ -420,7 +424,20 @@ async function handleCommand(c, auth) {
     soon()
   }
 }
-
+function dispatch(commands, auth, on) {
+  for (const c of commands || []) {
+    const switchCmd = c.type === 'portal_on' || c.type === 'portal_off'
+    if (!on && !switchCmd) continue // while off, only the switch commands are obeyed
+    if (inflight.has(c.id)) continue // the server resends credit_tokens until we report; handle each once
+    inflight.add(c.id)
+    handleCommand(c, auth)
+      .catch((e) => {
+        console.error('portal command', c.type, e && e.message ? e.message : e)
+        return report(c, auth, false, e && e.message ? e.message : 'The command failed.')
+      })
+      .finally(() => setTimeout(() => inflight.delete(c.id), 60000))
+  }
+}
 async function tick() {
   if (busy && Date.now() - busySince < 45000) return
   busy = true
@@ -454,28 +471,15 @@ async function tick() {
         .catch((e) => console.error('savePortal', e && e.message ? e.message : e))
     }
 
-    const r = await post(
-      '/device/sync',
-      { portalOn: on, snapshot: on ? await buildSnapshot() : undefined },
-      auth
-    )
+    const snap = on ? await buildSnapshot() : undefined
+    if (isNative()) AutoBingwa.portalBeat().catch(() => {})
+    const r = await post('/device/sync', { portalOn: on, snapshot: snap }, auth)
     if (!r.ok) {
       console.error('portal sync failed', r.status, r.j.error)
       if (r.status === 401) localStorage.removeItem(SECRET_KEY + id) // bad credentials: register again next tick
       return
     }
-    for (const c of r.j.commands || []) {
-      const switchCmd = c.type === 'portal_on' || c.type === 'portal_off'
-      if (!on && !switchCmd) continue // while off, only the switch commands are obeyed
-      if (inflight.has(c.id)) continue // the server resends credit_tokens until we report; handle each once
-      inflight.add(c.id)
-      handleCommand(c, auth)
-        .catch((e) => {
-          console.error('portal command', c.type, e && e.message ? e.message : e)
-          return report(c, auth, false, e && e.message ? e.message : 'The command failed.')
-        })
-        .finally(() => setTimeout(() => inflight.delete(c.id), 60000))
-    }
+    dispatch(r.j.commands, auth, on)
   } catch (e) {
     console.error('portal sync', e && e.message ? e.message : e)
   } finally {
@@ -490,6 +494,40 @@ function soon() {
 }
 
 const onVisible = () => { if (!document.hidden) soon() }
+const onOnline = () => soon()
+
+// A Worker's timer is throttled much less than the main thread's when the screen is off.
+// If workers are blocked, it falls back to a normal setInterval.
+function stopTicker() {
+  if (worker) {
+    worker.terminate()
+    worker = null
+  }
+  clearInterval(timer)
+  timer = null
+}
+
+function startTicker() {
+  stopTicker()
+  const fallback = () => {
+    if (!timer) timer = setInterval(tick, INTERVAL)
+  }
+  try {
+    const src = 'let t;onmessage=e=>{clearInterval(t);if(e.data>0)t=setInterval(()=>postMessage(0),e.data)}'
+    worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })))
+    worker.onmessage = () => tick()
+    worker.onerror = () => {
+      if (worker) {
+        worker.terminate()
+        worker = null
+      }
+      fallback()
+    }
+    worker.postMessage(INTERVAL)
+  } catch (e) {
+    fallback()
+  }
+}
 
 export function startPortalSync() {
   console.log('portal sync started')
@@ -497,18 +535,44 @@ export function startPortalSync() {
   offData = subscribe(soon)
   window.addEventListener('ab-balances', soon)
   window.addEventListener('ab-connect', soon)
+  window.addEventListener('online', onOnline)
   document.addEventListener('visibilitychange', onVisible)
+
+  if (isNative()) {
+    // Sync right away when the app comes back to the foreground
+    App.addListener('appStateChange', (s) => {
+      if (s.isActive) soon()
+    })
+      .then((h) => { appListener = h })
+      .catch(() => {})
+
+    // Commands the native service fetched while the WebView was asleep
+    try {
+      AutoBingwa.addListener('portalCommands', (e) => {
+        const id = (localStorage.getItem(ID_KEY) || '').trim()
+        const secret = localStorage.getItem(SECRET_KEY + id)
+        if (!id || !secret) return
+        dispatch(e.commands, { 'X-Connect-Id': id, 'X-Device-Secret': secret }, portalSwitchOn())
+      })
+        .then((h) => { cmdListener = h })
+        .catch(() => {})
+    } catch (e) { /* native side not added yet */ }
+  }
+
   tick()
-  timer = setInterval(tick, INTERVAL)
+  startTicker()
 }
 
 export function stopPortalSync() {
-  clearInterval(timer)
+  stopTicker()
   clearTimeout(soonTimer)
-  timer = null
+  soonTimer = null
   if (offData) offData()
   offData = null
+  if (appListener) { appListener.remove(); appListener = null }
+  if (cmdListener) { cmdListener.remove(); cmdListener = null }
   window.removeEventListener('ab-balances', soon)
   window.removeEventListener('ab-connect', soon)
+  window.removeEventListener('online', onOnline)
   document.removeEventListener('visibilitychange', onVisible)
 }

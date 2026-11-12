@@ -5,6 +5,9 @@ import './referral.css'
 
 const API = (import.meta.env.VITE_TOKEN_API || '').replace(/\/+$/, '')
 const PLAN = { d7: '1 Week Token', d30: '1 Month Token' }
+const CACHE = 'referral:cache:'
+const LAST_UID = 'referral:lastUid'
+const TIMEOUT_MS = 12000
 
 export const ReferralIcon = ({ size = 22 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -14,12 +17,50 @@ export const ReferralIcon = ({ size = 22 }) => (
   </svg>
 )
 
+// ---- Saved copy, so the dashboard also opens without internet ----
+// The user id comes from the saved login (works offline). The last one used is the fallback.
+async function getUid() {
+  let uid = ''
+  try {
+    const { data } = await supabase.auth.getSession()
+    uid = (data.session && data.session.user && data.session.user.id) || ''
+  } catch (e) { /* offline */ }
+  try {
+    if (uid) localStorage.setItem(LAST_UID, uid)
+    else uid = localStorage.getItem(LAST_UID) || ''
+  } catch (e) { /* storage blocked */ }
+  return uid
+}
+function readCache(uid) {
+  if (!uid) return null
+  try {
+    const v = JSON.parse(localStorage.getItem(CACHE + uid) || 'null')
+    return v && v.data ? v : null
+  } catch (e) { return null }
+}
+function saveCache(uid, data) {
+  if (!uid) return
+  try { localStorage.setItem(CACHE + uid, JSON.stringify({ at: Date.now(), data })) } catch (e) { /* storage full */ }
+}
+
 async function api(path, opts = {}) {
-  const { data } = await supabase.auth.getSession()
-  const r = await fetch(API + path, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ((data.session && data.session.access_token) || '') },
-  })
+  const { data } = await supabase.auth.getSession().catch(() => ({ data: {} }))
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS)
+  let r
+  try {
+    r = await fetch(API + path, {
+      ...opts,
+      signal: ctl.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ((data.session && data.session.access_token) || '') },
+    })
+  } catch (e) {
+    const off = new Error('You are offline. Connect to the internet and try again.')
+    off.offline = true // no connection, or too slow: not a server answer
+    throw off
+  } finally {
+    clearTimeout(timer)
+  }
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(j.error || 'Something went wrong.')
   return j
@@ -33,6 +74,8 @@ async function claim(list) {
   }
 }
 
+const fmt = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
 export default function ReferralDashboard() {
   const [d, setD] = useState(null)
   const [err, setErr] = useState('')
@@ -40,15 +83,30 @@ export default function ReferralDashboard() {
   const [busy, setBusy] = useState(false)
   const [all, setAll] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [offline, setOffline] = useState(false)
+  const [savedAt, setSavedAt] = useState(0)
 
   const load = useCallback(async () => {
+    const uid = await getUid()
+    const cached = readCache(uid)
+    if (cached) { setD((prev) => prev || cached.data); setSavedAt(cached.at) } // show the saved copy straight away
     try {
       let j = await api('/referral/me')
       if (j.pending.length) { await claim(j.pending); j = await api('/referral/me') } // finish an interrupted withdrawal
-      setD(j); setErr('')
-    } catch (e) { setErr(e.message) }
+      setD(j); setErr(''); setOffline(false); setSavedAt(Date.now())
+      saveCache(uid, j)
+    } catch (e) {
+      if (e.offline && cached) { setOffline(true); setErr('') }
+      else setErr(e.message)
+    }
   }, [])
-  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    load()
+    // Refresh by itself when the internet comes back
+    window.addEventListener('online', load)
+    return () => window.removeEventListener('online', load)
+  }, [load])
 
   const withdraw = async () => {
     setBusy(true); setErr(''); setMsg('')
@@ -57,7 +115,10 @@ export default function ReferralDashboard() {
       await claim([w])
       setMsg(`${w.days} day${w.days === 1 ? '' : 's'} of unlimited added to your tokens.`)
       await load()
-    } catch (e) { setErr(e.message) }
+    } catch (e) {
+      if (e.offline) setOffline(true)
+      setErr(e.message)
+    }
     setBusy(false)
   }
 
@@ -70,6 +131,12 @@ export default function ReferralDashboard() {
 
   return (
     <div className="rf">
+      {offline && (
+        <div className="rf-off">
+          You are offline. Showing your saved referrals{savedAt ? ` (updated ${fmt(savedAt)})` : ''}. Withdraw works when you are back online.
+        </div>
+      )}
+
       <div className="rf-banner">
         <h3>Refer other agents and earn <em>Unlimited 1 Day</em> tokens after they have purchased unlimited weekly or monthly tokens</h3>
         <ReferralIcon size={64} />
@@ -83,8 +150,8 @@ export default function ReferralDashboard() {
           <span>= {d.balance} Free Day{d.balance === 1 ? '' : 's'}</span>
         </div>
         <div className="rf-wd">
-          <button disabled={busy || d.balance < 1} onClick={withdraw}>{busy ? 'Please wait…' : 'Withdraw'}</button>
-          <span>Adds to your token balance</span>
+          <button disabled={busy || offline || d.balance < 1} onClick={withdraw}>{busy ? 'Please wait…' : 'Withdraw'}</button>
+          <span>{offline ? 'Needs internet' : 'Adds to your token balance'}</span>
         </div>
       </div>
       {msg && <div className="rf-ok">{msg}</div>}

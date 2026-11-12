@@ -5,7 +5,7 @@ import { loadConfig, isBlacklisted } from './config.js'
 import { classifyScreen } from './confirm.js'
 import { pickOffer, nextDayAt, fillTemplate, inWindow } from './offerRules.js'
 import { findFallback, fallbackDelayMinutes } from './fallbackStore.js'
-
+import { wasDeleted } from '../features/home/dataStore.js'
 // ---------- Phone numbers ----------
 // Reads a Kenyan number written any common way:
 // 0797411114, +254797411114, 254797411114, 0117818996, 07 97411114, 0797-411-114, 0797***114
@@ -137,6 +137,7 @@ export function createEngine({
   function ingest(sms) {
     const p = parseMpesa(typeof sms === 'string' ? sms : sms.body)
     if (p.code && store.list().some((t) => t.mpesaId === p.code)) return null // same SMS delivered twice
+    if (p.code && wasDeleted(p.code)) return null // the user deleted this payment
     console.log('AB parsed', JSON.stringify(p))
     if (!p.code || !p.ok) return null // not a payment received, so it is not a transaction
 
@@ -603,7 +604,7 @@ export function createEngine({
     if (!hasToken()) return Promise.resolve({ ok: false, status: 'Failed', text: 'You have no active token. Buy a token to continue.' })
 
     // The portal may send the same command again on the next sync. Never dial twice for one id.
-    if (id && store.list().some((t) => sameId(t.id, id))) {
+if (id && (store.list().some((t) => sameId(t.id, id)) || wasDeleted(id))) {
       return Promise.resolve({ ok: false, status: 'Duplicate', text: 'This transaction was already received.' })
     }
 

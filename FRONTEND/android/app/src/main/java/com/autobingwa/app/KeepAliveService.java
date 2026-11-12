@@ -150,10 +150,11 @@ public class KeepAliveService extends Service {
                 @Override
                 public void run() {
                     try {
-                        holdCpu();
+                                        holdCpu();
                         ticks++;
+                        boolean auto = getSharedPreferences("autobingwa_prefs", Context.MODE_PRIVATE).getBoolean("keepalive", false);
                         if (ticks % 3 == 0) ensureAccessibility();                       // every 30 s
-                        if (ticks % 30 == 0) Notifier.motivate(getApplicationContext()); // every 5 min
+if (auto && ticks % 30 == 0) Notifier.motivate(getApplicationContext()); // every 5 min
 
                         long now = System.currentTimeMillis();
                         long silent = now - AutoBingwaPlugin.lastBeat;
@@ -167,7 +168,7 @@ public class KeepAliveService extends Service {
                         // Bring the app forward ONLY when a fresh message is waiting and the web engine is silent.
                         // Never in the middle of a purchase, and at most 3 times for the same message.
                         // While the background engine owns payments, the app is never woken for a waiting SMS
-                        String key = EngineCore.owns(getApplicationContext()) ? null : waitingKey();
+String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitingKey();
                         if (key == null) {
                             lastKey = "";
                             wakeCount = 0;
