@@ -25,12 +25,12 @@ import UpdatePrompt from './features/updates/UpdatePrompt.jsx'
 import PhoneSetupPage from './features/setup/PhoneSetupPage.jsx'
 import SupportPage from './features/support/SupportPage.jsx'
 import DialogHost from './features/ui/DialogHost.jsx'
-import { askChoice, confirmDialog } from './features/ui/dialog.js'
+
 import Sitelink from './features/sitelink/sitelink.jsx'
 import { useSmartSync } from './features/smartplans/smartSync.js'
 import BottomNav from './features/home/BottomNav.jsx'
 import { AnalyticsScreen } from './features/home/AnalyticsPage.jsx'
-
+import { askChoice, confirmDialog } from './features/ui/dialog.js'
 import { saveMode } from './features/home/dataStore.js'
 import { engine, importNative } from "./engine/index.js";
 import { setNativeRunning } from './engine/nativeSync.js'
@@ -38,7 +38,8 @@ import { isNative, ussdServiceEnabled, setKeepAlive, heartbeat } from './engine/
 import { loadConfig } from './engine/config.js'
 import Onboarding, { isOnboarded } from './features/setup/Onboarding.jsx'
 import { useAuth } from './features/auth/AuthContext'
-
+import { App as CapApp } from '@capacitor/app'
+import { useBackHandler, runBack } from './features/ui/useBack.js'
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
   { id: 2, name: 'FAITH KHASOA SIMIYU', phone: '070 459 0730', status: 'Completed', time: '7m ago', initials: 'FS' },
@@ -1559,7 +1560,23 @@ useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 60000)
     return () => clearInterval(timer)
   }, [])
+  // Phone back button: the base layer. Open pop-ups and sub-screens answer first (see useBack.js).
+  useBackHandler(() => {
+    if (menuOpen) { setMenuOpen(false); return }
+    if (modeOpen) { setModeOpen(false); return }
+    if (activePage !== 'Home') { setActivePage('Home'); return }
+    // On Home: send the app to the background instead of closing it, so automation keeps running
+    if (isNative()) CapApp.minimizeApp().catch(() => {})
+  })
 
+  useEffect(() => {
+    if (!isNative()) return undefined
+    let handle = null
+    CapApp.addListener('backButton', () => {
+      runBack()
+    }).then((h) => { handle = h }).catch(() => {})
+    return () => { if (handle) handle.remove() }
+  }, [])
   // A successful purchase teaches its menu path (see engine/index.js). Saved here so the offers list stays in sync.
   useEffect(() => {
     const learned = (e) => {

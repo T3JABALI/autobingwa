@@ -21,7 +21,20 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AutoBingwaPlugin.class);
         super.onCreate(savedInstanceState);
     }
-
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(AutoBingwaPlugin.class);
+        super.onCreate(savedInstanceState);
+        // Lets the app come up over the lock screen and light the screen when the service wakes it
+        if (android.os.Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        } else {
+            getWindow().addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        }
+    }
     // While automation is running, do not let the web view's timers stay paused in the background
     private void keepWebViewRunning() {
         try {
@@ -56,7 +69,7 @@ public class MainActivity extends BridgeActivity {
     // After a wake, go back to the background, but never while a USSD purchase is running.
     // Checks every 500 ms and waits at most 2 minutes.
     private void backWhenIdle(final int tries) {
-        if (UssdFlow.busy && tries < 240) {
+        if ((UssdFlow.busy || PortalQueue.peek(this).length() > 0) && tries < 240) {
             loop.postDelayed(new Runnable() {
                 @Override public void run() { backWhenIdle(tries + 1); }
             }, 500);

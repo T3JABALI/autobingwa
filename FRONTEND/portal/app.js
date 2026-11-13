@@ -38,7 +38,7 @@ plans:[
 {id:'p3',name:'1.5GB 3HRS',cat:'DATA',price:50,safPrice:49,ussd:'*180*5*2*AB*7*1#',signed:false,on:true,tw:{on:true,from:'06:00',until:'22:00',altId:'p2',notify:false,msg:''}},
 {id:'p4',name:'900 MB Midnight',cat:'DATA',price:57,safPrice:55,ussd:'*544*6*8*AB*00*1*0*6*1#',signed:true,on:false}]};
 const PACKS=[['1,000 units',90,'u1000'],['600 units',50,'u600'],['250 units',25,'u250'],['100 units',15,'u100'],['1 day unlimited',30,'d1'],['7 days unlimited',200,'d7'],['30 days unlimited',550,'d30']];
-const SUBS=[{n:'2 devices',p:100,f:['Link 1 or 2 devices','2 days of portal history','30 days of access']},{n:'5 devices',p:200,pop:1,f:['Link up to 5 devices','5 days of portal history','30 days of access']},{n:'Unlimited',p:400,f:['Link unlimited devices','1 week of portal history','30 days of access']}];
+   let SUBS=[];
 const PICK=['DATA','MINUTES','SMS','TUNUKIWA','BINGWA'],PCATS=['ALL','DATA','BINGWA','TUNUKIWA','MINUTES','SMS'];
 const DEF_MSG='Hi {name}, your {offer} has been sent. Thank you for buying!';
 const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -182,18 +182,41 @@ ${g.msg?`<p class="hint">${esc(g.msg)}</p>`:''}${g.err?`<p class="err">${esc(g.e
 function more(){const m=S.more;if(m)return{quick,sub,tokens,settings}[m]();
 return `<h1 class="h2">More</h1>${[['quick','dial','Quick Dial'],['sub','card','Portal Subscription'],['tokens','coin','Tokens'],['settings','gear','Settings']].map(([k,i,l])=>`<button class="card mrow" data-a="go" data-p="more" data-m="${k}">${ic(i)}<b class="grow">${l}</b>${ic('chev')}</button>`).join('')}<button class="card mrow" data-a="out">${ic('out')}<b class="grow">Sign out</b></button>`}
 function quick(){return `${bk('Quick Dial')}<div class="card"><label>Phone number<input id="qp" class="in" type="tel" inputmode="tel" placeholder="0712345678"></label><label>Plan<select id="qo" class="in">${DB.plans.filter(p=>p.on).map(p=>`<option value="${p.id}">${esc(p.name)}, KES ${p.price}</option>`).join('')}</select></label><p id="qe" class="err" role="alert"></p><button class="btn full" data-a="qdial">${ic('dial',18)} Dial on ${esc(dev().name)}</button></div>`}
-function sub(){const n=DB.devices.length,m=DB.plan.max,act=DB.plan.active!==false;return `${bk('Portal Subscription')}${act?'':'<div class="card warn"><b>Subscribe to use the portal</b><p class="mu">Choose a plan below to connect your phones and see their live activity.</p></div>'}<div class="card"><div class="flex"><b class="grow">${act?n+(m>=1000?'':' of '+m)+' devices paired':'No active subscription'}</b><small>${DB.plan.exp?'Expires '+DB.plan.exp:''}</small></div>${act?`<div class="bar"><i style="width:${Math.min(100,n/m*100)}%"></i></div>`:''}</div>
-${SUBS.map(s=>{const c=act&&s.n===DB.plan.name;return `<div class="card sp${s.pop?' pop':''}">${s.pop?'<span class="tag">Most popular</span>':''}<h3>${s.n}</h3><div class="price">KES ${s.p}<small> / 30 days</small></div><ul>${s.f.map(f=>`<li>${f}</li>`).join('')}</ul><button class="btn${c?' gh':''} full" data-a="subbuy" data-n="${s.n}">${c?'Extend 30 days':'Choose '+s.n}</button></div>`}).join('')}`}
+   function sub(){const n=DB.devices.length,m=DB.plan.max,act=DB.plan.active!==false;return `${bk('Portal Subscription')}${act?'':'<div class="card warn"><b>Subscribe to use the portal</b><p class="mu">Choose a plan below to connect your phones and see their live activity.</p></div>'}<div class="card"><div class="flex"><b class="grow">${act?n+(m>=1000?'':' of '+m)+' devices paired':'No active subscription'}</b><small>${DB.plan.exp?'Expires '+DB.plan.exp:''}</small></div>${act?`<div class="bar"><i style="width:${Math.min(100,n/m*100)}%"></i></div>`:''}</div>
+   ${SUBS.map(s=>{const c=act&&s.id===DB.plan.id;return `<div class="card sp${s.pop?' pop':''}">${s.pop?'<span class="tag">Most popular</span>':''}<h3>${esc(s.n)}</h3><div class="price">KES ${s.p}<small> / 30 days</small></div><ul>${s.f.map(f=>`<li>${esc(f)}</li>`).join('')}</ul><button class="btn${c?' gh':''} full" data-a="subbuy" data-id="${esc(s.id)}">${c?'Extend access':'Choose '+esc(s.n)}</button></div>`}).join('')||'<p class="mu c">Loading plans…</p>'}`}
 function tokens(){return `${bk('Tokens')}<p class="mu">Balances come from the phone. Buying sends an airtime purchase to that device.</p>${DB.devices.map(d=>`<div class="card"><div class="flex"><i class="dot${d.online?' on':''}"></i><b class="grow">${esc(d.name)}</b></div><div class="flex" style="margin:0"><span class="big grow">${d.tok}<small> tokens</small></span><button class="btn" data-a="tbuy" data-id="${d.id}">${ic('coin',18)} Buy</button></div>${d.until?`<span class="pill" style="margin-top:10px">Unlimited until ${d.until}</span>`:''}</div>`).join('')}`}
 function settings(){return `${bk('Settings')}<div class="card"><b>Appearance</b><div class="seg">${['light','dark','system'].map(t=>`<button class="${S.theme===t?'on':''}" data-a="theme" data-t="${t}" aria-pressed="${S.theme===t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></div>
 <div class="card"><b>Change password</b><label>Current password<input id="pw0" class="in" type="password" autocomplete="current-password"></label><label>New password<input id="pw1" class="in" type="password" autocomplete="new-password"></label><label>Confirm new password<input id="pw2" class="in" type="password" autocomplete="new-password"></label><p id="pwe" class="err" role="alert"></p><button class="btn full" data-a="pw">Update password</button></div>`}
 function render(){if(DB.locked){S.page='more';S.more='sub'}const pg=({home,devices,tx:txPage,plans,more})[S.page];if(pg)$('#app').innerHTML=pg();document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.page))}
 /* ===== Actions ===== */
 const pl=id=>DB.plans.find(p=>String(p.id)===String(id)),dv=id=>DB.devices.find(d=>String(d.id)===String(id));
+/* ===== Payment progress screen ===== */
+let PAY=0;
+window.addEventListener('beforeunload',e=>{if(PAY){e.preventDefault();e.returnValue=''}});
+document.head.appendChild(Object.assign(document.createElement('style'),{textContent:`
+.payic{width:64px;height:64px;margin:6px auto 14px;border-radius:50%;display:grid;place-items:center;font-size:32px;font-weight:800;color:#fff}
+.payic.ok{background:var(--ok)}.payic.bad{background:var(--bad)}.payic.warn{background:var(--wn)}
+.payspin{width:56px;height:56px;margin:6px auto 16px;border-radius:50%;border:5px solid var(--bd,rgba(128,128,128,.3));border-top-color:var(--ac);animation:payrot 1s linear infinite}
+@keyframes payrot{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.payspin{animation-duration:3s}}`}));
+// No data-a on the backdrop, so tapping outside does nothing while the payment runs
+function payView(s,t,m){
+$('#modal').innerHTML=`<div class="mb"><div class="ms" role="alertdialog" aria-modal="true" style="text-align:center">
+${s==='wait'?'<div class="payspin" aria-hidden="true"></div>':`<div class="payic ${s}" aria-hidden="true">${s==='ok'?'✓':'!'}</div>`}
+<h3>${t}</h3><p class="mu">${m}</p>
+${s==='wait'?'':'<button class="btn full" data-a="pdone">Done</button>'}</div></div>`}
+// Waits for a phone command to finish. ok: true = done, false = failed, null = still running after the wait
+async function waitCmd(id,tries=70){
+for(let i=0;i<tries;i++){
+try{const s=await call('GET','/portal/commands/'+id);
+if(s.status==='completed')return{ok:true,msg:s.message};
+if(s.status==='failed')return{ok:false,msg:s.message}}catch(e){}
+await sleep(2000)}
+return{ok:null}}
 const A={
 close(){if(S.sg&&S.sg.busy)return;S.sg=null;$('#modal').innerHTML='';if(R){R(false);R=null}},
 no(){A.close()},yes(){$('#modal').innerHTML='';if(R){R(true);R=null}},
-go(d){S.page=d.p;S.more=d.m||null;S.tx=null;render();scrollTo(0,0)},
+   go(d){S.page=d.p;S.more=d.m||null;S.tx=null;render();scrollTo(0,0);if(d.m==='sub')loadSubs().then(()=>{if(S.more==='sub'&&!$('#modal').innerHTML)render()})},
 dev(d){S.dev=d.id;HOLD=0;DB.plans=plansOf();S.page='home';S.more=null;S.tx=null;render();scrollTo(0,0)},
 eye(){S.hide=!S.hide;render()},
 async air(){const d=dev();if(!d.online)return toast(d.name+' is offline');toast('Checking airtime on the phone...');await call('POST','/portal/devices/'+d.id+'/airtime-check');toast('Airtime check sent. The balance updates when the phone replies.')},
@@ -256,19 +279,60 @@ catch(e){g.busy=false;g.err=e.message||'Could not save the signature';modal(sigS
 async pdel(d){const p=pl(d.id);if(!await ask('Delete plan?',esc(p.name)+' will be removed for good.','Delete',1))return;await call('DELETE','/portal/plans/'+p.id);DB.plans=DB.plans.filter(x=>x!==p);DB.plans.forEach(x=>{if(x.tw&&String(x.tw.altId)===String(p.id))x.tw={...x.tw,on:false,altId:''}});held();render();toast('Plan deleted')},
 async qdial(){const ph=phoneOk($('#qp').value),id=$('#qo').value;if(!ph)return $('#qe').textContent='Enter a valid phone number, for example 0712345678';if(!id)return $('#qe').textContent='Switch on a plan first';
 const p=pl(id),x=dev();await call('POST','/portal/quickdial',{device:x.id,offerId:id,phone:ph});DB.tx.unshift({id:'q'+Date.now(),dev:x.id,name:ph,phone:ph,amt:p.price,offer:p.name,st:'Pending',m:0,msg:'Started from Quick Dial',ussd:p.ussd.replace(/AB/gi,ph),resp:'No response recorded yet.'});toast('Quick Dial sent to '+x.name+'. See the result in Transactions.');A.go({p:'tx'})},
-subbuy(d){modal(`<h3>${d.n}</h3><p class="mu">Enter the M-Pesa number to pay with. You will get a payment prompt.</p><label>M-Pesa number<input id="sp" class="in" type="tel" inputmode="tel"></label><p id="se" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="subpay" data-n="${d.n}">Pay</button></div>`)},
-async subpay(d){const ph=phoneOk($('#sp').value);if(!ph)return $('#se').textContent='Enter a valid phone number';await call('POST','/portal/subscribe/start',{plan:d.n,phone:ph,method:'mpesa'});A.close();toast('M-Pesa prompt sent to '+ph+'. Your plan updates once it is paid.')},
+   subbuy(d){const s=SUBS.find(x=>x.id===d.id);if(!s)return toast('Plans are still loading. Try again in a moment.');modal(`<h3>${esc(s.n)} · KES ${s.p}</h3><p class="mu">Enter the M-Pesa number to pay with. You will get a payment prompt.</p><label>M-Pesa number<input id="sp" class="in" type="tel" inputmode="tel"></label><p id="se" class="err" role="alert"></p><div class="flex"><button class="btn gh grow" data-a="close">Cancel</button><button class="btn grow" data-a="subpay" data-id="${esc(s.id)}">Pay</button></div>`)},
+   async subpay(d){const ph=phoneOk($('#sp').value);if(!ph)return $('#se').textContent='Enter a valid phone number';
+   const s=SUBS.find(x=>x.id===d.id);if(!s)return $('#se').textContent='That plan is no longer available. Close this and try again.';
+   PAY=1;
+   payView('wait','Kindly wait as we process your request…','Do not exit the screen. Check '+esc(ph)+' for the M-Pesa prompt and enter your PIN.');
+   try{
+   const r=await call('POST','/portal/subscribe/start',{planId:s.id,phone:ph});
+   let st=null;
+   for(let i=0;i<40&&!st;i++){
+   await sleep(3000);
+   try{const q=await call('GET','/portal/subscribe/status/'+r.paymentId);
+   if(q.status==='paid'||q.status==='cancelled'||q.status==='failed')st=q}catch(e){}}
+   if(!st)payView('warn','Waiting for M-Pesa','We have not received confirmation yet. If you entered your PIN, your plan is activated automatically once M-Pesa confirms. Check Portal Subscription shortly.');
+   else if(st.status==='cancelled')payView('bad','Payment cancelled','The M-Pesa request was cancelled. You were not charged.');
+   else if(st.status==='failed')payView('bad','Payment failed',esc(st.message||'M-Pesa could not complete the payment.'));
+   else payView('ok','Purchase successful',`Your purchase of ${esc(s.n)} (KES ${s.p}) is successful. Your portal access is now active.`);
+   }catch(e){payView('bad','Purchase not completed',esc(e.message||'Something went wrong.'))}
+   finally{PAY=0}},
 tbuy(d){S.td=d.id;modal(`<h3>Buy tokens for ${esc(dv(d.id).name)}</h3>${PACKS.map((p,i)=>`<button class="pk" data-a="tpick" data-i="${i}"><b>${p[0]}</b><span>KES ${p[1]}</span></button>`).join('')}<button class="btn gh full" style="margin-top:14px" data-a="close">Close</button>`)},
 tpick(d){S.tp=d.i;const p=PACKS[d.i],x=dv(S.td);modal(`<h3>${p[0]} · KES ${p[1]}</h3><p class="mu">Choose how to pay for ${esc(x.name)}.</p><button class="btn full" data-a="tpay" data-m="airtime">${ic('coin',18)} Pay with airtime on the phone</button><label style="margin-top:14px">M-Pesa number (only for M-Pesa)<input id="tph" class="in" type="tel" inputmode="tel" placeholder="0712345678"></label><p id="tpe" class="err" role="alert"></p><button class="btn gh full" data-a="tpay" data-m="mpesa">${ic('card',18)} Pay with M-Pesa</button><button class="btn gh full" style="margin-top:8px" data-a="close">Cancel</button>`)},
 async tpay(d){const p=PACKS[S.tp],x=dv(S.td),m=d.m;let ph='';
 if(m==='mpesa'){ph=phoneOk($('#tph').value);if(!ph)return $('#tpe').textContent='Enter a valid M-Pesa number'}
-A.close();await call('POST','/portal/tokens/buy',{device:x.id,packId:p[2],method:m,phone:ph||undefined});
-toast(m==='mpesa'?'M-Pesa prompt sent to '+ph+'. The tokens are added once it is paid.':p[0]+' (KES '+p[1]+') request sent to '+x.name+'. It is paid with airtime on the phone.')},
+const what=`${p[0]} (KES ${p[1]}) for ${esc(x.name)}`;
+PAY=1;
+payView('wait','Kindly wait as we process your request…','Do not exit the screen. '+(m==='mpesa'?'Check '+esc(ph)+' for the M-Pesa prompt and enter your PIN.':'The phone is paying with airtime.'));
+try{
+const r=await call('POST','/portal/tokens/buy',{device:x.id,packId:p[2],method:m,phone:ph||undefined});
+if(m==='airtime'){
+const c=await waitCmd(r.commandId);
+if(c.ok===true)payView('ok','Purchase successful',`Your purchase of ${what} is successful.`);
+else if(c.ok===false)payView('bad','Purchase not completed',esc(c.msg||'The phone could not pay with airtime. Nothing was bought.'));
+else payView('warn','Still processing','We have not had a reply from the phone yet. Check the Tokens balance shortly before trying again.');
+}else{
+let st=null;
+for(let i=0;i<40&&!st;i++){
+await sleep(3000);
+try{const s=await call('GET','/portal/tokens/mpesa/status/'+r.paymentId);
+if(s.status==='paid')st=s;else if(s.status==='cancelled'||s.status==='failed')st=s}catch(e){}}
+if(!st)payView('warn','Waiting for M-Pesa','We have not received confirmation yet. If you entered your PIN, the tokens are added automatically once M-Pesa confirms. Check the Tokens balance shortly.');
+else if(st.status==='cancelled')payView('bad','Payment cancelled','The M-Pesa request was cancelled. You were not charged.');
+else if(st.status==='failed')payView('bad','Payment failed',esc(st.message||'M-Pesa could not complete the payment.'));
+else{
+let added=false;
+if(st.commandId){const c=await waitCmd(st.commandId,15);added=c.ok===true}
+payView('ok','Purchase successful',`Your purchase of ${what} is successful. ${added?'The tokens have been added.':'The tokens are added as soon as the phone syncs.'}`)}}
+}catch(e){payView('bad','Purchase not completed',esc(e.message||'Something went wrong.'))}
+finally{PAY=0}},
+async pdone(){A.close();try{await refresh()}catch(e){}render()},
 theme(d){applyTheme(d.t);render()},
 async pw(){const a=$('#pw0').value,b=$('#pw1').value,c=$('#pw2').value,e=$('#pwe');if(!a)return e.textContent='Enter your current password';if(b.length<8)return e.textContent='The new password must be at least 8 characters';if(b!==c)return e.textContent='The new passwords do not match';
 await window.portalChangePin(a,b);render();toast('Password updated')},
 out(){window.portalSignOut()}};
 document.addEventListener('click',e=>{const t=e.target.closest('[data-a]');if(!t)return;if(t.classList.contains('mb')&&e.target!==t)return;const f=A[t.dataset.a];if(f)Promise.resolve(f(t.dataset)).catch(err=>toast(err.message||'Something went wrong'))});
+   async function loadSubs(){try{const r=await call('GET','/portal/plans');SUBS=(r.plans||[]).map((p,i,a)=>({id:p.id,n:p.name,p:p.price,f:p.features||[],pop:a.length>2&&i===1}))}catch(e){}}
 /* ===== Live data ===== */
 const plansOf=()=>{const d=DB.devices.find(x=>x.id===S.dev)||DB.devices[0];return d&&Array.isArray(d.offers)?d.offers:[]};
 async function refresh(){const o=await call('GET','/portal/overview');DB.locked=false;const keep=Date.now()<HOLD?DB.plans:null;Object.assign(DB,o);if(!DB.devices.find(d=>d.id===S.dev))S.dev=(DB.devices[0]||{}).id||'';DB.plans=keep||plansOf()}
@@ -281,5 +345,5 @@ if($('#modal').innerHTML||typing||(S.page==='more'&&(S.more==='quick'||S.more===
 $('#nav').innerHTML=[['home','home','Home'],['devices','phone','Devices'],['tx','list','Transactions'],['plans','db','Data plans'],['more','more','More']].map(([p,i,l])=>`<button data-a="go" data-p="${p}">${ic(i)}<span>${l}</span></button>`).join('');
 applyTheme(S.theme);
 (async()=>{$('#app').innerHTML='<p class="mu c">Loading your portal...</p>';
-if(!USE_MOCK){try{await refresh()}catch(e){DB.devices=[];DB.tx=[];DB.plans=[];toast('Could not load: '+e.message)}}
+   if(!USE_MOCK){try{await refresh()}catch(e){DB.devices=[];DB.tx=[];DB.plans=[];toast('Could not load: '+e.message)}await loadSubs()}
 render();if(!USE_MOCK)setInterval(poll,5000)})();

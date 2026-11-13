@@ -811,7 +811,13 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
         }
         pump(c);
     }
+    // The native transactions, for the service's own portal sync
+    static JSONArray recent(Context c) {
+        synchronized (LOCK) { return load(c); }
+    }
 
+    // Tokens left after native charges the app has not applied yet
+    static long unitsLeft(Context c) { return effectiveUnits(c); }
     // The app is taking this transaction over (a retry or a release): the background engine lets go of it
     static void release(Context c, String id) {
         synchronized (LOCK) {

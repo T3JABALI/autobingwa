@@ -200,7 +200,42 @@ public void portalBeat(PluginCall call) {
     call.resolve();
 }
 
+    // JS hands over its newest snapshot, so the service can send it while the web view sleeps
+    @PluginMethod
+    public void savePortalSnapshot(PluginCall call) {
+        String json = call.getString("json", "");
+        if (json != null && !json.isEmpty()) {
+            getContext().getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("portal_snapshot", json).apply();
+        }
+        call.resolve();
+    }
 
+    // Commands the service fetched while the web view was asleep
+    @PluginMethod
+    public void peekPortalCommands(PluginCall call) {
+        JSObject out = new JSObject();
+        try {
+            out.put("commands", new JSArray(PortalQueue.peek(getContext()).toString()));
+        } catch (JSONException e) {
+            out.put("commands", new JSArray());
+        }
+        call.resolve(out);
+    }
+
+    // JS confirms it has taken these commands, so they are removed from the queue
+    @PluginMethod
+    public void ackPortalCommands(PluginCall call) {
+        JSArray ids = call.getArray("ids");
+        if (ids != null) PortalQueue.ack(getContext(), ids);
+        call.resolve();
+    }
+
+    // Called by the service when new commands are queued
+    static void pokeCommands() {
+        AutoBingwaPlugin p = instance;
+        if (p != null) p.notifyListeners("portalCommands", new JSObject());
+    }
     // Opens the Android installer for the downloaded APK
     @PluginMethod
     public void installApk(PluginCall call) {

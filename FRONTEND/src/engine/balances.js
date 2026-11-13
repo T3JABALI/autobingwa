@@ -124,8 +124,12 @@ export function commissionByDay(now = Date.now()) {
   const values = [0, 0, 0, 0, 0, 0, 0]
   let prev = null
   for (const s of snaps) {
-    const newWeek = prev && startOfWeek(prev.t) !== startOfWeek(s.t)
-    const delta = !prev ? 0 : newWeek || s.total < prev.total ? s.total : s.total - prev.total
+    let delta
+    if (!prev) delta = 0                                          // first message: baseline only
+    else if (startOfWeek(prev.t) !== startOfWeek(s.t)) delta = s.total  // a new week began
+    else if (s.total >= prev.total) delta = s.total - prev.total  // normal growth
+    else if (dayKey(s.t) > dayKey(prev.t)) delta = s.total        // total fell on a later day: week reset
+    else continue                                                 // total fell on the same day: stale message, ignore it
     prev = s
     if (s.t >= ws && s.t < ws + 7 * 86400000) values[new Date(s.t).getDay()] += delta
   }

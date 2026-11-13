@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
 import { registerHost } from './dialog.js'
-
+import { useBackHandler } from './useBack.js'
 export default function DialogHost() {
   const [queue, setQueue] = useState([])
   useEffect(() => registerHost((req) => setQueue((q) => [...q, req])), [])
-
+  // Phone back button = tapping outside the dialog (dismiss)
+  useBackHandler(() => {
+    const c = queue[0]
+    if (!c) return false
+    c.resolve('dismiss')
+    setQueue((q) => q.slice(1))
+  }, queue.length > 0)
   const cur = queue[0]
   if (!cur) return null
 

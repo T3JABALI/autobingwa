@@ -438,11 +438,25 @@ function dispatch(commands, auth, on) {
       .finally(() => setTimeout(() => inflight.delete(c.id), 60000))
   }
 }
+// Runs commands the native service queued while the web view was asleep
+async function drainNativeCommands() {
+  if (!isNative()) return
+  try {
+    const id = (localStorage.getItem(ID_KEY) || '').trim()
+    const secret = localStorage.getItem(SECRET_KEY + id)
+    if (!id || !secret) return
+    const { commands } = await AutoBingwa.peekPortalCommands()
+    if (!commands || !commands.length) return
+    dispatch(commands, { 'X-Connect-Id': id, 'X-Device-Secret': secret }, portalSwitchOn())
+    await AutoBingwa.ackPortalCommands({ ids: commands.map((c) => c.id) })
+  } catch (e) { /* older native build */ }
+}
 async function tick() {
   if (busy && Date.now() - busySince < 45000) return
   busy = true
   busySince = Date.now()
   try {
+    await drainNativeCommands()
     const id = (localStorage.getItem(ID_KEY) || '').trim()
     const on = portalSwitchOn()
     console.log('portal tick', JSON.stringify({ id, on, hasSecret: !!localStorage.getItem(SECRET_KEY + id) }))
@@ -472,7 +486,10 @@ async function tick() {
     }
 
     const snap = on ? await buildSnapshot() : undefined
-    if (isNative()) AutoBingwa.portalBeat().catch(() => {})
+    if (isNative()) {
+      if (snap) AutoBingwa.savePortalSnapshot({ json: JSON.stringify(snap) }).catch(() => {})
+      AutoBingwa.portalBeat().catch(() => {})
+    }
     const r = await post('/device/sync', { portalOn: on, snapshot: snap }, auth)
     if (!r.ok) {
       console.error('portal sync failed', r.status, r.j.error)
@@ -541,19 +558,17 @@ export function startPortalSync() {
   if (isNative()) {
     // Sync right away when the app comes back to the foreground
     App.addListener('appStateChange', (s) => {
-      if (s.isActive) soon()
+      if (s.isActive) {
+        drainNativeCommands()
+        soon()
+      }
     })
       .then((h) => { appListener = h })
       .catch(() => {})
 
     // Commands the native service fetched while the WebView was asleep
     try {
-      AutoBingwa.addListener('portalCommands', (e) => {
-        const id = (localStorage.getItem(ID_KEY) || '').trim()
-        const secret = localStorage.getItem(SECRET_KEY + id)
-        if (!id || !secret) return
-        dispatch(e.commands, { 'X-Connect-Id': id, 'X-Device-Secret': secret }, portalSwitchOn())
-      })
+      AutoBingwa.addListener('portalCommands', () => { drainNativeCommands() })
         .then((h) => { cmdListener = h })
         .catch(() => {})
     } catch (e) { /* native side not added yet */ }

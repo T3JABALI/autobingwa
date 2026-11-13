@@ -1,15 +1,22 @@
 let host = null
+let openCount = 0
 
 export function registerHost(fn) {
   host = fn
   return () => { if (host === fn) host = null }
 }
 
+export const dialogOpen = () => openCount > 0
+
 // choices: [{ id, label, kind: 'primary' | 'danger' | 'ghost' | 'text' }]. Resolves with the chosen id, or 'dismiss'.
 export function askChoice({ title, message, choices }) {
   return new Promise((resolve) => {
     if (!host) { resolve('dismiss'); return }
-    host({ title, message, choices, resolve })
+    openCount++
+    host({
+      title, message, choices,
+      resolve: (v) => { openCount = Math.max(0, openCount - 1); resolve(v) },
+    })
   })
 }
 

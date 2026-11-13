@@ -7,7 +7,7 @@ import { confirmDialog } from './features/ui/dialog.js'
 import VerifiedBadge from './features/home/VerifiedBadge.jsx'
 import FingerprintIcon from './features/home/FingerprintIcon.jsx'
 import Icon from './features/ui/Icons.jsx'
-
+import { useBackHandler } from './features/ui/useBack.js'
 const CATS = ['ALL', 'DATA', 'TUNUKIWA', 'MINUTES', 'SMS']
 const PICK = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA'] // the four categories an offer can be added under
 const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buying!'
@@ -101,6 +101,8 @@ function Switch({ on, onChange, label, disabled }) {
 }
 
 function Sheet({ title, onClose, children, footer }) {
+  // Back closes the sheet. SignatureSheet passes a no-op while learning, so back cannot interrupt a dial.
+  useBackHandler(() => { onClose() })
   return (
     <div className="sheet-back" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
@@ -113,7 +115,6 @@ function Sheet({ title, onClose, children, footer }) {
     </div>
   )
 }
-
 const OfferCard = memo(function OfferCard({ o, menuOpen, menuDir, onToggle, onMenu, onCloseMenu, onSheet, onCopy, onRemove }) {
   const win = Boolean(o.tw && o.tw.on)
   return (
@@ -192,6 +193,12 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
     setCardMenu((c) => (c === id ? null : id))
   }, [])
   const closeMenu = useCallback(() => setCardMenu(null), [])
+    // Back closes an open ⋮ menu first. Sheets handle their own back (see Sheet).
+  useBackHandler(() => {
+    if (cardMenu) { setCardMenu(null); return }
+    if (menu) { setMenu(false); return }
+    return false
+  }, Boolean(cardMenu || menu))
   const openSheet = useCallback((type, o) => {
     setCardMenu(null)
     setSheet({ type, offer: o })

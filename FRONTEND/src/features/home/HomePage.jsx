@@ -15,7 +15,7 @@ import { isNative, getSims, refreshAirtime, sendSms, AutoBingwa } from '../../en
 import { loadConfig, last9, isBlacklisted } from '../../engine/config.js'
 import { loadClients, saveClients, CLIENTS_EVENT } from '../../engine/clientsStore.js'
 import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
-
+import { useBackHandler } from '../ui/useBack.js'
 // The card reads the balance the *144# check saved; the old store is only a fallback
 const readAirtime = () => {
   const b = getAirtimeBalance()
@@ -151,6 +151,19 @@ const HOME_EXTRA = `
   .hm-vf-verified { color: #1d9bf0; background: rgba(29, 155, 240, 0.12); border-color: rgba(29, 155, 240, 0.45); }
   .hm-vf-awaiting { color: #ca8a04; background: rgba(202, 138, 4, 0.12); border-color: rgba(202, 138, 4, 0.45); }
   .hm-vf-unverified { color: #f43f5e; background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.45); }
+  
+  /* Detail screen: chip and actions sit at the bottom, icons medium */
+  .hm-s-detail { display: flex; flex-direction: column; min-height: calc(100dvh - 110px); }
+  .hm-s-detail .hm-bottom {
+    margin-top: auto; padding-top: 20px; padding-bottom: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .hm-s-detail .hm-bottom .hm-vf { margin-top: 0; padding: 6px 12px; font-size: 12.5px; }
+  .hm-s-detail .hm-bottom .hm-actions,
+  .hm-s-detail .hm-bottom .hm-actions2 { margin-top: 0 !important; }
+  .hm-s-detail .hm-act { padding: 9px 4px; font-size: 12px; gap: 4px; }
+  .hm-s-detail .hm-act svg { width: 17px !important; height: 17px !important; }
+  .hm-s-detail .hm-vf svg { width: 17px !important; height: 17px !important; } }
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -519,7 +532,16 @@ export default function HomePage({
   const clearSel = () => setSel([])
   const toggleSel = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
   useEffect(() => { setSel([]) }, [screen])
-
+  // Phone back button: close the top layer first (pop-ups, selection), then step back one screen
+  useBackHandler(() => {
+    if (msgTo) { if (!msgBusy) setMsgTo(null); return }
+    if (recoFor) { setRecoFor(null); return }
+    if (simPick) { setSimPick(null); return }
+    if (sel.length) { clearSel(); return }
+    if (screen === 'reschedule') { setView({ ...view, name: 'detail' }); return }
+    if (screen === 'detail' || screen === 'all') { goBack(); return }
+    return false // on the Home screen itself, let App decide
+  }, Boolean(msgTo || recoFor || simPick || sel.length || screen !== 'home'))
   // A long press (half a second) selects a row. After that, a tap adds or removes rows.
   const rowDown = (id) => {
     pressed.current = false
@@ -1014,6 +1036,7 @@ export default function HomePage({
             {info('USSD', tx.ussd || 'No USSD saved.', tx.ussd || '', 'ussd', 3)}
           </div>
           {info('USSD response', responseText(tx), responseText(tx), 'resp', 3)}
+          <div className="hm-bottom">
           {tx.verify && tx.status === 'Completed' && (
             <div className={`hm-vf hm-vf-${tx.verify}`} role="status">
               {tx.verify === 'verified' && <><BlueTick size={20} /><span>Verified</span></>}
@@ -1042,9 +1065,10 @@ export default function HomePage({
             <button className="hm-act" onClick={() => copySummary(tx)}>
               <Ic name="copy" /> {copied ? 'Copied' : 'Copy'}
             </button>
-            <button className="hm-act" onClick={() => setRecoFor(tx)} disabled={!tx.phone}>
+              <button className="hm-act" onClick={() => setRecoFor(tx)} disabled={!tx.phone}>
               <Ic name="swap" /> Recommend plan
             </button>
+          </div>
           </div>
         </>
       )}

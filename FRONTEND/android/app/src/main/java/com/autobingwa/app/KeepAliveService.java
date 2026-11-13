@@ -19,7 +19,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
-
+import android.content.IntentFilter;
+import android.os.BatteryManager;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 public class KeepAliveService extends Service {
     static volatile boolean active = false;
     static volatile long lastWakeAt = 0;
@@ -135,7 +138,169 @@ public class KeepAliveService extends Service {
             if (c != null) c.disconnect();
         }
     }
+    // When the web view is asleep, the service syncs the portal itself using the last snapshot JS saved
+    private void syncPortal() {
+        long silent = System.currentTimeMillis() - AutoBingwaPlugin.lastPortalBeat;
+        if (silent < 20000) { pingPortal(); return; } // web view is alive and syncing itself
+        // Commands are still waiting and the web view is still asleep: try the wake again (at most every 30 s)
+        if (PortalQueue.peek(getApplicationContext()).length() > 0
+                && System.currentTimeMillis() - lastWakeAt > 30000) {
+            wakeApp();
+        }
+        HttpURLConnection c = null;
+        try {
+            SharedPreferences sp = getSharedPreferences("autobingwa_prefs", Context.MODE_PRIVATE);
+            String id = sp.getString("portal_id", "");
+            String secret = sp.getString("portal_secret", "");
+            if (id.isEmpty() || secret.isEmpty() || !sp.getBoolean("portal_on", false)) return;
 
+            JSONObject body = new JSONObject();
+            body.put("portalOn", true);
+            String snapStr = sp.getString("portal_snapshot", "");
+            if (!snapStr.isEmpty()) {
+                JSONObject s = new JSONObject(snapStr);
+                Intent b = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                if (b != null) {
+                    int lvl = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                    int st = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                    if (lvl >= 0) s.put("battery", lvl * 100 / scale);
+                    s.put("charging", st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL);
+                }
+                                overlayNative(s);
+                body.put("snapshot", s);
+                body.put("snapshot", s);
+            }
+
+            c = (HttpURLConnection) new URL("https://autobingwa-payments.onrender.com/device/sync").openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(15000);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            c.setRequestProperty("X-Connect-Id", id);
+            c.setRequestProperty("X-Device-Secret", secret);
+            OutputStream os = c.getOutputStream();
+            os.write(body.toString().getBytes("UTF-8"));
+            os.close();
+
+            int code = c.getResponseCode();
+            if (code != 200) { Log.w("AutoBingwa", "native sync answered " + code); return; }
+            InputStream in = c.getInputStream();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            in.close();
+            JSONArray cmds = new JSONObject(bo.toString("UTF-8")).optJSONArray("commands");
+            if (cmds != null && cmds.length() > 0 && PortalQueue.add(getApplicationContext(), cmds)) {
+                AutoBingwaPlugin.pokeCommands();
+                wakeApp(); // commands need the web engine to run them
+            }
+        } catch (Exception e) {
+            Log.w("AutoBingwa", "native sync failed: " + e.getMessage());
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+        // While the native engine owns payments, its results never reach the saved JS snapshot.
+    // This puts them in before the service posts it.
+    private void overlayNative(JSONObject s) {
+        try {
+            Context ctx = getApplicationContext();
+            if (!EngineCore.owns(ctx)) return;
+            JSONArray nat = EngineCore.recent(ctx);
+
+            java.util.HashMap<String, JSONObject> byId = new java.util.HashMap<>();
+            java.util.HashSet<String> jsIds = new java.util.HashSet<>();
+            JSONArray old = s.optJSONArray("recent");
+            for (int i = 0; old != null && i < old.length(); i++) {
+                JSONObject o = old.optJSONObject(i);
+                if (o == null) continue;
+                byId.put(o.optString("id"), o);
+                jsIds.add(o.optString("id"));
+            }
+
+            // an original that has a fallback is hidden, same rule as the Home screen
+            java.util.HashSet<String> hide = new java.util.HashSet<>();
+            for (int i = 0; i < nat.length(); i++) {
+                JSONObject t = nat.optJSONObject(i);
+                if (t == null || !t.optBoolean("isFallback", false)) continue;
+                String from = t.optString("fallbackFromId", "");
+                if (!from.isEmpty() && !"Skipped".equals(t.optString("status"))) hide.add(from);
+            }
+
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+            cal.set(java.util.Calendar.MINUTE, 0);
+            cal.set(java.util.Calendar.SECOND, 0);
+            cal.set(java.util.Calendar.MILLISECOND, 0);
+            long todayStart = cal.getTimeInMillis();
+            int ok = s.optInt("ok", 0), failed = s.optInt("failed", 0);
+
+            java.text.SimpleDateFormat iso = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US);
+            iso.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+
+            for (int i = 0; i < nat.length(); i++) {
+                JSONObject t = nat.optJSONObject(i);
+                if (t == null) continue;
+                String id = t.optString("id");
+                if (hide.contains(id)) { byId.remove(id); continue; }
+
+                if (!jsIds.contains(id) && t.optLong("createdAt", 0) >= todayStart) {
+                    String st = t.optString("status");
+                    if ("Completed".equals(st)) ok++;
+                    else if ("Failed".equals(st)) failed++;
+                }
+
+                StringBuilder resp = new StringBuilder();
+                JSONArray rs = t.optJSONArray("responses");
+                for (int k = 0; rs != null && k < rs.length(); k++) {
+                    JSONObject r = rs.optJSONObject(k);
+                    if (r == null) continue;
+                    if (resp.length() > 0) resp.append("\n\n");
+                    resp.append("--- Screen ").append(k + 1).append(" (input: ").append(r.optString("input")).append(") ---\n")
+                        .append(r.optString("text"));
+                }
+                JSONObject e = new JSONObject();
+                String phone = t.optString("phone", "");
+                String name = t.optString("name", "");
+                e.put("id", id);
+                e.put("name", name.isEmpty() ? phone : name);
+                e.put("phone", phone);
+                e.put("amt", t.optDouble("amount", 0));
+                e.put("offer", t.optString("offerName", ""));
+                e.put("st", t.optString("status"));
+                e.put("ts", iso.format(new java.util.Date(t.optLong("createdAt", 0))));
+                e.put("msg", t.optString("rawMessage", ""));
+                e.put("ussd", t.optString("ussd", ""));
+                e.put("resp", resp.length() == 0 ? "No response recorded yet." : resp.toString());
+                byId.put(id, e); // the native copy is newer than the saved JS copy
+            }
+
+            java.util.ArrayList<JSONObject> list = new java.util.ArrayList<>(byId.values());
+            java.util.Collections.sort(list, new java.util.Comparator<JSONObject>() {
+                @Override public int compare(JSONObject a, JSONObject b) {
+                    return b.optString("ts").compareTo(a.optString("ts"));
+                }
+            });
+            JSONArray out = new JSONArray();
+            for (int i = 0; i < list.size() && i < 20; i++) out.put(list.get(i));
+
+            JSONArray hidden = s.optJSONArray("hidden");
+            if (hidden == null) hidden = new JSONArray();
+            for (String h : hide) hidden.put(h);
+
+            s.put("recent", out);
+            s.put("hidden", hidden);
+            s.put("ok", ok);
+            s.put("failed", failed);
+            s.put("tokens", EngineCore.unitsLeft(ctx));
+            s.put("running", EngineCore.running(ctx));
+        } catch (Exception e) {
+            Log.w("AutoBingwa", "overlayNative failed: " + e.getMessage());
+        }
+    }
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notifier.channels(this);
@@ -189,7 +354,7 @@ String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitin
             pinger = Executors.newSingleThreadScheduledExecutor();
             pinger.scheduleWithFixedDelay(new Runnable() {
                 @Override
-                public void run() { pingPortal(); }
+                public void run() { syncPortal(); }
             }, 3, 15, TimeUnit.SECONDS);
         }
         return START_STICKY;
