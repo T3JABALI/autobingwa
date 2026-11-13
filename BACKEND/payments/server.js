@@ -11,6 +11,7 @@ import { initSmartTables, mountSmartRoutes } from './smartPlansAdmin.js'
 import { initIncomeTables, mountIncomeRoutes, recordAirtime } from './incomeAdmin.js'
 import { initUsersTables, mountUsersRoutes } from './usersAdmin.js'
 import { initReferralTables, mountReferralRoutes } from './referrals.js'
+import { initSupportTables, mountSupportRoutes } from './supportAdmin.js'
 const {
   DARAJA_ENV = 'sandbox', CONSUMER_KEY, CONSUMER_SECRET, PASSKEY,
   SHORTCODE, TILL_NUMBER, CALLBACK_BASE, CALLBACK_SECRET, DATABASE_URL, PORT = 3000,
@@ -69,6 +70,7 @@ async function initDb() {
       await initIncomeTables(pool)
       await initUsersTables(pool)
       await initReferralTables(pool)
+            await initSupportTables(pool)
        dbReady = true
     console.log('Database ready')
   } catch (e) {
@@ -156,6 +158,7 @@ mountSmartRoutes({ app, pool, requireAdmin, sbAdmin })
 mountIncomeRoutes({ app, pool, requireAdmin, sbAdmin })
 mountUsersRoutes({ app, pool, requireAdmin, sbAdmin })
 mountReferralRoutes({ app, pool, sbAdmin })
+mountSupportRoutes({ app, pool, requireAdmin, sbAdmin })
 /* ================= PORTAL (phone + password accounts) ================= */
 
 // Public: create a portal account. Only this route can mark a user as a portal user.

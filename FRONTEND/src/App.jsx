@@ -5,6 +5,7 @@ import Signature from './Signature.jsx'
 import Offers from './Offers.jsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
+import './sidebar.css'
 import QuickDialPage from './features/quickdial/QuickDialPage.jsx'
 import AutoRenewalPage from './features/autorenewal/AutoRenewalPage.jsx'
 import TokensPage from './features/tokens/TokensPage.jsx'
@@ -22,8 +23,9 @@ import Toaster from './features/notify/Toaster.jsx'
 import UpdatesPage from './features/updates/UpdatesPage.jsx'
 import UpdatePrompt from './features/updates/UpdatePrompt.jsx'
 import PhoneSetupPage from './features/setup/PhoneSetupPage.jsx'
+import SupportPage from './features/support/SupportPage.jsx'
 import DialogHost from './features/ui/DialogHost.jsx'
-import { askChoice } from './features/ui/dialog.js'
+import { askChoice, confirmDialog } from './features/ui/dialog.js'
 import Sitelink from './features/sitelink/sitelink.jsx'
 import { useSmartSync } from './features/smartplans/smartSync.js'
 import BottomNav from './features/home/BottomNav.jsx'
@@ -35,6 +37,7 @@ import { setNativeRunning } from './engine/nativeSync.js'
 import { isNative, ussdServiceEnabled, setKeepAlive, heartbeat } from './engine/native.js'
 import { loadConfig } from './engine/config.js'
 import Onboarding, { isOnboarded } from './features/setup/Onboarding.jsx'
+import { useAuth } from './features/auth/AuthContext'
 
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
@@ -48,12 +51,70 @@ const navigation = [
   'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
   'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
   'Auto Replies', 'Autobingwa Connect', 'Fallback Plans', 'Referrals',
-  'Settings', 'Updates', 'Phone Setup',
-
+  'Phone Setup',
 ]
 
-const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', <ReferralIcon size={18} key="ref" />, '⚙', '◷', '✓']
+const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', <ReferralIcon size={18} key="ref" />, '✓']
 
+// These three stay locked at the bottom of the menu
+const PINNED = [
+  {
+    name: 'Settings',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Help & Support',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7" />
+        <path d="M12 17h.01" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Updates',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 12a9 9 0 1 1-3-6.7" />
+        <path d="M21 4v5h-5" />
+      </svg>
+    ),
+  },
+]
+
+// Top-left logo in the menu. Change BRAND to 'bolt', 'ussd', 'pulse' or 'dial' to try each one.
+const BRAND = 'bolt'
+const BRAND_ICONS = {
+  bolt: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path className="bm-fill" d="M13 2L4 14h7l-1 8 9-12h-7z" />
+    </svg>
+  ),
+  ussd: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 7v10M2.7 9.5l8.6 5M2.7 14.5l8.6-5" />
+      <path d="M16.5 7l-.8 10M20.3 7l-.8 10M14.3 10.5h7.4M13.9 13.5h7.4" />
+    </svg>
+  ),
+  pulse: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 12h4l3-8 4 16 3-8h6" />
+    </svg>
+  ),
+  dial: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <g className="bm-fill">
+        {[6, 12, 18].flatMap((y) => [6, 12, 18].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.7" />))}
+      </g>
+    </svg>
+  ),
+}
 const chartValues = [120, 190, 290, 280, 460, 490, 820]
 
 // Pages that show the bottom bar
@@ -1325,6 +1386,7 @@ const toOldShape = (o) => ({
 })
 
 function App() {
+  const { logout: signOutUser } = useAuth()
   const [myOffers, setMyOffers] = useState(() => {
     try { return JSON.parse(localStorage.getItem('myOffers')) || [] } catch { return [] }
   })
@@ -1472,7 +1534,27 @@ useEffect(() => {
     saveMode(id)
     setModeOpen(false)
   }
-
+  async function logout() {
+    const ok = await confirmDialog('You will need to sign in again to use the app.', {
+      title: 'Sign out?',
+      confirmLabel: 'Sign out',
+      danger: true,
+    })
+    if (!ok) return
+    if (automationRunning) {
+      engine.stop()
+      setNativeRunning(false)
+      setAutomationRunning(false)
+      setKeepAlive(false)
+      localStorage.setItem('ab-auto-run', '0')
+    }
+    setMenuOpen(false)
+    try {
+      await signOutUser()
+    } catch (e) {
+      console.error('AB sign out', e)
+    }
+  }
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 60000)
     return () => clearInterval(timer)
@@ -1519,7 +1601,7 @@ if (!onboarded) return (
 
       <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand">
-          <div className="brand-mark">A</div>
+<div className={`brand-mark ${automationRunning ? 'live' : ''}`}>{BRAND_ICONS[BRAND]}</div>
           <div>
             <strong>AUTOBINGWA</strong>
             <small>USSD Automation</small>
@@ -1527,7 +1609,7 @@ if (!onboarded) return (
           <button className="close-menu" onClick={() => setMenuOpen(false)}>×</button>
         </div>
 
-        <nav className="navigation">
+         <nav className="navigation">
           {navigation.map((item, index) => (
             <button
               key={item}
@@ -1543,11 +1625,36 @@ if (!onboarded) return (
           ))}
         </nav>
 
-        <div className="sidebar-status">
-          <span className={`status-light ${automationRunning ? 'running' : ''}`} />
-          <div>
-            <strong>{automationRunning ? 'Automation Running' : 'Automation Stopped'}</strong>
-            <small>Demo mode</small>
+        <div className="sidebar-pinned">
+          {PINNED.map((item) => (
+            <button
+              key={item.name}
+              className={`nav-item ${activePage === item.name ? 'active' : ''}`}
+              onClick={() => {
+                setActivePage(item.name)
+                setMenuOpen(false)
+              }}
+            >
+              <span className="icon">{item.icon}</span>
+              <span>{item.name}</span>
+            </button>
+          ))}
+
+          <div className="sidebar-foot">
+            <div className="sidebar-status">
+              <strong>USSD Running</strong>
+              <span className={`ussd-state ${automationRunning ? 'live' : 'stopped'}`}>
+                {automationRunning ? 'LIVE' : 'STOPPED'}
+              </span>
+            </div>
+            <button className="logout-btn" onClick={logout} aria-label="Sign out" title="Sign out">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
+                <path d="M16 8l4 4-4 4" />
+                <path d="M20 12H9" />
+              </svg>
+              <span>SIGN OUT</span>
+            </button>
           </div>
         </div>
       </aside>
@@ -1759,6 +1866,10 @@ if (!onboarded) return (
           <section className="panel">
             <PhoneSetupPage onBack={() => setActivePage('Home')} />
           </section>
+                  ) : activePage === 'Help & Support' ? (
+          <section className="panel">
+            <SupportPage onBack={() => setActivePage('Home')} />
+          </section>
         ) : activePage === 'Updates' ? (
           <section className="panel">
             <UpdatesPage onBack={() => setActivePage('Home')} />
@@ -1791,6 +1902,7 @@ if (!onboarded) return (
           onOffers={() => setActivePage('Offers')}
           onAnalytics={() => setActivePage('Analytics')}
           onSettings={() => setActivePage('Settings')}
+          onHelp={() => setActivePage('Help & Support')}
         />
       )}
          <Toaster />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { adminFetch } from './adminApi';
 import TokensAdmin from './TokensAdmin';
 import './admin.css';
@@ -9,9 +9,12 @@ import HomeAdmin from './HomeAdmin';
 import IncomeAdmin from './IncomeAdmin';
 import UsersAdmin from './UsersAdmin';
 import AnalyticsAdmin from './AnalyticsAdmin';
+import UpdatesAdmin from './UpdatesAdmin';
+import MessagesAdmin from './MessagesAdmin';
 
 const NAV = [
   ['home', 'Home', '⌂'],
+  ['messages', 'Messages', '✉'],
   ['users', 'Users', '♙'],
   ['analytics', 'Analytics', '▮'],
   ['income', 'Income', '▣'],
@@ -26,7 +29,7 @@ const NAV = [
 const TITLES = {
   home: 'Home Dashboard', smart: 'Smart plans', tokens: 'Tokens', portal: 'Portal subscriptions',
   contacts: 'Contacts', settings: 'Settings', updates: 'Updates',
-  users: 'Users', analytics: 'Analytics', income: 'Income',
+  users: 'Users', analytics: 'Analytics', income: 'Income', messages: 'Messages',
 };
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
@@ -72,13 +75,28 @@ export default function AdminApp({ email, logout }) {
   const [page, setPage] = useState('home');
   const [tab, setTab] = useState('');
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
   const name = cap((email || 'admin').split('@')[0]);
+
+  // Counts the messages from users that nobody has opened yet
+  const refreshUnread = useCallback(async () => {
+    try {
+      const j = await adminFetch('/admin/support/unread');
+      setUnread(j.count || 0);
+    } catch (e) { /* keep the last number */ }
+  }, []);
+  useEffect(() => {
+    refreshUnread();
+    const t = setInterval(refreshUnread, 30000);
+    return () => clearInterval(t);
+  }, [refreshUnread]);
 
   const go = (p, t = '') => { setPage(p); setTab(t); setOpen(false); };
   const isQuick = ['users', 'analytics', 'income'].includes(page);
 
   let body;
   if (page === 'home') body = <HomeAdmin name={name} go={go} />;
+  else if (page === 'messages') body = <MessagesAdmin onChange={refreshUnread} />;
   else if (page === 'income') body = <IncomeAdmin key={tab || 'overview'} start={tab} />;
   else if (page === 'users') body = <UsersAdmin />;
   else if (page === 'analytics') body = <AnalyticsAdmin />;
@@ -87,6 +105,7 @@ export default function AdminApp({ email, logout }) {
   else if (page === 'portal') body = <PortalAdmin />;
   else if (page === 'contacts') body = <ContactsAdmin />;
   else if (page === 'smart') body = <SmartPlansAdmin />;
+  else if (page === 'updates') body = <UpdatesAdmin />;
   else body = <Placeholder title={TITLES[page]} />;
 
   return (
@@ -103,13 +122,17 @@ export default function AdminApp({ email, logout }) {
           {NAV.map(([id, label, icon]) => (
             <button key={id} className={'ad-nav' + (page === id ? ' active' : '')} onClick={() => go(id)}>
               <span>{icon}</span>{label}
+              {id === 'messages' && unread > 0 && <em className="ad-dot">{unread}</em>}
             </button>
           ))}
         </nav>
       </aside>
 
       <header className="ad-top">
-        <button className="ad-menu" onClick={() => setOpen(true)} aria-label="Open menu">☰</button>
+        <button className="ad-menu" onClick={() => setOpen(true)} aria-label="Open menu">
+          ☰
+          {unread > 0 && <em className="ad-dot">{unread > 9 ? '9+' : unread}</em>}
+        </button>
         <div className="ad-brand-wrap">
           <div className="ad-brand">Auto<span>Bingwa</span></div>
           <small>SUPER ADMIN</small>

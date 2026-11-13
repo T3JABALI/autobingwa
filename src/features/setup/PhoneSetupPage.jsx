@@ -10,37 +10,25 @@ const BRAND_TIPS = {
     'Settings > Battery > Background usage limits: turn off "Put unused apps to sleep".',
     'Add AutoBingwa to "Never sleeping apps".',
     'Settings > Apps > AutoBingwa > Battery > choose Unrestricted.',
-    'Open recent apps, tap the AutoBingwa icon, choose "Keep open".',
   ],
   xiaomi: [
-    'Settings > Apps > Manage apps > AutoBingwa > Autostart: turn on.',
-    'In the same screen, Battery saver > No restrictions.',
-    'Allow "Display pop-up windows while running in the background" and "Show on lock screen" if offered.',
-    'Open recent apps, pull the AutoBingwa card down (or tap the lock icon) to lock it.',
+    'Settings > Apps > Manage apps > AutoBingwa > Battery saver > No restrictions.',
+    'Allow "Display pop-up windows while running in the background" if offered.',
   ],
   transsion: [
-    'Open Phone Master / Phone Manager > Auto-start management (or App launch): allow AutoBingwa.',
     'Settings > Battery > App battery management > AutoBingwa > No restrictions.',
     'Turn off any "Power saving" or "Ultra power saving" mode.',
-    'Open recent apps and lock AutoBingwa so the phone does not close it.',
   ],
   oppo: [
-    'Settings > Apps > Auto launch (or App management): allow AutoBingwa.',
     'Settings > Battery > AutoBingwa > allow background activity and turn off battery optimisation.',
-    'Open recent apps and lock AutoBingwa.',
   ],
   vivo: [
     'Settings > Battery > Background power consumption management: allow AutoBingwa.',
-    'Settings > Apps > Autostart: turn AutoBingwa on.',
-    'Open recent apps and lock AutoBingwa.',
   ],
   other: [
     'Settings > Battery: set AutoBingwa to unrestricted / not optimised.',
-    'Allow auto-start or background running for AutoBingwa if your phone has that option.',
-    'Lock AutoBingwa in recent apps so it is not closed.',
   ],
 }
-
 function brandKey(info) {
   const s = `${info.manufacturer} ${info.brand}`.toLowerCase()
   if (/samsung/.test(s)) return 'samsung'

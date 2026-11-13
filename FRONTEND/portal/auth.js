@@ -66,7 +66,7 @@
     if (o) o.remove()
     if (nav) nav.style.display = ''
     const s = document.createElement('script')
-    s.src = '/app.js?v=3'
+    s.src = '/app.js?v=4'
     document.body.appendChild(s)
   }
 

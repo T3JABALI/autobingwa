@@ -11,7 +11,9 @@ import CommissionChart from './CommissionChart.jsx'
 import { Icon } from './HomeParts.jsx'
 import VerifiedBadge from './VerifiedBadge.jsx'
 import { engine } from '../../engine/index.js'
-import { isNative, getSims, refreshAirtime } from '../../engine/native.js'
+import { isNative, getSims, refreshAirtime, sendSms, AutoBingwa } from '../../engine/native.js'
+import { loadConfig, last9, isBlacklisted } from '../../engine/config.js'
+import { loadClients, saveClients, CLIENTS_EVENT } from '../../engine/clientsStore.js'
 import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
 
 // The card reads the balance the *144# check saved; the old store is only a fallback
@@ -56,7 +58,7 @@ const HOME_EXTRA = `
   .hm-fbnote { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; border: 1px solid var(--border); }
   .hm-fbnote b { color: var(--primary); }
   .hm-modal-back {
-    position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px;
+    position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 20px;
     background: rgba(0, 0, 0, 0.6);
   }
   .hm-modal {
@@ -76,6 +78,55 @@ const HOME_EXTRA = `
     display: block; width: 100%; margin-top: 14px; padding: 12px; border: 0; background: transparent;
     color: var(--soft); font: inherit; font-size: 15px; cursor: pointer;
   }
+  .hm-row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .hm-row.sel { outline: 2px solid var(--primary); outline-offset: -2px; }
+  .hm-selbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 10px;
+    background: var(--bg); border-bottom: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  }
+  .hm-selbar-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .hm-selbar-top b { flex: 1; font-size: 16px; }
+  .hm-selx { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: transparent; color: var(--text); cursor: pointer; }
+  .hm-selacts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .hm-selact {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 2px;
+    border: 1px solid var(--border); border-radius: 12px; background: transparent; color: var(--text);
+    font: inherit; font-size: 11px; cursor: pointer;
+  }
+  .hm-selact.del { color: #e5484d; }
+  .hm-actions2 { display: grid !important; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
+  .hm-actions2 .hm-act { flex-direction: column; gap: 4px; padding: 10px 4px; font-size: 12px; text-align: center; }
+  .hm-ta {
+    width: 100%; box-sizing: border-box; padding: 12px; border-radius: 12px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); font: inherit; font-size: 15px; resize: vertical;
+  }
+  .hm-qk { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; }
+  .hm-qk button {
+    padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--border); background: transparent;
+    color: var(--soft); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  }
+  .hm-simbtn.hm-center { text-align: center; }
+  .hm-modal .hm-scroll { max-height: 50vh; overflow-y: auto; }
+
+  /* Status colours. Rows: the word itself is coloured. Detail screen: solid pill with white text. */
+  .hm-row-end .st[data-status="Completed"]  { color: #22c55e !important; }
+  .hm-row-end .st[data-status="Failed"]     { color: #ef4444 !important; }
+  .hm-row-end .st[data-status="Pending"]    { color: #f59e0b !important; }
+  .hm-row-end .st[data-status="Processing"] { color: #a855f7 !important; }
+  .hm-row-end .st[data-status="Scheduled"]  { color: #06b6d4 !important; }
+  .hm-row-end .st[data-status="Unmatched"]  { color: #3b82f6 !important; }
+  .hm-row-end .st[data-status="Paused"]     { color: #f97316 !important; }
+  .hm-row-end .st[data-status="Skipped"]    { color: #94a3b8 !important; }
+
+  .hm-status[data-status="Completed"]  { background: #16a34a !important; color: #fff !important; }
+  .hm-status[data-status="Failed"]     { background: #dc2626 !important; color: #fff !important; }
+  .hm-status[data-status="Pending"]    { background: #d97706 !important; color: #fff !important; }
+  .hm-status[data-status="Processing"] { background: #9333ea !important; color: #fff !important; }
+  .hm-status[data-status="Scheduled"]  { background: #0891b2 !important; color: #fff !important; }
+  .hm-status[data-status="Unmatched"]  { background: #2563eb !important; color: #fff !important; }
+  .hm-status[data-status="Paused"]     { background: #ea580c !important; color: #fff !important; }
+  .hm-status[data-status="Skipped"]    { background: #64748b !important; color: #fff !important; }
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -133,7 +184,42 @@ function unlimitedLeft(until, now) {
   const m = Math.floor((ms % 3600000) / 60000)
   return `${d}d ${h}h ${m}m left`
 }
+// Line icons for the new actions (same style as the copy icon)
+const ICONS = {
+  retry: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /></>,
+  trash: <><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M6 6l1 14h10l1-14" /></>,
+  message: <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />,
+  ban: <><circle cx="12" cy="12" r="9" /><path d="M5.6 5.6l12.8 12.8" /></>,
+  check: <><circle cx="12" cy="12" r="9" /><path d="M8 12.5l3 3 5-6" /></>,
+  copy: <><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></>,
+  swap: <><path d="M7 7h12l-3-3" /><path d="M17 17H5l3 3" /></>,
+  close: <path d="M6 6l12 12M18 6L6 18" />,
+  all: <><path d="M4 7l2 2 3-3" /><path d="M4 17l2 2 3-3" /><path d="M13 8h7M13 18h7" /></>,
+}
+const Ic = ({ name, size = 20 }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {ICONS[name]}
+  </svg>
+)
 
+const QUICK = [
+  'Hi {name}, your plan is being processed. Thank you for your patience.',
+  'Hi {name}, sorry, we could not give that plan. Please contact us.',
+  'Hi {name}, thank you for buying. Enjoy your plan!',
+]
+const firstName = (name) => {
+  const w = String(name || '').trim().split(/\s+/)[0] || ''
+  return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : 'Customer'
+}
+const titleCase = (s) => String(s || '').toLowerCase().replace(/(^|[\s'-])([a-z])/g, (m, a, b) => a + b.toUpperCase())
+const readOffers = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem('myOffers') || '[]')
+    return Array.isArray(v) ? v : []
+  } catch (e) {
+    return []
+  }
+}
 export default function HomePage({
   onOpenTokens,
   automationRunning = false,
@@ -166,6 +252,15 @@ export default function HomePage({
   const [open, setOpen] = useState({})
   const [when, setWhen] = useState({ date: '', time: '' })
   const [error, setError] = useState('')
+  const [sel, setSel] = useState([]) // ids of the selected transactions
+  const [msgTo, setMsgTo] = useState(null) // transactions a message is going to
+  const [msgText, setMsgText] = useState('')
+  const [msgBusy, setMsgBusy] = useState(false)
+  const [recoFor, setRecoFor] = useState(null) // transaction we are recommending another plan for
+  const [copied, setCopied] = useState(false)
+  const pressTimer = useRef(null)
+  const pressed = useRef(false)
+  useEffect(() => () => clearTimeout(pressTimer.current), [])
 
   // Start / Stop only works on a long press (about one second), never on a tap
   const holdTimer = useRef(null)
@@ -198,12 +293,14 @@ export default function HomePage({
       setNow(Date.now())
     }
     const off = subscribe(sync)
-    // New commission messages and balance checks tell the screen to redraw
+    // New commission messages, balance checks and client changes tell the screen to redraw
     window.addEventListener('ab-balances', sync)
+    window.addEventListener(CLIENTS_EVENT, sync)
     const tick = setInterval(() => setNow(Date.now()), 60000)
     return () => {
       off()
       window.removeEventListener('ab-balances', sync)
+      window.removeEventListener(CLIENTS_EVENT, sync)
       clearInterval(tick)
     }
   }, [])
@@ -257,8 +354,8 @@ export default function HomePage({
   const matches = (t) => inFilter(t, filter)
   const countFor = (f) => visible.filter((t) => inFilter(t, f)).length
   const sorted = [...visible].sort((a, b) => b.createdAt - a.createdAt)
-// Home only shows today's transactions. Older ones live in the full list (the arrow).
-const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).slice(0, 5)
+  // Home only shows today's transactions. Older ones live in the full list (the arrow).
+  const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).slice(0, 5)
 
   // Full list page: category + search (name, phone, M-Pesa message/ID, offer)
   const q = query.trim().toLowerCase()
@@ -380,7 +477,165 @@ const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).s
     setNotice('Transaction deleted')
     goBack()
   }
+  // ---- Selecting several transactions ----
+  const selTxs = sel.map((id) => txs.find((t) => t.id === id)).filter(Boolean)
+  const shown = screen === 'all' ? allList : recent
+  const clearSel = () => setSel([])
+  const toggleSel = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  useEffect(() => { setSel([]) }, [screen])
 
+  // A long press (half a second) selects a row. After that, a tap adds or removes rows.
+  const rowDown = (id) => {
+    pressed.current = false
+    clearTimeout(pressTimer.current)
+    pressTimer.current = setTimeout(() => {
+      pressed.current = true
+      try { if (navigator.vibrate) navigator.vibrate(40) } catch (e) { /* no vibration */ }
+      setSel((s) => (s.includes(id) ? s : [...s, id]))
+    }, 500)
+  }
+  const rowUp = () => clearTimeout(pressTimer.current)
+  const rowTap = (t, from) => {
+    if (pressed.current) { pressed.current = false; return }
+    if (sel.length) toggleSel(t.id)
+    else openDetail(t.id, from)
+  }
+
+  // Only marks the transaction as successful. It does not dial USSD or send the success SMS.
+  function completeTx(t) {
+    try { if (isNative() && t.engine === 'native') AutoBingwa.nativeRelease({ id: t.id }).catch(() => {}) } catch (e) { /* ignore */ }
+    updateTransaction(t.id, { status: 'Completed', engine: 'js', scheduledFor: null, completedAt: Date.now() })
+  }
+
+  function bulkRetry() {
+    const go = selTxs.filter((t) => t.status !== 'Completed' && t.status !== 'Processing')
+    go.forEach((t) => engine.retry(t.id))
+    if (go.length < selTxs.length) setNotice(`${selTxs.length - go.length} could not be retried because they are completed or still running`)
+    clearSel()
+  }
+
+  async function bulkComplete() {
+    const go = selTxs.filter((t) => t.status !== 'Completed')
+    if (!go.length) return clearSel()
+    if (!(await confirmDialog(`Mark ${go.length} as completed? Do this only if the customers already got their plans.`, { title: 'Mark as completed?', confirmLabel: 'Complete' }))) return
+    go.forEach(completeTx)
+    clearSel()
+  }
+
+  async function bulkDelete() {
+    const n = selTxs.length
+    if (!(await confirmDialog(`${n} transaction${n === 1 ? '' : 's'} will be removed for good.`, { title: `Delete ${n}?`, confirmLabel: 'Delete', danger: true }))) return
+    selTxs.forEach((t) => deleteTransaction(t.id))
+    clearSel()
+  }
+
+  // Marks each number as blacklisted in the clients list, which isBlacklisted() in engine/config.js reads.
+  // A client that already exists (same last 9 digits) is flagged. A new one gets the same fields
+  // that recordClientPurchase creates. saveClients also fires the ab-clients event.
+  function addToBlacklist(phones) {
+    try {
+      const list = loadClients()
+      phones.forEach((p) => {
+        const key = last9(p)
+        if (key.length < 9) return
+        const c = list.find((x) => last9(x.phone) === key)
+        if (c) {
+          c.blacklisted = true
+        } else {
+          const t = txs.find((x) => last9(x.phone) === key)
+          const at = (t && t.createdAt) || Date.now()
+          list.push({
+            id: Date.now() + Math.random(),
+            name: t && t.name ? titleCase(t.name) : p,
+            phone: p,
+            createdAt: at,
+            lastActive: at,
+            totalSpent: 0,
+            purchases: 0,
+            blacklisted: true,
+            days: [],
+          })
+        }
+      })
+      saveClients(list)
+      return true
+    } catch (e) {
+      console.error('AB blacklist', e)
+      return false
+    }
+  }
+
+  async function blacklist(list) {
+    const phones = [...new Set(list.map((t) => t.phone).filter(Boolean))]
+    if (!phones.length) return setNotice('Cannot blacklist: no phone number saved')
+    const who = phones.length === 1 ? phones[0] : `${phones.length} numbers`
+    if (!(await confirmDialog(`${who} will be blacklisted, so their payments will not be processed.`, { title: 'Blacklist?', confirmLabel: 'Blacklist', danger: true }))) return
+    if (!addToBlacklist(phones)) return setNotice('Could not blacklist: the list could not be saved')
+    clearSel()
+  }
+
+  function openMessage(list) {
+    const to = list.filter((t) => t.phone)
+    if (!to.length) return setNotice('Cannot message: no phone number saved')
+    setMsgText('')
+    setMsgTo(to)
+  }
+
+  async function sendMessages() {
+    const text = msgText.trim()
+    if (!text || !msgTo) return
+    if (!isNative()) {
+      setMsgTo(null)
+      return setNotice('Messages can only be sent inside the Android app')
+    }
+    setMsgBusy(true)
+    const slot = loadConfig().replySim === 'SIM 1' ? 0 : 1 // same reply SIM as the automatic messages
+    let failed = 0
+    for (const t of msgTo) {
+      const body = text.replace(/\{name\}/gi, firstName(t.name))
+      try {
+        await sendSms({ to: t.phone, text: body, slot })
+        const cur = loadTransactions().find((x) => x.id === t.id)
+        if (cur) updateTransaction(t.id, { responses: [...(cur.responses || []), { input: 'SMS sent', text: body }] })
+      } catch (e) {
+        failed += 1
+        console.error('AB manual sms', e)
+      }
+    }
+    const total = msgTo.length
+    setMsgBusy(false)
+    setMsgTo(null)
+    if (failed) setNotice(`Could not send ${failed} of ${total} messages`)
+    else clearSel()
+  }
+
+  // Sends a different plan to the same customer (runs like a Quick Dial)
+  const recoOffers = recoFor
+    ? readOffers().filter((o) => o.enabled !== false && String(o.id) !== String(recoFor.offerId))
+    : []
+  async function pickReco(o) {
+    const t = recoFor
+    setRecoFor(null)
+    if (!(await confirmDialog(`Send ${o.name} (KES ${o.price}) to ${t.phone}?`, { title: 'Recommend this plan?', confirmLabel: 'Send' }))) return
+    engine.quickDial({ offerId: o.id, phone: t.phone }).then((r) => {
+      if (r && !r.ok && r.status === 'Failed') setNotice(`Could not send the alternative plan: ${r.text}`)
+    })
+    goBack()
+  }
+
+  async function copySummary(t) {
+    const text = [
+      `Name: ${t.name || '-'}`, `Phone: ${t.phone || '-'}`, `Plan: ${t.offerName}`, `Amount: KES ${t.amount}`,
+      `Status: ${t.status}`, `M-Pesa ID: ${t.mpesaId || '-'}`, `Date: ${fmtDate(t.createdAt)} ${fmtTime(t.createdAt)}`,
+    ].join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch (e) {
+      setNotice('Could not copy. Select the text and copy it by hand.')
+    }
+  }
   const toggle = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }))
 
   const responseText = (t) =>
@@ -388,24 +643,36 @@ const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).s
       ? t.responses.map((r, i) => `--- Screen ${i + 1} (input: ${r.input}) ---\n${r.text}`).join('\n\n')
       : 'No response recorded yet.'
 
-  // One transaction row, used on Home and on the full list. Every row is the same size.
-  const row = (t, from) => (
-    <button key={t.id} className="hm-row" onClick={() => openDetail(t.id, from)}>
-      <span className="hm-avatar">{initials(t.name || t.phone)}</span>
-      <span className="hm-row-main">
-        <span className="hm-row-name">
-          <span className="hm-nm">{t.name || t.phone}</span>
-          {t.verified !== false && <VerifiedBadge />}
-          {tagOf(t) && <span className="hm-fb">{tagOf(t)}</span>}
+  // One transaction row, used on Home and on the full list. Long press selects it.
+  const row = (t, from) => {
+    const on = sel.includes(t.id)
+    return (
+      <button
+        key={t.id}
+        className={`hm-row ${on ? 'sel' : ''}`}
+        onClick={() => rowTap(t, from)}
+        onPointerDown={() => rowDown(t.id)}
+        onPointerUp={rowUp}
+        onPointerLeave={rowUp}
+        onPointerCancel={rowUp}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <span className="hm-avatar">{on ? <Ic name="check" size={22} /> : initials(t.name || t.phone)}</span>
+        <span className="hm-row-main">
+          <span className="hm-row-name">
+            <span className="hm-nm">{t.name || t.phone}</span>
+            {t.verified !== false && <VerifiedBadge />}
+            {tagOf(t) && <span className="hm-fb">{tagOf(t)}</span>}
+          </span>
+          <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
         </span>
-        <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
-      </span>
-      <span className="hm-row-end">
-        <span className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
-        <span className="when">{ago(t.createdAt, now)}</span>
-      </span>
-    </button>
-  )
+        <span className="hm-row-end">
+          <span data-status={t.status} className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
+          <span className="when">{ago(t.createdAt, now)}</span>
+        </span>
+      </button>
+    )
+  }
 
   // Compact info card with a copy icon (tap the text to expand)
   const info = (title, text, copyText, key, lines) => (
@@ -455,7 +722,64 @@ const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).s
       <UpdatePopup />
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
+      {selTxs.length > 0 && (screen === 'home' || screen === 'all') && (
+        <div className="hm-selbar" role="toolbar" aria-label="Actions for the selected transactions">
+          <div className="hm-selbar-top">
+            <button className="hm-selx" onClick={clearSel} aria-label="Cancel selection"><Ic name="close" /></button>
+            <b>{selTxs.length} selected</b>
+            <button className="hm-selx" onClick={() => setSel(shown.map((t) => t.id))} aria-label="Select all"><Ic name="all" /></button>
+          </div>
+          <div className="hm-selacts">
+            <button className="hm-selact" onClick={bulkRetry}><Ic name="retry" /><span>Retry</span></button>
+            <button className="hm-selact" onClick={() => openMessage(selTxs)}><Ic name="message" /><span>Message</span></button>
+            <button className="hm-selact" onClick={() => blacklist(selTxs)}><Ic name="ban" /><span>Blacklist</span></button>
+            <button className="hm-selact" onClick={bulkComplete}><Ic name="check" /><span>Complete</span></button>
+            <button className="hm-selact del" onClick={bulkDelete}><Ic name="trash" /><span>Delete</span></button>
+          </div>
+        </div>
+      )}
 
+      {msgTo && (
+        <div className="hm-modal-back" onClick={() => !msgBusy && setMsgTo(null)}>
+          <div className="hm-modal" role="dialog" aria-label="Send message" onClick={(e) => e.stopPropagation()}>
+            <h3>Send message</h3>
+            <p>
+              {msgTo.length === 1 ? `To ${msgTo[0].name || msgTo[0].phone} (${msgTo[0].phone}).` : `To ${msgTo.length} customers.`}
+              {' '}Type {'{name}'} to put in the customer's first name.
+            </p>
+            <textarea className="hm-ta" rows={4} value={msgText} onChange={(e) => setMsgText(e.target.value)} placeholder="Type your message" />
+            <div className="hm-qk">
+              {QUICK.map((q) => <button key={q} type="button" onClick={() => setMsgText(q)}>{q}</button>)}
+            </div>
+            <button className="hm-simbtn hm-center" disabled={msgBusy || !msgText.trim()} onClick={sendMessages}>
+              {msgBusy ? 'Sending…' : 'Send'}
+            </button>
+            <button className="hm-cancel" disabled={msgBusy} onClick={() => setMsgTo(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {recoFor && (
+        <div className="hm-modal-back" onClick={() => setRecoFor(null)}>
+          <div className="hm-modal" role="dialog" aria-label="Recommend another plan" onClick={(e) => e.stopPropagation()}>
+            <h3>Recommend another plan</h3>
+            <p>Pick the plan to send to {recoFor.phone} instead of {recoFor.offerName}.</p>
+            <div className="hm-scroll">
+              {recoOffers.length === 0 ? (
+                <p>No other enabled offers. Add some in Offers.</p>
+              ) : (
+                recoOffers.map((o) => (
+                  <button key={o.id} className="hm-simbtn" onClick={() => pickReco(o)}>
+                    {o.name}
+                    <small>KES {o.price}{o.category ? ` · ${o.category}` : ''}</small>
+                  </button>
+                ))
+              )}
+            </div>
+            <button className="hm-cancel" onClick={() => setRecoFor(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
       {simPick && (
         <div className="hm-modal-back" onClick={() => setSimPick(null)}>
           <div className="hm-modal" role="dialog" aria-label="Choose a SIM" onClick={(e) => e.stopPropagation()}>
@@ -549,13 +873,13 @@ const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).s
 
             {recent.length === 0 ? (
               <div className="hm-card hm-empty">
-             {txs.length === 0 ? (
-  <p>No transactions yet. They appear here automatically after each purchase.</p>
-) : filter === 'All' ? (
-  <p>No transactions today yet. Tap the arrow to see older ones.</p>
-) : (
-  <p>No {filter.toLowerCase()} transactions today.</p>
-)}
+                {txs.length === 0 ? (
+                  <p>No transactions yet. They appear here automatically after each purchase.</p>
+                ) : filter === 'All' ? (
+                  <p>No transactions today yet. Tap the arrow to see older ones.</p>
+                ) : (
+                  <p>No {filter.toLowerCase()} transactions today.</p>
+                )}
               </div>
             ) : (
               <div className="hm-list">{recent.map((t) => row(t, 'home'))}</div>
@@ -617,7 +941,7 @@ const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).s
           </div>
 
           <div className="hm-statusrow">
-            <span className={`hm-status ${TONE[tx.status]}`}>{tx.status}</span>
+            <span data-status={tx.status} className={`hm-status ${TONE[tx.status]}`}>{tx.status}</span>
             <span className="hm-datetime">
               <span><Icon name="calendar" />{fmtDate(execAt(tx))}</span>
               <span><Icon name="clock" />{fmtTime(execAt(tx))}</span>
@@ -664,6 +988,20 @@ const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).s
             </button>
             <button className="hm-act del" onClick={() => remove(tx)}>
               <Icon name="trash" /> Delete
+            </button>
+          </div>
+          <div className="hm-actions hm-actions2">
+            <button className="hm-act" onClick={() => openMessage([tx])} disabled={!tx.phone}>
+              <Ic name="message" /> Message
+            </button>
+            <button className="hm-act" onClick={() => blacklist([tx])} disabled={!tx.phone || tx.blacklisted || isBlacklisted(tx.phone)}>
+              <Ic name="ban" /> Blacklist
+            </button>
+            <button className="hm-act" onClick={() => copySummary(tx)}>
+              <Ic name="copy" /> {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button className="hm-act" onClick={() => setRecoFor(tx)} disabled={!tx.phone}>
+              <Ic name="swap" /> Recommend plan
             </button>
           </div>
         </>
