@@ -382,12 +382,14 @@ export async function importNative() {
         onTxEvent('added', added)
         const cfg = loadConfig()
         if (cfg.autoSave && nt.phone && !nt.blacklisted) saveContact(savedContactName(nt.name || nt.phone, cfg), nt.phone)
+        if (nt.status === 'Completed') engine.markAwaiting(nt.id)
         fireFinished(nt.status, added)
         continue
       }
       // The app took this one over (a retry, a release, a due schedule), or the copy is already current
       if (local.engine === 'js' || (Number(local.rev) || 0) >= (Number(nt.rev) || 0)) continue
       updateTransaction(nt.id, nt)
+      if (nt.status === 'Completed') engine.markAwaiting(nt.id)
       changed++
       if (local.status !== nt.status) fireFinished(nt.status, loadTransactions().find((t) => t.id === nt.id))
     }

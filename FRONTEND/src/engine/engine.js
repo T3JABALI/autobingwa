@@ -1,7 +1,7 @@
 // AutoBingwa engine: runs inside the app. Pure logic, no screens.
 // It talks to the phone through a "bridge" (real one comes from the Android plugin later)
 // and to saved data through a "store".
-import { loadConfig, isBlacklisted } from './config.js'
+import { loadConfig, isBlacklisted, last9 } from './config.js'
 import { classifyScreen } from './confirm.js'
 import { pickOffer, nextDayAt, fillTemplate, inWindow } from './offerRules.js'
 import { findFallback, fallbackDelayMinutes } from './fallbackStore.js'
@@ -92,6 +92,21 @@ const SUCCESS_SCREEN = /successfully\s+(purchased|bought|subscribed|activated|re
 const FAIL_SCREEN = /not\s+successful|unsuccessful|not\s+been\s+successful|failed/i
 // A connection problem or invalid MMI code: the dial itself failed, nothing was bought
 const CONN_SCREEN = /connection\s+problem|invalid\s+mmi|mmi\s+code|network\s+(error|unavailable)/i
+
+// ---- Second response for "Recommendation ... submitted successfully" purchases (Bingwa *180# offers only) ----
+// 1st response (USSD screen): the purchase is Completed, but only an SMS below proves it.
+const PROVISIONAL_SCREEN = /recommendation\s+for\s+\d{9,12}\s+submitted\s+successfully/i
+// 2nd response (SMS) that proves the purchase. Each one names the customer's number.
+// ONLY these decide Verified. Add the key words of any other *180 offer's success SMS to this list.
+const VERIFY_SMS = [
+  /successfully\s+recommended\s+offer\s+to/i,
+  /you\s+have\s+purchased/i, // "Thank you for choosing Safaricom. You have purchased a gift bundle of 250 MBs for 07..."
+]
+// This SMS has no number in it, so it is never matched to one purchase. It only counts as a warning.
+const SORRY_SMS = /we['’]?re\s+sorry,?\s+your\s+transaction\s+could\s+not\s+be\s+completed/i
+const UNVERIFIED_AFTER_MS = 15 * 60000 // wait this long before a purchase can become Unverified
+const MATCH_WINDOW_MS = 6 * 3600000 // a success SMS only matches purchases from the last 6 hours
+const IS_180 = /^\*180[*#]/ // only offers whose USSD starts with *180
 // Per-offer settings win; Default / blank falls back to the app-wide setting
 const modeOf = (offer, fallback) => (offer && (offer.type === 'Express' || offer.type === 'Advanced') ? offer.type : fallback)
 const slotOf = (offer) => (offer && offer.execSim === 'SIM 1' ? 0 : offer && offer.execSim === 'SIM 2' ? 1 : null)
@@ -135,6 +150,8 @@ export function createEngine({
 
   // Every M-Pesa SMS lands here. Nothing is dropped.
   function ingest(sms) {
+    // A late reply about a purchase that is waiting for its confirmation SMS is not a payment
+    if (lateSms(typeof sms === 'string' ? sms : sms && sms.body)) return null
     const p = parseMpesa(typeof sms === 'string' ? sms : sms.body)
     if (p.code && store.list().some((t) => t.mpesaId === p.code)) return null // same SMS delivered twice
     if (p.code && wasDeleted(p.code)) return null // the user deleted this payment
@@ -226,14 +243,92 @@ export function createEngine({
     if (fb.fallbackTrigger === 'failed' && fb.fallbackFromId) store.update(fb.fallbackFromId, { status: 'Completed' })
     return true
   }
+  // ---------- Second response for "Recommendation ... submitted successfully" purchases ----------
+  // Verified   : a success SMS that names the customer's number (matched by number, never by order).
+  // Unverified : 15 minutes with no such SMS AND a "We're sorry" SMS arrived while the purchase was waiting.
+  // Otherwise the purchase stays in "Awaiting commission".
+  const earlyVerify = [] // success SMS that arrived a moment before their purchase was marked "awaiting"
 
+  function lateSms(body) {
+    const text = String(body || '').replace(/\s+/g, ' ').trim()
+    if (!text) return false
+
+    if (VERIFY_SMS.some((re) => re.test(text))) {
+      const phones = (text.match(CANDIDATE_RE) || [])
+        .map(normalizePhone)
+        .filter((n) => n && !n.masked)
+        .map((n) => last9(n.phone))
+      if (!phones.length) return false
+      const byOldest = (a, b) => (a.verifySince || 0) - (b.verifySince || 0)
+      const find = (state) =>
+        store
+          .list()
+          .filter((t) => t.verify === state && now() - (t.verifySince || 0) < MATCH_WINDOW_MS && phones.includes(last9(t.phone)))
+          .sort(byOldest)[0]
+      const hit = find('awaiting') || find('unverified') // a late success SMS can still correct an Unverified one
+      if (!hit) {
+        earlyVerify.push({ at: now(), text, phones })
+        while (earlyVerify.length > 20) earlyVerify.shift()
+        return false
+      }
+      const done = store.update(hit.id, {
+        verify: 'verified',
+        verifiedAt: now(),
+        responses: [...(hit.responses || []), { input: 'SMS', text }],
+      })
+      emit('verified', done)
+      return true
+    }
+
+    // "We're sorry": leave a warning on every purchase that is still inside its 15 minutes.
+    // It is never matched to one purchase, and it still continues to the normal handling below.
+    if (SORRY_SMS.test(text)) {
+      store
+        .list()
+        .filter((t) => t.verify === 'awaiting' && now() - (t.verifySince || 0) < UNVERIFIED_AFTER_MS)
+        .forEach((t) => store.update(t.id, { sorryAt: now() }))
+      return true // never handed on to the purchase that is being dialled right now
+    }
+    return false
+  }
+
+  // A success SMS can arrive a second before the purchase is saved as "awaiting". Check for one.
+  function applyEarly(tx) {
+    const i = earlyVerify.findIndex(
+      (e) =>
+        now() - e.at < 30 * 60000 &&
+        e.at >= (tx.verifySince || 0) - 2 * 60000 &&
+        e.phones.includes(last9(tx.phone))
+    )
+    if (i < 0) return
+    const [e] = earlyVerify.splice(i, 1)
+    lateSms(e.text)
+  }
+    // Purchases the background engine finished get the same "awaiting commission" state
+  function markAwaiting(id) {
+    const t = store.list().find((x) => x.id === id)
+    if (!t || t.status !== 'Completed' || t.verify) return
+    if (!IS_180.test(String(t.ussd || '').replace(/\s+/g, ''))) return
+    if (!(t.responses || []).some((r) => PROVISIONAL_SCREEN.test(String(r.text || '')))) return
+    const done = store.update(id, { verify: 'awaiting', verifySince: t.completedAt || now(), sorryAt: null })
+    applyEarly(done)
+  }
   function confirm(c) {
+    // Success SMS for a purchase that is waiting for its second response are handled first
+    if (c && c.text && lateSms(c.text)) return true
     const w = waiter
     if (w) {
       let mine = true
       if (c.phone && w.phone) {
         const n = normalizePhone(c.phone)
         if (n && n.phone !== w.phone) mine = false // a reply about another customer
+      }
+      // A "Thank you for choosing Safaricom" SMS has no phone field, so check the number inside the text
+      if (mine && !c.phone && c.text && w.phone) {
+        const named = (String(c.text).match(CANDIDATE_RE) || [])
+          .map(normalizePhone)
+          .filter((n) => n && !n.masked)
+        if (named.length && !named.some((n) => last9(n.phone) === last9(w.phone))) mine = false
       }
       if (mine) {
         w.got = c
@@ -332,7 +427,7 @@ export function createEngine({
   async function process(startTx) {
     let tx = startTx
     let offer = getOffers().find((o) => sameId(o.id, tx.offerId))
-    store.update(tx.id, { status: 'Processing', startedAt: now() })
+    store.update(tx.id, { status: 'Processing', startedAt: now(), verify: null, verifySince: null, sorryAt: null })
     emit('processing', tx)
 
     const fail = (text) => {
@@ -490,11 +585,19 @@ export function createEngine({
       return
     }
 
+    // Only *180 offers: "Recommendation ... submitted successfully" is just the first response.
+    // The purchase is Completed now and waits in "Awaiting commission" for its success SMS.
+    const provisional =
+      ok &&
+      IS_180.test(String(tx.ussd || '').replace(/\s+/g, '')) &&
+      rs.some((r) => PROVISIONAL_SCREEN.test(String(r.text || '')))
     const done = store.update(tx.id, {
       status: ok ? 'Completed' : 'Failed',
       completedAt: now(),
+      ...(provisional ? { verify: 'awaiting', verifySince: now(), sorryAt: null } : {}),
     })
     emit(ok ? 'completed' : 'failed', done)
+    if (provisional) applyEarly(done)
     if (ok) notifyCustomer({ ...tx, ...(done || {}) }, offer, primary)
   }
 
@@ -568,6 +671,21 @@ export function createEngine({
   // Scheduled transactions whose time has come become Pending (or Paused if automation is off)
   function tick() {
     armRenewals()
+    // 15 minutes with no success SMS, and a "We're sorry" SMS arrived meanwhile: Unverified
+    store
+      .list()
+      .filter((t) => t.verify === 'awaiting' && t.sorryAt && now() - (t.verifySince || 0) >= UNVERIFIED_AFTER_MS)
+      .forEach((t) => {
+        const done = store.update(t.id, {
+          verify: 'unverified',
+          verifiedAt: now(),
+          responses: [
+            ...(t.responses || []),
+            { input: '-', text: 'No confirmation SMS came within 15 minutes, and a "We\'re sorry, your transaction could not be completed" SMS arrived while waiting. Marked Unverified.' },
+          ],
+        })
+        emit('unverified', done)
+      })
     for (let pass = 0; pass < 400; pass++) {
       const due = store
         .list()
@@ -645,8 +763,10 @@ if (id && (store.list().some((t) => sameId(t.id, id)) || wasDeleted(id))) {
   }
 
   return {
-    ingest,
+     ingest,
     confirm,
+      lateSms,
+    markAwaiting,
     pump,
     tick,
     quickDial,

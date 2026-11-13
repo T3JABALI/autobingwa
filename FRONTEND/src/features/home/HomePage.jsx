@@ -24,8 +24,17 @@ const readAirtime = () => {
 
 const DAY = 86400000
 const FILTERS = ['All', 'Completed', 'Pending', 'Scheduled', 'Failed']
-const ALL_FILTERS = ['All', 'Today', 'Completed', 'Pending', 'Scheduled', 'Failed', 'Unmatched', 'Paused', 'Skipped']
-const TONE = { Completed: 'ok', Pending: 'warn', Processing: 'warn', Scheduled: 'info', Failed: 'bad', Unmatched: 'bad', Paused: 'warn', Skipped: 'warn' }
+const ALL_FILTERS = ['All', 'Today', 'Completed', 'Pending', 'Scheduled', 'Failed', 'Unmatched', 'Awaiting commission', 'Unverified', 'Paused', 'Skipped']
+const TONE = { Completed: 'ok', Pending: 'warn', Processing: 'warn', Scheduled: 'info', Failed: 'bad', Unmatched: 'bad', Paused: 'warn', Skipped: 'warn', 'Awaiting commission': 'warn', Unverified: 'bad' }
+
+// The label a transaction is shown with. Awaiting commission and Unverified are *180 purchases
+// whose first response came but whose confirmation SMS has not (see engine.js).
+const stateOf = (t) =>
+  t.status === 'Completed' && t.verify === 'awaiting'
+    ? 'Awaiting commission'
+    : t.status === 'Completed' && t.verify === 'unverified'
+      ? 'Unverified'
+      : t.status
 
 // The label shown beside a transaction that did not come from a customer payment
 const tagOf = (t) =>
@@ -127,6 +136,21 @@ const HOME_EXTRA = `
   .hm-status[data-status="Unmatched"]  { background: #2563eb !important; color: #fff !important; }
   .hm-status[data-status="Paused"]     { background: #ea580c !important; color: #fff !important; }
   .hm-status[data-status="Skipped"]    { background: #64748b !important; color: #fff !important; }
+
+  /* Awaiting commission and Unverified */
+  .hm-row-end .st { white-space: nowrap; }
+  .hm-row-end .st[data-status="Awaiting commission"] { color: #ca8a04 !important; }
+  .hm-row-end .st[data-status="Unverified"]          { color: #f43f5e !important; }
+  .hm-status[data-status="Awaiting commission"] { background: #a16207 !important; color: #fff !important; }
+  .hm-status[data-status="Unverified"]          { background: #e11d48 !important; color: #fff !important; }
+
+  /* Verification chip above the action icons */
+  .hm-page .hm-vf { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: auto; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; font-weight: 800; }
+  .hm-page .hm-vf + .hm-actions { margin-top: 0 !important; }
+  .hm-vf svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .hm-vf-verified { color: #1d9bf0; background: rgba(29, 155, 240, 0.12); border-color: rgba(29, 155, 240, 0.45); }
+  .hm-vf-awaiting { color: #ca8a04; background: rgba(202, 138, 4, 0.12); border-color: rgba(202, 138, 4, 0.45); }
+  .hm-vf-unverified { color: #f43f5e; background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.45); }
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -195,13 +219,19 @@ const ICONS = {
   swap: <><path d="M7 7h12l-3-3" /><path d="M17 17H5l3 3" /></>,
   close: <path d="M6 6l12 12M18 6L6 18" />,
   all: <><path d="M4 7l2 2 3-3" /><path d="M4 17l2 2 3-3" /><path d="M13 8h7M13 18h7" /></>,
+    xcircle: <><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></>,
 }
 const Ic = ({ name, size = 20 }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {ICONS[name]}
   </svg>
 )
-
+const BlueTick = ({ size = 20 }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} role="img" aria-label="Verified">
+    <path d="M12 2l2.6 2 3.2-.2 1 3 2.7 1.8-1 3.1 1 3.1-2.7 1.8-1 3-3.2-.2L12 22l-2.6-2-3.2.2-1-3L2.5 15.4l1-3.1-1-3.1L5.2 7.4l1-3 3.2.2z" fill="#1d9bf0" />
+    <path d="M8.5 12.2l2.4 2.4 4.6-4.9" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 const QUICK = [
   'Hi {name}, your plan is being processed. Thank you for your patience.',
   'Hi {name}, sorry, we could not give that plan. Please contact us.',
@@ -322,7 +352,7 @@ export default function HomePage({
   const visible = txs.filter((t) => !hiddenIds.has(t.id))
   const todays = visible.filter((t) => t.createdAt >= todayStart)
   const counts = {
-    Completed: todays.filter((t) => t.status === 'Completed').length,
+    Completed: todays.filter((t) => t.status === 'Completed' && t.verify !== 'unverified').length,
     Pending: todays.filter((t) => t.status === 'Pending' || t.status === 'Processing').length,
     Scheduled: visible.filter((t) => t.status === 'Scheduled').length,
     Failed: todays.filter((t) => t.status === 'Failed').length,
@@ -330,7 +360,7 @@ export default function HomePage({
 
   // Airtime used today: every transaction that completed since midnight. It starts again at 0 each midnight.
   const airtimeUsed = txs
-    .filter((t) => t.status === 'Completed' && (t.completedAt || t.createdAt) >= todayStart)
+    .filter((t) => t.status === 'Completed' && t.verify !== 'unverified' && (t.completedAt || t.createdAt) >= todayStart)
     .reduce((sum, t) => sum + (Number(t.cost) || 0), 0)
 
   // Commission comes from the Safaricom messages: "Total commission this week is Ksh..."
@@ -350,7 +380,13 @@ export default function HomePage({
         ? t.createdAt >= todayStart
         : f === 'Pending'
           ? t.status === 'Pending' || t.status === 'Processing'
-          : t.status === f
+          : f === 'Completed'
+            ? t.status === 'Completed' && t.verify !== 'unverified'
+            : f === 'Awaiting commission'
+              ? t.status === 'Completed' && t.verify === 'awaiting'
+              : f === 'Unverified'
+                ? t.status === 'Completed' && t.verify === 'unverified'
+                : t.status === f
   const matches = (t) => inFilter(t, filter)
   const countFor = (f) => visible.filter((t) => inFilter(t, f)).length
   const sorted = [...visible].sort((a, b) => b.createdAt - a.createdAt)
@@ -508,7 +544,7 @@ export default function HomePage({
   }
 
   function bulkRetry() {
-    const go = selTxs.filter((t) => t.status !== 'Completed' && t.status !== 'Processing')
+    const go = selTxs.filter((t) => (t.status !== 'Completed' || t.verify === 'unverified') && t.status !== 'Processing')
     go.forEach((t) => engine.retry(t.id))
     if (go.length < selTxs.length) setNotice(`${selTxs.length - go.length} could not be retried because they are completed or still running`)
     clearSel()
@@ -667,7 +703,7 @@ export default function HomePage({
           <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
         </span>
         <span className="hm-row-end">
-          <span data-status={t.status} className={`st hm-${t.status === 'Scheduled' ? 'info-c' : TONE[t.status]}`}>{t.status}</span>
+          <span data-status={stateOf(t)} className={`st hm-${stateOf(t) === 'Scheduled' ? 'info-c' : TONE[stateOf(t)]}`}>{stateOf(t)}</span>
           <span className="when">{ago(t.createdAt, now)}</span>
         </span>
       </button>
@@ -941,7 +977,7 @@ export default function HomePage({
           </div>
 
           <div className="hm-statusrow">
-            <span data-status={tx.status} className={`hm-status ${TONE[tx.status]}`}>{tx.status}</span>
+            <span data-status={stateOf(tx)} className={`hm-status ${TONE[stateOf(tx)]}`}>{stateOf(tx)}</span>
             <span className="hm-datetime">
               <span><Icon name="calendar" />{fmtDate(execAt(tx))}</span>
               <span><Icon name="clock" />{fmtTime(execAt(tx))}</span>
@@ -978,7 +1014,13 @@ export default function HomePage({
             {info('USSD', tx.ussd || 'No USSD saved.', tx.ussd || '', 'ussd', 3)}
           </div>
           {info('USSD response', responseText(tx), responseText(tx), 'resp', 3)}
-
+          {tx.verify && tx.status === 'Completed' && (
+            <div className={`hm-vf hm-vf-${tx.verify}`} role="status">
+              {tx.verify === 'verified' && <><BlueTick size={20} /><span>Verified</span></>}
+              {tx.verify === 'awaiting' && <><Icon name="clock" /><span>Awaiting commission</span></>}
+              {tx.verify === 'unverified' && <><Ic name="xcircle" size={20} /><span>Unverified</span></>}
+            </div>
+          )}
           <div className="hm-actions">
             <button className="hm-act" onClick={() => retry(tx)} disabled={tx.status === 'Processing'}>
               <Icon name="retry" /> Retry

@@ -165,7 +165,9 @@ export function startSmsBridge(engine) {
         if (conf) {
           const used = engine.confirm({ ...conf, text: m.body })
           console.log('AB confirmation', conf.status, used ? 'used' : 'no transaction waiting')
-         } else if (total === null && fromMpesa(m.sender)) {
+        } else if (!isPayment && total === null && engine.lateSms(m.body)) {
+          console.log('AB second response used')
+        } else if (total === null && fromMpesa(m.sender)) {
           if (own.owner && m.time >= own.since) console.log('AB the background engine owns this payment')
           else engine.ingest(m.body)
         }
