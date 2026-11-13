@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { supabase } from '../../lib/supabase'
+import { API } from '../admin/adminApi'
 import { loadProfile } from '../settings/SettingsPage.jsx'
 
 const PHONE = '+254797411114'
 const WHATSAPP = '254797411114'
 const EMAIL = 'Hybrixprimeservices@gmail.com'
 
-// The server address that receives chat messages for the admin dashboard.
-// Leave it empty until the server route exists. The chat then shows "Not sent".
-const SUPPORT_URL = ''
-
-const THREAD_KEY = 'support:thread'
-const DEVICE_KEY = 'support:deviceId'
+const SERVER_KEY = 'support:server'
+const PENDING_KEY = 'support:pending'
 
 const FAQ = [
   {
@@ -63,39 +61,30 @@ const Ic = ({ name, size = 22 }) => (
   </svg>
 )
 
-const readThread = () => {
+const readJson = (key) => {
   try {
-    const v = JSON.parse(localStorage.getItem(THREAD_KEY) || '[]')
+    const v = JSON.parse(localStorage.getItem(key) || '[]')
     return Array.isArray(v) ? v : []
   } catch (e) {
     return []
   }
 }
-const writeThread = (list) => {
-  try { localStorage.setItem(THREAD_KEY, JSON.stringify(list.slice(-100))) } catch (e) { /* storage full */ }
-}
-const deviceId = () => {
-  try {
-    let id = localStorage.getItem(DEVICE_KEY)
-    if (!id) {
-      id = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-      localStorage.setItem(DEVICE_KEY, id)
-    }
-    return id
-  } catch (e) {
-    return 'unknown'
-  }
+const writeJson = (key, list) => {
+  try { localStorage.setItem(key, JSON.stringify(list.slice(-100))) } catch (e) { /* storage full */ }
 }
 
-async function postToAdmin(text) {
-  if (!SUPPORT_URL) throw new Error('not connected')
-  const profile = loadProfile() || {}
-  const res = await fetch(SUPPORT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId: deviceId(), name: profile.fullName || '', text, at: Date.now() }),
+async function api(path, opts = {}) {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session ? data.session.access_token : ''
+  if (!token) throw new Error('signed out')
+  const r = await fetch(API + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
   })
-  if (!res.ok) throw new Error(`server ${res.status}`)
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.error || 'Request failed (' + r.status + ')')
+  return j
 }
 
 const fmtStamp = (ts) => {
@@ -105,24 +94,28 @@ const fmtStamp = (ts) => {
 }
 
 const CSS = `
-.hs { display: grid; gap: 14px; padding: 6px 12px 28px; align-content: start; }
+.hs { display: grid; gap: 14px; padding: 6px 12px 28px; align-content: start; color: var(--text); }
 .hs-top { display: flex; align-items: center; gap: 10px; }
 .hs-back { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: transparent; color: var(--text); cursor: pointer; }
 .hs-back:hover { background: var(--muted-bg); }
-.hs-top h2 { margin: 0; font-size: 20px; line-height: 1.2; }
-.hs-top small { display: block; color: var(--soft); font-size: 12px; }
+.hs-top h2 { margin: 0; font-size: 20px; line-height: 1.2; color: var(--text); }
+.hs-top small { display: block; color: var(--soft) !important; font-size: 12px; }
 
-.hs-chat-card { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: 0; border-radius: 18px; background: var(--primary); color: var(--on-primary); font: inherit; text-align: left; cursor: pointer; box-shadow: var(--shadow); }
-.hs-chat-ico { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; background: rgba(255, 255, 255, 0.2); flex-shrink: 0; }
+.hs-chat-card { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: 0; border-radius: 18px; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); color: var(--on-primary) !important; font: inherit; text-align: left; cursor: pointer; box-shadow: var(--shadow); }
+.hs-chat-ico { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; background: color-mix(in srgb, var(--on-primary) 22%, transparent); color: var(--on-primary); flex-shrink: 0; }
 .hs-chat-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .app .hs .hs-chat-card .hs-chat-title { display: block; font-size: 16px; font-weight: 800; color: var(--on-primary) !important; opacity: 1 !important; }
 .app .hs .hs-chat-card .hs-chat-sub { display: block; font-size: 12.5px; font-weight: 500; line-height: 1.35; color: var(--on-primary) !important; opacity: 1 !important; }
+.hs-chat-card > svg { color: var(--on-primary); }
 
 .hs-label { margin: 4px 0 -4px; font-size: 12px; font-weight: 700; color: var(--soft); text-transform: uppercase; }
 .hs-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .hs-tile { display: grid; justify-items: center; gap: 6px; padding: 14px 4px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); color: var(--text); font: inherit; font-size: 12px; font-weight: 700; text-decoration: none; }
-.hs-tile span.ic { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--muted-bg); color: var(--primary); }
-.hs-tile small { color: var(--soft); font-size: 10px; font-weight: 500; }
+.hs-tile span.ic { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; }
+.hs-tile:nth-child(1) span.ic { color: var(--primary); background: color-mix(in srgb, var(--primary) 18%, transparent); }
+.hs-tile:nth-child(2) span.ic { color: #25D366; background: color-mix(in srgb, #25D366 18%, transparent); }
+.hs-tile:nth-child(3) span.ic { color: var(--warning); background: color-mix(in srgb, var(--warning) 20%, transparent); }
+.hs-tile small { color: var(--soft) !important; font-size: 10px; font-weight: 500; }
 
 .hs-faq { border: 1px solid var(--border); border-radius: 18px; background: var(--card); overflow: hidden; }
 .hs-faq-item + .hs-faq-item { border-top: 1px solid var(--border); }
@@ -133,66 +126,99 @@ const CSS = `
 
 .hs-thread { display: flex; flex-direction: column; gap: 8px; min-height: 240px; max-height: calc(100dvh - 250px); overflow-y: auto; padding: 4px 2px; overscroll-behavior: contain; }
 .hs-empty { margin: auto; text-align: center; color: var(--soft); font-size: 13px; line-height: 1.6; padding: 20px; }
-.hs-msg { align-self: flex-end; max-width: 82%; padding: 10px 12px; border-radius: 16px 16px 4px 16px; background: var(--primary); color: var(--on-primary); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-.hs-msg.failed { background: var(--danger-bg); color: var(--text); border: 1px solid var(--danger); }
+.hs-msg { align-self: flex-end; max-width: 82%; padding: 10px 12px; border-radius: 16px 16px 4px 16px; background: var(--primary); color: var(--on-primary); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.hs-msg.admin { align-self: flex-start; border-radius: 16px 16px 16px 4px; background: var(--muted-bg); color: var(--text); border: 1px solid var(--border); }
+.hs-msg.failed { background: var(--card); color: var(--text); border: 1px solid var(--danger); }
 .hs-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 10px; opacity: 0.85; }
 .hs-meta button { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .hs-compose { display: flex; align-items: flex-end; gap: 8px; }
 .hs-compose textarea { flex: 1; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); color: var(--text); font: inherit; font-size: 15px; resize: none; }
 .hs-send { display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; border: 0; border-radius: 50%; background: var(--primary); color: var(--on-primary); cursor: pointer; }
 .hs-send:disabled { opacity: 0.45; cursor: not-allowed; }
-.hs-note { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--muted-bg); color: var(--text); font-size: 12px; line-height: 1.5; }
+.hs-note { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--muted-bg); border: 1px solid var(--border); color: var(--text); font-size: 12px; line-height: 1.5; }
 `
 
 export default function SupportPage({ onBack }) {
   const [view, setView] = useState('main')
   const [openQ, setOpenQ] = useState(-1)
-  const [thread, setThread] = useState(readThread)
+  const [server, setServer] = useState(() => readJson(SERVER_KEY))
+  const [pending, setPending] = useState(() =>
+    readJson(PENDING_KEY).map((p) => (p.status === 'sending' ? { ...p, status: 'failed' } : p))
+  )
   const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const endRef = useRef(null)
 
+  const savePending = (fn) =>
+    setPending((p) => {
+      const next = fn(p)
+      writeJson(PENDING_KEY, next)
+      return next
+    })
+
+  // Load the conversation (your messages and the replies from the support team)
+  const refresh = useCallback(async () => {
+    try {
+      const j = await api('/support/thread?read=1')
+      const list = j.messages || []
+      setServer(list)
+      writeJson(SERVER_KEY, list)
+      savePending((p) => p.filter((x) => !list.some((m) => m.cid === x.cid)))
+    } catch (e) {
+      /* offline: keep what is saved on the phone */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (view !== 'chat') return undefined
+    refresh()
+    const t = setInterval(() => { if (!document.hidden) refresh() }, 8000)
+    return () => clearInterval(t)
+  }, [view, refresh])
+
+  const all = [
+    ...server,
+    ...pending.map((p) => ({ id: p.cid, cid: p.cid, from: 'user', text: p.text, at: p.at, status: p.status })),
+  ].sort((a, b) => a.at - b.at)
+
   useEffect(() => {
     if (view === 'chat' && endRef.current) endRef.current.scrollIntoView({ block: 'end' })
-  }, [thread, view])
+  }, [all.length, view])
 
-  function update(list) {
-    setThread(list)
-    writeThread(list)
-  }
-
-  async function deliver(id, body) {
-    setBusy(true)
+  async function deliver(item) {
     setNote('')
+    savePending((p) => p.map((x) => (x.cid === item.cid ? { ...x, status: 'sending' } : x)))
     try {
-      await postToAdmin(body)
-      update(readThread().map((m) => (m.id === id ? { ...m, status: 'sent' } : m)))
+      const profile = loadProfile() || {}
+      await api('/support/send', {
+        method: 'POST',
+        body: { text: item.text, clientId: item.cid, name: profile.fullName || '' },
+      })
+      savePending((p) => p.filter((x) => x.cid !== item.cid))
+      setServer((s) => [...s, { id: -Date.now(), cid: item.cid, from: 'user', text: item.text, at: item.at }])
+      refresh()
     } catch (e) {
-      update(readThread().map((m) => (m.id === id ? { ...m, status: 'failed' } : m)))
+      savePending((p) => p.map((x) => (x.cid === item.cid ? { ...x, status: 'failed' } : x)))
       setNote(
-        SUPPORT_URL
-          ? 'Could not send. Check your internet and tap Retry.'
-          : 'Could not send: chat is not connected to the server yet. Please call or use WhatsApp for now.'
+        e.message === 'signed out'
+          ? 'You are signed out. Please sign in again.'
+          : 'Could not send. Check your internet and tap Retry.'
       )
-    } finally {
-      setBusy(false)
     }
   }
 
   function send() {
     const body = text.trim()
-    if (!body || busy) return
-    const msg = { id: Date.now(), text: body, at: Date.now(), status: 'sending' }
-    update([...readThread(), msg])
+    if (!body) return
+    const item = {
+      cid: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      text: body,
+      at: Date.now(),
+      status: 'sending',
+    }
+    savePending((p) => [...p, item])
     setText('')
-    deliver(msg.id, body)
-  }
-
-  function retry(m) {
-    if (busy) return
-    update(readThread().map((x) => (x.id === m.id ? { ...x, status: 'sending' } : x)))
-    deliver(m.id, m.text)
+    deliver(item)
   }
 
   const goBack = () => (view === 'chat' ? setView('main') : onBack && onBack())
@@ -205,7 +231,7 @@ export default function SupportPage({ onBack }) {
         <button className="hs-back" onClick={goBack} aria-label="Back"><Ic name="back" /></button>
         <div>
           <h2>{view === 'chat' ? 'Chat with support' : 'Help & Support'}</h2>
-          <small>{view === 'chat' ? 'Your message goes straight to our team' : 'Answers, or a human when you need one'}</small>
+          <small>{view === 'chat' ? 'Our team replies here' : 'Answers, or a human when you need one'}</small>
         </div>
       </div>
 
@@ -257,21 +283,24 @@ export default function SupportPage({ onBack }) {
       {view === 'chat' && (
         <>
           <div className="hs-thread">
-            {thread.length === 0 ? (
+            {all.length === 0 ? (
               <p className="hs-empty">
                 No messages yet.<br />
                 Tell us what happened and include the customer's phone number if it is about a payment.
               </p>
             ) : (
-              thread.map((m) => (
-                <div key={m.id} className={`hs-msg ${m.status === 'failed' ? 'failed' : ''}`}>
+              all.map((m) => (
+                <div
+                  key={m.id}
+                  className={`hs-msg ${m.from === 'admin' ? 'admin' : ''} ${m.status === 'failed' ? 'failed' : ''}`}
+                >
                   {m.text}
                   <div className="hs-meta">
                     <span>{fmtStamp(m.at)}</span>
-                    <span>
-                      {m.status === 'sent' ? 'Sent' : m.status === 'sending' ? 'Sending…' : 'Not sent'}
-                    </span>
-                    {m.status === 'failed' && <button onClick={() => retry(m)}>Retry</button>}
+                    {m.from === 'admin' && <span>Support team</span>}
+                    {m.status === 'sending' && <span>Sending…</span>}
+                    {m.status === 'failed' && <span>Not sent</span>}
+                    {m.status === 'failed' && <button onClick={() => deliver({ cid: m.cid, text: m.text, at: m.at })}>Retry</button>}
                   </div>
                 </div>
               ))
@@ -289,7 +318,7 @@ export default function SupportPage({ onBack }) {
               placeholder="Type your message"
               aria-label="Message to support"
             />
-            <button className="hs-send" onClick={send} disabled={busy || !text.trim()} aria-label="Send">
+            <button className="hs-send" onClick={send} disabled={!text.trim()} aria-label="Send">
               <Ic name="send" />
             </button>
           </div>
