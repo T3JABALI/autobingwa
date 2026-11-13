@@ -20,11 +20,6 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AutoBingwaPlugin.class);
         super.onCreate(savedInstanceState);
-    }
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(AutoBingwaPlugin.class);
-        super.onCreate(savedInstanceState);
         // Lets the app come up over the lock screen and light the screen when the service wakes it
         if (android.os.Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
