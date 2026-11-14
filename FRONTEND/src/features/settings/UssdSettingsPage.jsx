@@ -45,13 +45,13 @@ function Switch({ on, onChange, label }) {
 
 function Row({ title, desc, value, unit, step, min, max, onChange }) {
   return (
-    <div className="us-row">
+    <div className="us-tile">
       <div className="us-info"><strong>{title}</strong><small>{desc}</small></div>
-      <div className="us-step">
-        <button type="button" className="us-btn" aria-label={`Lower ${title}`} disabled={value <= min}
+      <div className="us-pill">
+        <button type="button" className="us-pm" aria-label={`Lower ${title}`} disabled={value <= min}
           onClick={() => onChange(Math.max(min, value - step))}>−</button>
         <span className="us-val">{value}{unit}</span>
-        <button type="button" className="us-btn" aria-label={`Raise ${title}`} disabled={value >= max}
+        <button type="button" className="us-pm" aria-label={`Raise ${title}`} disabled={value >= max}
           onClick={() => onChange(Math.min(max, value + step))}>+</button>
       </div>
     </div>
@@ -97,40 +97,45 @@ export default function UssdSettingsPage({ onBack }) {
   return (
     <div className="us">
       <style>{`
-        .us { padding: 0 2px 28px; }
-        .us-head { display: flex; align-items: center; gap: 4px; padding: 2px 0 10px; border-bottom: 1px solid var(--st-border); }
+        .us { --us-g: #2e9e45; padding: 0 2px 28px; }
+        .us-head { display: flex; align-items: center; gap: 6px; padding: 4px 0 12px; }
         .us-title { flex: 1; min-width: 0; }
         .us-title h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.2; }
         .us-title small { display: block; margin-top: 2px; font-size: 11px; }
-        .us-ico { width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
+        .us-ico { width: 38px; height: 38px; border: 1.5px solid var(--st-border); border-radius: 50%; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
         .us-ico:hover { background: var(--st-hover); }
-        .us-ico svg, .us-save svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        .us-save { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 10px; background: transparent; color: #2e9e45; font: inherit; font-size: 14px; font-weight: 700; padding: 8px 6px; cursor: pointer; }
-        .us-save:disabled { opacity: .4; cursor: default; }
-        .us-label { margin: 18px 4px 6px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #2e9e45; }
-        .us-profiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .us-prof { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 8px; border: 2px solid var(--st-border); border-radius: 16px; background: var(--st-card); color: inherit; font: inherit; text-align: center; cursor: pointer; }
-        .us-prof svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        .us-prof strong { font-size: 14px; }
-        .us-prof small { font-size: 11px; }
-        .us-prof.on { border-color: #2e8b3d; background: var(--st-hover); }
-        .us-prof.on svg { color: #2e8b3d; }
-        .us-hint { display: block; margin: 6px 4px 0; font-size: 11px; }
-        .us-card { border: 1px solid var(--st-border); border-radius: 16px; background: var(--st-card); overflow: hidden; }
-        .us-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--st-border); }
-        .us-row:first-child { border-top: 0; }
-        .us-info { min-width: 0; }
+        .us-ico svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .us-save { border: 0; border-radius: 999px; background: var(--us-g); color: #fff; font: inherit; font-size: 13px; font-weight: 700; padding: 9px 18px; cursor: pointer; }
+        .us-save:disabled { background: var(--st-hover); color: var(--st-soft); cursor: default; }
+        .us-ico:focus-visible, .us-save:focus-visible, .us-bub:focus-visible, .us-pm:focus-visible, .us-more:focus-visible { outline: 2px solid var(--us-g); outline-offset: 2px; }
+
+        .us-label { display: flex; align-items: center; gap: 8px; margin: 20px 4px 8px; font-size: 13px; font-weight: 700; color: var(--st-soft); }
+        .us-label::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--us-g); }
+
+        .us-bubbles { display: flex; gap: 8px; flex-wrap: wrap; }
+        .us-bub { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border: 1.5px solid var(--st-border); border-radius: 999px; background: var(--st-card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+        .us-bub .ic { width: 26px; height: 26px; border-radius: 50%; background: var(--st-hover); display: grid; place-items: center; flex-shrink: 0; }
+        .us-bub .ic svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+        .us-bub strong { display: block; font-size: 13px; line-height: 1.15; }
+        .us-bub small { display: block; font-size: 10.5px; line-height: 1.2; color: var(--st-soft); }
+        .us-bub.on { border-color: var(--us-g); background: var(--st-hover); }
+        .us-bub.on .ic { background: var(--us-g); color: #fff; }
+        .us-hint { display: block; margin: 6px 6px 0; font-size: 11px; }
+
+        .us-tile { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px 10px 16px; margin-bottom: 8px; border: 1px solid var(--st-border); border-radius: 20px; background: var(--st-card); }
+        .us-info { min-width: 0; flex: 1; }
         .us-info strong { display: block; font-size: 14px; font-weight: 600; }
-        .us-info small { display: block; margin-top: 2px; font-size: 11.5px; }
-        .us-step { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-        .us-btn { width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--st-hover); color: inherit; font-size: 20px; line-height: 1; display: grid; place-items: center; cursor: pointer; }
-        .us-btn:disabled { opacity: .3; cursor: default; }
-        .us-val { min-width: 56px; text-align: center; font-size: 13px; font-weight: 700; }
-        .us-more { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 18px; padding: 14px; border: 1px solid var(--st-border); border-radius: 16px; background: var(--st-card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-        .us-more strong { display: block; font-size: 15px; }
-        .us-more small { display: block; margin-top: 2px; font-size: 11.5px; }
-        .us-more svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        .app .us p.us-note { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--st-hover); font-size: 12.5px; }
+        .us-info small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--st-soft); }
+        .us-pill { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--st-hover); flex-shrink: 0; }
+        .us-pm { width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--st-card); color: inherit; font-size: 18px; line-height: 1; display: grid; place-items: center; cursor: pointer; }
+        .us-pm:disabled { opacity: .3; cursor: default; }
+        .us-val { min-width: 54px; text-align: center; font-size: 13px; font-weight: 700; }
+
+        .us-more { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 18px; padding: 12px 16px; border: 1px solid var(--st-border); border-radius: 999px; background: var(--st-card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+        .us-more strong { display: block; font-size: 14px; }
+        .us-more small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--st-soft); }
+        .us-more svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .app .us p.us-note { margin: 4px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--st-hover); font-size: 12.5px; }
       `}</style>
 
       <div className="us-head">
@@ -144,10 +149,7 @@ export default function UssdSettingsPage({ onBack }) {
         <button className="us-ico" onClick={reset} aria-label="Reset to Quick">
           <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /></svg>
         </button>
-        <button className="us-save" onClick={save} disabled={!dirty}>
-          <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z" /><path d="M8 3v6h8V3" /><path d="M8 21v-7h8v7" /></svg>
-          Save
-        </button>
+        <button className="us-save" onClick={save} disabled={!dirty}>Save</button>
       </div>
 
       {note && <p className="us-note" role="status">{note}</p>}
@@ -155,38 +157,33 @@ export default function UssdSettingsPage({ onBack }) {
       {view === 'main' && (
         <>
           <p className="us-label">Speed fix</p>
-          <div className="us-profiles" role="radiogroup" aria-label="Speed fix">
-            {[['quick', 'Quick', BOLT, 'Fastest, for good networks'], ['average', 'Average', GAUGE, 'Steadier, for slower networks']].map(([id, label, icon, sub]) => (
+          <div className="us-bubbles" role="radiogroup" aria-label="Speed fix">
+            {[['quick', 'Quick', BOLT, 'Good networks'], ['average', 'Average', GAUGE, 'Slower networks']].map(([id, label, icon, sub]) => (
               <button key={id} type="button" role="radio" aria-checked={profile === id}
-                className={`us-prof ${profile === id ? 'on' : ''}`} onClick={() => set(USSD_PROFILES[id])}>
-                <svg viewBox="0 0 24 24">{icon}</svg>
-                <strong>{label}</strong>
-                <small>{sub}</small>
+                className={`us-bub ${profile === id ? 'on' : ''}`} onClick={() => set(USSD_PROFILES[id])}>
+                <span className="ic"><svg viewBox="0 0 24 24">{icon}</svg></span>
+                <span><strong>{label}</strong><small>{sub}</small></span>
               </button>
             ))}
           </div>
           {!profile && <small className="us-hint">Custom values</small>}
 
           <p className="us-label">Retry policy</p>
-          <div className="us-card">
-            <div className="us-row">
-              <div className="us-info"><strong>Auto Retry Failed</strong><small>Try again once when a USSD fails</small></div>
-              <Switch on={draft.autoRetry} label="Auto Retry Failed" onChange={() => set({ autoRetry: !draft.autoRetry })} />
-            </div>
+          <div className="us-tile">
+            <div className="us-info"><strong>Auto Retry Failed</strong><small>Try again once when a USSD fails</small></div>
+            <Switch on={draft.autoRetry} label="Auto Retry Failed" onChange={() => set({ autoRetry: !draft.autoRetry })} />
           </div>
 
           <p className="us-label">Timeouts</p>
-          <div className="us-card">{TIMEOUTS.map(rowEl)}</div>
+          {TIMEOUTS.map(rowEl)}
 
           <p className="us-label">Queue processing</p>
-          <div className="us-card">{QUEUE.map(rowEl)}</div>
+          {QUEUE.map(rowEl)}
 
           <p className="us-label">Speed</p>
-          <div className="us-card">
-            <div className="us-row">
-              <div className="us-info"><strong>Fasten Bingwa offers</strong><small>Send the first steps of *180 offers together</small></div>
-              <Switch on={draft.fasten} label="Fasten Bingwa offers" onChange={() => set({ fasten: !draft.fasten })} />
-            </div>
+          <div className="us-tile">
+            <div className="us-info"><strong>Quick Bingwa Offers</strong><small>Send the first steps of *180 offers together</small></div>
+            <Switch on={draft.fasten} label="Quick Bingwa Offers" onChange={() => set({ fasten: !draft.fasten })} />
           </div>
 
           <button className="us-more" onClick={() => setView('more')}>
@@ -199,7 +196,7 @@ export default function UssdSettingsPage({ onBack }) {
       {view === 'more' && MORE.map((g) => (
         <div key={g.group}>
           <p className="us-label">{g.group}</p>
-          <div className="us-card">{g.rows.map(rowEl)}</div>
+          {g.rows.map(rowEl)}
         </div>
       ))}
     </div>

@@ -425,7 +425,7 @@ const sxToggle = (label, desc, field) => (
         <input id="st-suffix" className="st-field" value={config.saveSuffix} maxLength={30}
           placeholder="e.g. AutoBingwa"
           onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
-        <p className="st-preview">Saved as: <strong>Faith Simiyu{suffix ? ` ${suffix}` : ''}</strong></p>
+<p className="st-preview">Saved as: <strong>John Doe{suffix ? ` ${suffix}` : ''}</strong></p>
       </div>
     )}
     <button className="sx-item" onClick={openBlacklist}>
@@ -517,7 +517,7 @@ const sxToggle = (label, desc, field) => (
 
                 <div className="pf-field">
                   <label htmlFor="pf-name">Full name</label>
-                  <input id="pf-name" className="pf-input" value={form.fullName} placeholder="e.g. Jabali Otieno"
+                  <input id="pf-name" className="pf-input" value={form.fullName} placeholder="e.g. John Doe Bingwa"
                     onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
                 </div>
 
@@ -530,7 +530,7 @@ const sxToggle = (label, desc, field) => (
 
                 <div className="pf-field">
                   <label htmlFor="pf-biz">Business name (optional)</label>
-                  <input id="pf-biz" className="pf-input" value={form.business} placeholder="e.g. AutoBingwa"
+                  <input id="pf-biz" className="pf-input" value={form.business} placeholder="e.g. AutoBingwa Enterprise"
                     onChange={(e) => setForm({ ...form, business: e.target.value })} />
                 </div>
 
