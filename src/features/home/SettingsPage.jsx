@@ -1,4 +1,4 @@
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/AuthContext.jsx";
 import { useRef, useState } from 'react'
 import { normalizePhone } from '../../engine/engine.js'
 import {

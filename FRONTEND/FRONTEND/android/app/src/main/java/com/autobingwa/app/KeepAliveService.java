@@ -116,7 +116,7 @@ public class KeepAliveService extends Service {
             String id = sp.getString("portal_id", "");
             String secret = sp.getString("portal_secret", "");
             if (id.isEmpty() || secret.isEmpty() || !sp.getBoolean("portal_on", false)) return;
-            c = (HttpURLConnection) new URL("https://autobingwa-payments.onrender.com/device/ping").openConnection();
+            c = (HttpURLConnection) new URL("https://autobingwa-payments-l22u.onrender.com/device/ping").openConnection();
             c.setConnectTimeout(10000);
             c.setReadTimeout(10000);
             c.setRequestMethod("POST");

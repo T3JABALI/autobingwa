@@ -1,7 +1,7 @@
 import { supabase } from '../../lib/supabase';
 
 // Your server address, no slash at the end
-export const API = 'https://autobingwa-payments.onrender.com';
+export const API = 'https://autobingwa-payments-l22u.onrender.com';
 
 export async function adminFetch(path, opts = {}) {
   const { data } = await supabase.auth.getSession();

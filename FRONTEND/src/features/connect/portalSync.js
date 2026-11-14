@@ -11,7 +11,7 @@ import { grantTokens, tokensActive } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
 import { subscribe, loadTransactions, loadAirtime, loadWallet, loadDeletedKeys } from '../home/dataStore.js'
 
-const SERVER = 'https://autobingwa-payments.onrender.com'
+const SERVER = 'https://autobingwa-payments-l22u.onrender.com'
 const ID_KEY = 'connect:id'
 const SECRET_KEY = 'connect:portal-key:'
 const INTERVAL = 8000

@@ -1,6 +1,6 @@
 // Loads the Smart plans catalog from the server and remembers the last copy for offline use.
 // Same server address as the admin screen, no slash at the end.
-const API = 'https://autobingwa-payments.onrender.com'
+const API = 'https://autobingwa-payments-l22u.onrender.com'
 const KEY = 'smart:catalog'
 
 function readCache() {

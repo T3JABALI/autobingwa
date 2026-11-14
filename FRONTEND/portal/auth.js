@@ -1,7 +1,7 @@
 (function () {
   const SUPABASE_URL = 'https://smoukalewmuorpowfiqr.supabase.co'
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtb3VrYWxld211b3Jwb3dmaXFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MDEzOTQsImV4cCI6MjEwOTE3NzM5NH0.CRCQSjcAXQof50F0tdy3cFM6chyd-gk58pn4bPpkSfk'
-  const API_URL = 'https://autobingwa-payments.onrender.com'
+  const API_URL = 'https://autobingwa-payments-l22u.onrender.com'
   const EMAIL_DOMAIN = 'portal.autobingwaportal.co.ke'
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)

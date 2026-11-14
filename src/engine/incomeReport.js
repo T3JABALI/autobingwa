@@ -1,6 +1,6 @@
 // Tells the server about a confirmed airtime token payment, so it shows in the admin income.
 // The price is never sent: the server uses its own price list. If the phone is offline, the report waits and is sent later.
-const API = 'https://autobingwa-payments.onrender.com'
+const API = 'https://autobingwa-payments-l22u.onrender.com'
 const KEY = 'tokens:airtimeReports'
 
 function read() {

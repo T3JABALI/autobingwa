@@ -7,7 +7,7 @@ import { parsePhone } from '../features/quickdial/ussd.js'
 
 export const AIRTIME_NUMBER = '0143926894'
 // Your Render server address, no slash at the end
-export const TOKEN_API = 'https://autobingwa-payments.onrender.com'
+export const TOKEN_API = 'https://autobingwa-payments-l22u.onrender.com'
 
 const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'

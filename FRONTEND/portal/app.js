@@ -19,7 +19,7 @@
    {id,name,cat,price,safPrice,ussd,on,signed,smart,signature,locked,sig,sigLearned,sigEnabled,sigAuto,
     autoRetry,retryCount,retryPending,retryFailed,autoReschedule,rescheduleTime,notifyOn,notifyMsg,
     tw:{on,from,until,altId,notify,msg}} */
-const USE_MOCK=false,API_URL='https://autobingwa-payments.onrender.com';
+const USE_MOCK=false,API_URL='https://autobingwa-payments-l22u.onrender.com';
 const DB={biz:'Jabali Bingwa Deals',cid:'AB-1042',plan:{name:'2 devices',max:2,exp:'15 Nov 2026'},
 devices:[
 {id:'d1',name:'Bundles Store Mtaani',online:true,running:true,air:1422,used:310,tok:112,bat:71,chg:true,com:1153.5},
