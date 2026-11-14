@@ -6,6 +6,7 @@ import {
 } from './balances.js'
 import { classifyConfirmation } from './confirm.js'
 import { splitUssd } from './ussdSteps.js'
+import { loadUssd } from './ussdSettings.js'
 export const AutoBingwa = registerPlugin('AutoBingwa')
 export const isNative = () => Capacitor.isNativePlatform()
 
@@ -71,8 +72,13 @@ export async function runFlow({
   if (!isNative()) throw new Error('USSD can only run inside the Android app')
   const s = splitUssd(ussd, phone)
   if (!s) throw new Error('This offer has no USSD code')
+   const u = loadUssd()
+  await applyUssdSettings(u) // the USSD Settings page decides the timings
   const res = await AutoBingwa.runUssdFlow({
-    first: s.first, steps: s.steps, slot, express, sig: sig || undefined, stepTimeoutMs, keyDelayMs, totalTimeoutMs,
+    first: s.first, steps: s.steps, slot, express, sig: sig || undefined,
+    stepTimeoutMs: u.advancedTimeoutSec * 1000,
+    keyDelayMs: u.keyInputDelayMs,
+    totalTimeoutMs: express ? u.expressTimeoutSec * 1000 : totalTimeoutMs,
   })
   console.log('AB flow', JSON.stringify(res))
   return { status: res.status, ok: res.status === 'complete', responses: res.responses || [], message: res.message }
@@ -110,6 +116,7 @@ const safe = async (fn) => {
   try { return await fn() } catch (e) { console.error('AB native', e); return null }
 }
 export const openAppInfo = () => safe(() => AutoBingwa.openAppInfo())
+export const applyUssdSettings = (u) => safe(() => AutoBingwa.setUssdSettings(u || loadUssd()))
 export const deviceInfo = () => safe(() => AutoBingwa.deviceInfo())
 export async function batteryExempt() {
   const r = await safe(() => AutoBingwa.batteryStatus())
@@ -134,7 +141,7 @@ export async function accessibilityConflicts() {
 // Every saved SMS is handed on, then marked as done
 export function startSmsBridge(engine) {
   if (!isNative()) return
-
+  applyUssdSettings()
   // Every new transaction with a full phone number is saved to the contacts
   engine.on((event, tx) => {
     if (event !== 'added' || !tx || !tx.phone || tx.blacklisted) return

@@ -6,6 +6,7 @@ import { classifyScreen } from './confirm.js'
 import { pickOffer, nextDayAt, fillTemplate, inWindow } from './offerRules.js'
 import { findFallback, fallbackDelayMinutes } from './fallbackStore.js'
 import { wasDeleted } from '../features/home/dataStore.js'
+import { loadUssd } from './ussdSettings.js'
 // ---------- Phone numbers ----------
 // Reads a Kenyan number written any common way:
 // 0797411114, +254797411114, 254797411114, 0117818996, 07 97411114, 0797-411-114, 0797***114
@@ -476,7 +477,7 @@ export function createEngine({
     }
 
     const cfg = getConfig()
-    const maxRetries = offer.autoRetry ? Math.max(0, Number(offer.retryCount) || 0) : 0
+    const maxRetries = offer.autoRetry ? Math.max(0, Number(offer.retryCount) || 0) : (loadUssd().autoRetry ? 1 : 0)
     const retryFailed = offer.retryFailed !== false
     const retryPending = Boolean(offer.retryPending)
     const retryConn = Boolean(offer.retryConn ?? offer.autoRetry)
@@ -617,7 +618,7 @@ export function createEngine({
         await process(next)
         manual.delete(next.id)
         // a short breather so the phone releases the USSD session before the next one
-        const gap = Number(getConfig().gapMs ?? (getMode() === 'Express' ? 100 : 300))
+        const gap = Number(loadUssd().betweenMs)
         await new Promise((r) => setTimeout(r, gap))
       }
     } finally {

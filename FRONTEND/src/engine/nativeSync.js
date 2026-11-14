@@ -4,7 +4,7 @@ import { isNative, AutoBingwa } from './native.js'
 import { loadConfig, readJson, CLIENTS_KEY, last9 } from './config.js'
 import { loadFallback } from './fallbackStore.js'
 import { loadWallet } from '../features/home/dataStore.js'
-
+import { loadUssd } from './ussdSettings.js'
 export function buildSnapshot() {
   const offers = readJson('myOffers', [])
   const blacklist = readJson(CLIENTS_KEY, [])
@@ -18,6 +18,7 @@ export function buildSnapshot() {
     blacklist,
     wallet: loadWallet(),
     fallback: loadFallback(),
+        ussd: loadUssd(),
   }
 }
 
@@ -29,6 +30,7 @@ export function localCounts() {
     blacklist: s.blacklist.length,
     fallbackMappings: (s.fallback.mappings || []).length,
     units: Number(s.wallet.units) || 0,
+    ussd: s.ussd ? 1 : 0,
   }
 }
 

@@ -420,6 +420,7 @@ public void portalBeat(PluginCall call) {
     @PluginMethod
     public void runUssd(final PluginCall call) {
         final String code = call.getString("code", "");
+                final long timeoutMs = call.getLong("timeoutMs", 40000L);
         final Integer slotArg = call.getInt("slot", 0);
         final int slot = slotArg == null ? 0 : slotArg;
         if (code == null || code.trim().isEmpty()) {
@@ -456,7 +457,7 @@ public void portalBeat(PluginCall call) {
                 public void run() {
                     if (done.compareAndSet(false, true)) call.reject("The USSD request timed out");
                 }
-            }, 40000);
+                 }, timeoutMs);
 
             tm.sendUssdRequest(code.trim(), new TelephonyManager.UssdResponseCallback() {
                 @Override
@@ -793,6 +794,13 @@ public void stopKeepAlive(PluginCall call) {
     public void nativeRelease(PluginCall call) {
         String id = call.getString("id", "");
         if (id != null && !id.isEmpty()) EngineCore.release(getContext(), id);
+        call.resolve();
+    }
+    
+    // ---------- USSD Settings page ----------
+    @PluginMethod
+    public void setUssdSettings(PluginCall call) {
+        UssdFlow.apply(call.getData());
         call.resolve();
     }
 }

@@ -30,6 +30,7 @@ import {
   wasDeleted,
 } from '../features/home/dataStore.js'
 import { startNativeSync } from './nativeSync.js'
+import { loadUssd } from './ussdSettings.js'
 function readJson(key, fallback) {
   try {
     const v = JSON.parse(localStorage.getItem(key) || 'null')
@@ -105,9 +106,10 @@ const realBridge = {
     // The offer's own SIM choice wins. "Default" (or nothing saved) uses the SIM from the app settings.
     const simName = offer && (offer.execSim === 'SIM 1' || offer.execSim === 'SIM 2') ? offer.execSim : cfg.bingwaSim
     const slot = slotOf(simName)
+    const u = loadUssd() // the USSD Settings page decides the timings
     const timeouts = {
-      stepTimeoutMs: (Number(cfg.stepTimeoutSec) || 20) * 1000,
-      keyDelayMs: Number(cfg.keyDelayMs) || 80,
+      stepTimeoutMs: u.advancedTimeoutSec * 1000,
+      keyDelayMs: u.keyInputDelayMs,
       totalTimeoutMs: (Number(cfg.totalTimeoutSec) || 90) * 1000,
     }
 
@@ -120,12 +122,15 @@ const realBridge = {
     // EXPRESS MODE: One silent USSD request
     if (mode === 'Express') {
       const code = String(ussd).replace(/\bab\b/gi, phone)
+      const lead = (u.executionDelayMs || 0) + (u.initialDialDelayMs || 0)
+      if (lead > 0) await new Promise((r) => setTimeout(r, lead))
 
       try {
         const res = await AutoBingwa.runUssd({
           code,
           slot,
           express: true,
+          timeoutMs: u.expressTimeoutSec * 1000,
         })
 
         return {
@@ -144,7 +149,7 @@ const realBridge = {
         if (/USSD failed, code -[12]\b/.test(msg) || /USSD error/.test(msg)) {
           try {
             await new Promise((r) => setTimeout(r, 1500))
-            const again = await AutoBingwa.runUssd({ code, slot, express: true })
+            const again = await AutoBingwa.runUssd({ code, slot, express: true, timeoutMs: u.expressTimeoutSec * 1000 })
             return { ok: true, status: 'complete', responses: [{ input: code, text: again.text || '' }] }
           } catch (err2) {
             console.error('AB express retry', err2)

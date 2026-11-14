@@ -423,8 +423,10 @@ final class EngineCore {
                                     "The native engine hit an error. Check your balance, then retry. " + e))));
                             Notifier.alert(c, "idle", "", "");
                         }
-                        long gap = EngineStore.snapshot(c).optJSONObject("config") == null ? 400
-                            : EngineStore.snapshot(c).optJSONObject("config").optLong("gapMs", 400);
+                        JSONObject usGap = EngineStore.snapshot(c).optJSONObject("ussd");
+                        long gap = usGap != null ? usGap.optLong("betweenMs", 250)
+                            : (EngineStore.snapshot(c).optJSONObject("config") == null ? 400
+                            : EngineStore.snapshot(c).optJSONObject("config").optLong("gapMs", 400));
                         Thread.sleep(Math.max(0, gap));
                     }
                 } catch (InterruptedException e) {
@@ -558,7 +560,8 @@ final class EngineCore {
         JSONArray offers = snap.optJSONArray("offers");
         JSONObject cfg = snap.optJSONObject("config");
         if (cfg == null) cfg = new JSONObject();
-
+        JSONObject us = snap.optJSONObject("ussd"); // the USSD Settings page
+        UssdFlow.apply(us);
         update(c, id, obj("status", "Processing", "startedAt", System.currentTimeMillis()));
         Notifier.alert(c, "processing", "Processing", label);
 
@@ -616,8 +619,13 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
         long totalMs = positive(cfg.optLong("totalTimeoutSec", 90), 90) * 1000;
         long retryMs = positive(cfg.optLong("retryAfterSec", 15), 15) * 1000;
         long confirmMs = positive(cfg.optLong("confirmWaitSec", 45), 45) * 1000;
-
-        int maxRetries = offer.optBoolean("autoRetry", false) ? Math.max(0, offer.optInt("retryCount", 0)) : 0;
+        if (us != null) {
+            stepMs = positive(us.optLong("advancedTimeoutSec", 30), 30) * 1000;
+            keyMs = us.optLong("keyInputDelayMs", 50);
+            if ("Express".equals(mode)) totalMs = positive(us.optLong("expressTimeoutSec", 20), 20) * 1000;
+        }
+        int maxRetries = offer.optBoolean("autoRetry", false) ? Math.max(0, offer.optInt("retryCount", 0))
+            : (us != null && us.optBoolean("autoRetry", false) ? 1 : 0);
         boolean retryFailed = offer.optBoolean("retryFailed", true);
         boolean retryPending = offer.optBoolean("retryPending", false);
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { isNative, AutoBingwa } from '../../engine/native.js'
 import { engineStatus, localCounts, syncNow, setNativeEngine } from '../../engine/nativeSync.js'
 import { normalizePhone } from '../../engine/engine.js'
+import UssdSettingsPage from './UssdSettingsPage.jsx'
 import {
   PROFILE_KEY, CONFIG_KEY, CLIENTS_KEY, readJson, writeJson, loadConfig, savedContactName,
 } from '../../engine/config.js'
@@ -357,6 +358,28 @@ const sxToggle = (label, desc, field) => (
 .sx-radio.on .sx-dot { border-color: #2e9e45; }
 .sx-radio.on .sx-dot::after { content: ''; width: 11px; height: 11px; border-radius: 50%; background: #2e9e45; }
 .st-switch.on { background: #2e8b3d; border-color: #2e8b3d; }
+.pf { padding: 0 2px; }
+.pf-head { display: flex; align-items: center; gap: 8px; padding: 2px 0 10px; border-bottom: 1px solid var(--st-border); margin-bottom: 12px; }
+.pf-head h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.2; }
+.app .pf p { color: var(--st-soft) !important; margin: 2px 0 0; font-size: 12px; line-height: 1.3; }
+.pf-card { border: 1px solid var(--st-border); border-radius: 18px; background: var(--st-card); overflow: hidden; }
+.pf-card-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--st-border); }
+.pf-card-head h2 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.2; }
+.pf-tile { width: 48px; height: 48px; border-radius: 14px; background: var(--st-hover); color: var(--st-accent); display: grid; place-items: center; overflow: hidden; flex-shrink: 0; }
+.pf-tile img { width: 100%; height: 100%; object-fit: cover; }
+.pf-tile svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.pf-body { padding: 12px 14px 14px; }
+.pf-chips { display: flex; gap: 6px; margin-bottom: 14px; }
+.pf-chips .st-chip { padding: 6px 12px; font-size: 12px; }
+.pf-field { position: relative; margin-bottom: 14px; }
+.app .pf-field label { position: absolute; top: -8px; left: 12px; padding: 0 6px; background: var(--st-card); color: var(--st-soft) !important; font-size: 11px; font-weight: 600; line-height: 1.2; z-index: 1; }
+.app .pf-input { display: block; width: 100%; box-sizing: border-box; padding: 12px 14px; border: 1.5px solid var(--st-border) !important; border-radius: 12px; background: transparent !important; color: var(--st-text, inherit) !important; font: inherit; font-size: 14px; outline: none; }
+.app .pf-input:focus { border-color: var(--st-accent) !important; }
+.app .pf-input:disabled { color: var(--st-soft) !important; -webkit-text-fill-color: var(--st-soft); opacity: 1; }
+.app .pf p.pf-help { margin: -8px 0 14px 2px; font-size: 11px; }
+.app .pf p.pf-err { margin: 0; font-size: 12px; }
+.pf-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: 12px; }
+.pf-actions .st-btn, .pf-actions .st-btn.ghost { margin: 0; padding: 13px 0; font-size: 14px; }
       `}</style>
 
       <div className="st-inner">
@@ -372,7 +395,10 @@ const sxToggle = (label, desc, field) => (
       </span>
       <Chevron />
     </button>
-
+    <button className="sx-item" onClick={() => { setNotice(''); setScreen('ussd') }}>
+      <span><strong>USSD Settings</strong><small>How Express and Advanced mode dial</small></span>
+      <Chevron />
+    </button>
     <p className="sx-label">Appearance</p>
     <div className="sx-item">
       <strong>Light mode</strong>
@@ -444,57 +470,79 @@ const sxToggle = (label, desc, field) => (
     <button className="sx-item sx-danger" onClick={logout}><strong>Sign out</strong></button>
   </div>
 )}
-
-        {screen === 'edit' && (
-          <>
-            <div className="st-head">
+        {screen === 'ussd' && <UssdSettingsPage onBack={() => setScreen('main')} />}
+          {screen === 'edit' && (
+          <div className="pf">
+            <div className="pf-head">
               <button className="st-icon" onClick={() => setScreen('main')} aria-label="Back to settings">
                 <svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
               </button>
-              <h1>Edit profile</h1>
+              <div>
+                <h1>Profile</h1>
+                <p>Manage your account settings</p>
+              </div>
             </div>
 
-            <div className="st-photo">
-              <div className="st-avatar">
-                {form.photo ? (
-                  <img src={form.photo} alt="Profile preview" />
-                ) : (
-                  <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" /></svg>
-                )}
+            <div className="pf-card">
+              <div className="pf-card-head">
+                <div className="pf-tile">
+                  {form.photo ? (
+                    <img src={form.photo} alt="Profile preview" />
+                  ) : (
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" /></svg>
+                  )}
+                </div>
+                <div>
+                  <h2>Personal information</h2>
+                  <p>Update your profile details</p>
+                </div>
               </div>
-              <div className="st-chips">
-                <button className="st-chip" onClick={() => galleryRef.current && galleryRef.current.click()}>
-                  Choose from gallery
-                </button>
-                <button className="st-chip" onClick={() => cameraRef.current && cameraRef.current.click()}>
-                  Take photo
-                </button>
-                {form.photo && (
-                  <button className="st-chip" onClick={() => setForm({ ...form, photo: '' })}>Remove</button>
-                )}
+
+              <div className="pf-body">
+                <div className="pf-chips">
+                  <button className="st-chip" onClick={() => galleryRef.current && galleryRef.current.click()}>Gallery</button>
+                  <button className="st-chip" onClick={() => cameraRef.current && cameraRef.current.click()}>Camera</button>
+                  {form.photo && (
+                    <button className="st-chip" onClick={() => setForm({ ...form, photo: '' })}>Remove</button>
+                  )}
+                </div>
+                <input ref={galleryRef} type="file" accept="image/*" hidden onChange={pickPhoto} />
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={pickPhoto} />
+
+                <div className="pf-field">
+                  <label htmlFor="pf-email">Email</label>
+                  <input id="pf-email" className="pf-input" type="email" value={(user && user.email) || ''} disabled readOnly />
+                </div>
+                <p className="pf-help">Email cannot be changed</p>
+
+                <div className="pf-field">
+                  <label htmlFor="pf-name">Full name</label>
+                  <input id="pf-name" className="pf-input" value={form.fullName} placeholder="e.g. Jabali Otieno"
+                    onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+                </div>
+
+                <div className="pf-field">
+                  <label htmlFor="pf-phone">Phone number</label>
+                  <input id="pf-phone" className="pf-input" type="tel" inputMode="tel" value={form.phone}
+                    placeholder="e.g. 0712345678"
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                </div>
+
+                <div className="pf-field">
+                  <label htmlFor="pf-biz">Business name (optional)</label>
+                  <input id="pf-biz" className="pf-input" value={form.business} placeholder="e.g. AutoBingwa"
+                    onChange={(e) => setForm({ ...form, business: e.target.value })} />
+                </div>
+
+                {error && <p className="st-err pf-err" role="alert">{error}</p>}
               </div>
-              <input ref={galleryRef} type="file" accept="image/*" hidden onChange={pickPhoto} />
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={pickPhoto} />
             </div>
 
-            <label className="st-label" htmlFor="st-name">Full name</label>
-            <input id="st-name" className="st-field" value={form.fullName} placeholder="e.g. Jabali Otieno"
-              onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
-
-            <label className="st-label" htmlFor="st-phone">Phone number</label>
-            <input id="st-phone" className="st-field" type="tel" inputMode="tel" value={form.phone}
-              placeholder="e.g. 0712345678"
-              onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-
-            <label className="st-label" htmlFor="st-biz">Business name (optional)</label>
-            <input id="st-biz" className="st-field" value={form.business} placeholder="e.g. AutoBingwa"
-              onChange={(e) => setForm({ ...form, business: e.target.value })} />
-
-            {error && <p className="st-err" role="alert">{error}</p>}
-
-            <button className="st-btn" onClick={saveProfile}>Save profile</button>
-            <button className="st-btn ghost" onClick={() => setScreen('main')}>Cancel</button>
-          </>
+            <div className="pf-actions">
+              <button className="st-btn ghost" onClick={() => setScreen('main')}>Cancel</button>
+              <button className="st-btn" onClick={saveProfile}>Save profile</button>
+            </div>
+          </div>
         )}
 
         {screen === 'blacklist' && (

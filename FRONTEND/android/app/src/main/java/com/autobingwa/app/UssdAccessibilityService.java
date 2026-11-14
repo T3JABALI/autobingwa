@@ -27,7 +27,33 @@ public class UssdAccessibilityService extends AccessibilityService {
     private static volatile boolean progressSeen = false;
     // The reason the last typeAndSend failed. The flow puts it in the transaction's response.
     public static volatile String lastFail = "";
+    // ---------- USSD Settings page (set by configure) ----------
+    private static volatile long keyDelayMs = 50;
+    private static volatile long okDelayMs = 10;
+    private static volatile long stabilityMs = 150;
+    private static volatile int inputRetries = 2;
+    private static volatile long inputSearchMs = 200;
+    private static volatile long rootWaitMs = 0;
+    private static volatile long stepWaitMs = 100;
+    private static volatile long pollMs = 30;
+    private long pendingSince = 0;
 
+    public static void configure(org.json.JSONObject u) {
+        if (u == null) return;
+        keyDelayMs = Math.max(0, u.optLong("keyInputDelayMs", 50));
+        okDelayMs = Math.max(0, u.optLong("okButtonDelayMs", 10));
+        stabilityMs = Math.max(0, u.optLong("screenStabilityMs", 150));
+        inputRetries = (int) Math.max(0, Math.min(6, u.optLong("inputRetries", 2)));
+        inputSearchMs = Math.max(0, u.optLong("inputSearchMs", 200));
+        rootWaitMs = Math.max(0, u.optLong("rootNodeMs", 0));
+        stepWaitMs = Math.max(20, u.optLong("stepTimeoutMs", 100));
+        pollMs = Math.max(30, u.optLong("checkIntervalMs", 30));
+    }
+
+    private static void pause(long ms) {
+        if (ms <= 0) return;
+        try { Thread.sleep(ms); } catch (InterruptedException e) { /* continue */ }
+    }
     // The last USSD window that was found, reused if Android stops listing it for a moment
     private volatile AccessibilityNodeInfo lastRoot = null;
     private volatile long lastNoWinLog = 0;
@@ -55,7 +81,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         @Override public void run() {
             if (!active) return;
             scanNow();
-            handler.postDelayed(this, POLL_MS);
+            handler.postDelayed(this, pollMs);
         }
     };
 
@@ -148,7 +174,16 @@ public class UssdAccessibilityService extends AccessibilityService {
         if (r == null || isOwnPkg(r.getPackageName())) return false;
         return findEditable(r) != null && byId(r, "android:id/button1") != null;
     }
-
+    // Like phoneRoot(), but may keep looking for a while. Worker thread only, never the main thread.
+    private AccessibilityNodeInfo phoneRootWait(long waitMs) {
+        AccessibilityNodeInfo r = phoneRoot();
+        long end = System.currentTimeMillis() + waitMs;
+        while (r == null && System.currentTimeMillis() < end) {
+            pause(20);
+            r = phoneRoot();
+        }
+        return r;
+    }
     private AccessibilityNodeInfo phoneRoot() {
         StringBuilder seen = new StringBuilder();
         try {
@@ -225,9 +260,14 @@ public class UssdAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo box = input[0] ? findEditable(root) : null;
         AccessibilityNodeInfo send = sendButton(root);
         boolean complete = send != null && (!input[0] || box != null);
-        if (!complete && !text.equals(pendingText)) {
-            pendingText = text; // maybe half drawn: it must look the same on the next scan
-            return;
+          if (!complete) {
+            long nowMs = System.currentTimeMillis();
+            if (!text.equals(pendingText)) {
+                pendingText = text; // maybe half drawn: it must stay the same for a short while
+                pendingSince = nowMs;
+                return;
+            }
+            if (nowMs - pendingSince < stabilityMs) return;
         }
         pendingText = "";
         lastText = text;
@@ -356,6 +396,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
         if (!box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)) return false; // old node, dialog moved on
         if (!boxText(box).equals(value)) return false; // the normal path waits for it properly
+                pause(keyDelayMs);
         if (!click(send)) return false;
         progressSeen = false;
         lastFail = "";
@@ -367,10 +408,21 @@ public class UssdAccessibilityService extends AccessibilityService {
     public boolean typeAndSend(String value) {
         if (fastTypeAndSend(value)) return true;
 
-        AccessibilityNodeInfo root = phoneRoot();
+        AccessibilityNodeInfo root = phoneRootWait(rootWaitMs);
         if (root == null) { lastFail = "no USSD window found"; return false; }
         AccessibilityNodeInfo box = findEditable(root);
         AccessibilityNodeInfo send = sendButton(root);
+                if (box == null && inputSearchMs > 0) {
+            long endSearch = System.currentTimeMillis() + inputSearchMs;
+            while (box == null && System.currentTimeMillis() < endSearch) {
+                pause(20);
+                AccessibilityNodeInfo r2 = phoneRoot();
+                if (r2 == null) continue;
+                root = r2;
+                box = findEditable(root);
+                if (box != null) send = sendButton(root);
+            }
+        }
         Log.d(TAG, "typeAndSend pkg=" + root.getPackageName() + "/" + root.getClassName() + " box=" + (box != null) + " send=" + (send != null));
         if (box == null) { lastFail = "input box not found"; return false; }
         if (send == null) { lastFail = "Send button not found"; return false; }
@@ -378,18 +430,15 @@ public class UssdAccessibilityService extends AccessibilityService {
         boolean set = setText(box, value);
         Log.d(TAG, "typeAndSend setText=" + set);
         if (!set) { lastFail = "the input box refused the text"; return false; }
-
-        // One quick check that the text is really in the box. Only if it is not, wait a little and try again.
-        if (!boxText(box).equals(value)) {
-            long end = System.currentTimeMillis() + 200;
-            while (!boxText(box).equals(value) && System.currentTimeMillis() < end) {
-                try { Thread.sleep(10); } catch (InterruptedException e) { break; }
-            }
-            if (!boxText(box).equals(value)) {
-                setText(box, value);
-                try { Thread.sleep(30); } catch (InterruptedException e) { /* continue */ }
+        // The text must be in the box within the Step Timeout. If not, enter it again (Input Retries times).
+        for (int tryNo = 0; tryNo <= inputRetries && !boxText(box).equals(value); tryNo++) {
+            if (tryNo > 0) setText(box, value);
+            long endWait = System.currentTimeMillis() + stepWaitMs;
+            while (!boxText(box).equals(value) && System.currentTimeMillis() < endWait) {
+                pause(10);
             }
         }
+        pause(keyDelayMs);
 
         // Press Send right away. Only if that fails, look the button up again (the dialog may have redrawn).
         boolean clicked = click(send);
@@ -412,6 +461,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo b = byId(root, "android:id/button2"); // Cancel, when there is an input box
         if (b == null) b = byId(root, "android:id/button1");        // OK on a final message
         if (b == null) b = byText(root, "cancel", "ok", "dismiss", "close");
+                pause(okDelayMs);
         if (b == null || !click(b)) performGlobalAction(GLOBAL_ACTION_BACK);
     }
 }

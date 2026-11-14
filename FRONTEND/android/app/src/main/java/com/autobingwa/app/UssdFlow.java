@@ -34,7 +34,28 @@ public class UssdFlow {
     // Always keeps at least the last step for the dialog, so the final screen is still read.
     // Never used with a signature (a signature has to check every menu).
     public static volatile int chain = 0;
+    // ---------- USSD Settings page (set by apply) ----------
+    public static volatile long executionDelayMs = 0;
+    public static volatile long initialDialDelayMs = 0;
+    public static volatile long failureCheckDelayMs = 50;
+    public static volatile long cleanupDelayMs = 100;
 
+    public static void apply(JSONObject u) {
+        if (u == null) return;
+        executionDelayMs = Math.max(0, u.optLong("executionDelayMs", 0));
+        initialDialDelayMs = Math.max(0, u.optLong("initialDialDelayMs", 0));
+        failureCheckDelayMs = Math.max(0, u.optLong("failureCheckDelayMs", 50));
+        cleanupDelayMs = Math.max(0, u.optLong("cleanupDelayMs", 100));
+        chain = u.optBoolean("fasten", false) ? 2 : 0; // only used for *180 offers, see run()
+        UssdAccessibilityService.configure(u);
+        Log.d(TAG, "USSD settings applied: chain=" + chain + " execDelay=" + executionDelayMs
+            + " dialDelay=" + initialDialDelayMs);
+    }
+
+    private static void nap(long ms) {
+        if (ms <= 0) return;
+        try { Thread.sleep(ms); } catch (InterruptedException e) { /* continue */ }
+    }
     // True while a USSD run is in progress. The app never comes forward or goes back during this time.
     public static volatile boolean busy = false;
 
@@ -127,6 +148,7 @@ public class UssdFlow {
         final CountDownLatch latch = new CountDownLatch(1);
         final String[] reply = { null };
         final int[] failure = { 0 };
+                nap(initialDialDelayMs);
         final long sentAt = System.currentTimeMillis();
         try {
             tm.sendUssdRequest(ussd, new TelephonyManager.UssdResponseCallback() {
@@ -286,6 +308,7 @@ public class UssdFlow {
                 // carry on with the default SIM
             }
         }
+                nap(initialDialDelayMs);
         dial(ctx, slot, first);
         String sent = first;
         r.status = "complete";
@@ -385,6 +408,7 @@ public class UssdFlow {
             sent = value;
             sentAt = System.currentTimeMillis();
             Log.d(TAG, "TIMING step " + i + " typed and sent in " + (sentAt - typeStart) + "ms");
+                        nap(failureCheckDelayMs);
             carry = (i < steps.length - 1) ? resendIfStuck(d.text, value) : resendLastIfNotAccepted(d.text, value);
         }
         return r;
@@ -420,7 +444,7 @@ public class UssdFlow {
             try {
                 cpu = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoBingwa:ussd");
                 cpu.acquire(budget + 15000);
-
+                nap(executionDelayMs);
                 // A signature has to be checked against each menu, so it always uses the dialog route.
                 if (useExpress && sig == null && Build.VERSION.SDK_INT >= 26) {
                     JSObject fast = runExpressResilient(ctx, slot, first, steps, totalMs, budget, started);
@@ -441,7 +465,7 @@ public class UssdFlow {
                 // Optional chaining: the first steps ride along with the first dial, the rest are typed.
                 String dialFirst = first;
                 String[] dialSteps = steps;
-                int k = (sig == null) ? Math.max(0, Math.min(chain, steps.length - 1)) : 0;
+                int k = (sig == null && first.trim().startsWith("*180")) ? Math.max(0, Math.min(chain, steps.length - 1)) : 0;
                 if (k > 0) {
                     dialFirst = expressCode(first, Arrays.copyOfRange(steps, 0, k));
                     dialSteps = Arrays.copyOfRange(steps, k, steps.length);
@@ -484,6 +508,7 @@ public class UssdFlow {
                 message = String.valueOf(e.getMessage());
             } finally {
                 if (usedDialog) {
+                                        nap(cleanupDelayMs);
                     UssdAccessibilityService.end();
                     UssdAccessibilityService s = UssdAccessibilityService.instance;
                     if (s != null) s.dismiss();
