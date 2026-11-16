@@ -31,7 +31,8 @@ final class EngineCore {
     private static final Pattern FAIL_SCREEN = Pattern.compile(
         "not\\s+successful|unsuccessful|not\\s+been\\s+successful|failed", Pattern.CASE_INSENSITIVE);
     private static final Pattern EXPRESS_REFUSED = Pattern.compile("code -[12]\\)");
-
+    private static final Pattern CONN_SCREEN = Pattern.compile(
+        "connection\\s+problem|invalid\\s+mmi|mmi\\s+code", Pattern.CASE_INSENSITIVE);
     private EngineCore() {}
 
     // ---------- small helpers ----------
@@ -653,8 +654,17 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
                 JSONObject last = rs.optJSONObject(rs.length() - 1);
                 if (last != null) lastText = last.optString("text", "");
             }
-            EngineRules.Conf conf = EngineRules.classifyScreen(lastText);
+               // A "connection problem" after the last step may still have bought the plan: wait for the SMS.
+            // A success SMS that already arrived wins over any screen.
+            boolean connAfterSend = resultOk && CONN_SCREEN.matcher(lastText).find();
+            EngineRules.Conf conf;
             String smsText = "";
+            if (w.got != null && "success".equals(w.got.status)) {
+                conf = w.got;
+                smsText = w.text;
+            } else {
+                conf = connAfterSend ? null : EngineRules.classifyScreen(lastText);
+            }
             if (conf == null && SUCCESS_SCREEN.matcher(lastText).find() && !FAIL_SCREEN.matcher(lastText).find()) {
                 conf = new EngineRules.Conf("success", null, null);
             }
@@ -672,7 +682,7 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
                 ok = "success".equals(conf.status);
                 if (!smsText.isEmpty()) rs.put(resp("SMS", smsText));
                 kind = ok ? "ok" : conf.reason != null ? "stop" : "failed";
-            } else if ("sig_mismatch".equals(status) || message.toLowerCase().contains("accessibility")) {
+} else if ("sig_mismatch".equals(status) || "wrong_path".equals(status) || message.toLowerCase().contains("accessibility")) {
                 kind = "stop";
             } else if ("no_reply".equals(status) || resultOk) {
                 kind = "pending";

@@ -408,10 +408,18 @@ async function handleCommand(c, auth) {
     const bad = checkUssd(cur.ussd)
     if (bad) return report(c, auth, false, bad)
     const res = await runLearn(cur.ussd)
-    await report(c, auth, true, res.signature && res.signature.complete ? 'Signature learned.' : 'Some steps could not be matched.', {
-      signature: res.signature,
-      screens: res.screens || [],
-    })
+    const sg = res && res.signature
+    if (!sg || !sg.complete) {
+      const badStep = sg && Array.isArray(sg.steps) ? sg.steps.findIndex((s) => s.unmatched) : -1
+      const seen = badStep >= 0 && res.screens && res.screens[badStep]
+        ? ` The screen showed: ${String(res.screens[badStep]).replace(/\s+/g, ' ').slice(0, 250)}`
+        : ''
+      return report(
+        c, auth, false,
+        `Learning stopped${badStep >= 0 ? ` at step ${badStep + 1}: option ${sg.steps[badStep].value} was not found on the screen.` : '.'} Check the USSD code, then learn again.${seen}`
+      )
+    }
+    await report(c, auth, true, 'Signature learned.', { signature: sg, screens: res.screens || [] })
   } else if (c.type === 'sig_save') {
     const cur = findOffer(p.id || p.offerId)
     if (!cur) return report(c, auth, false, 'That offer is no longer on the phone.')

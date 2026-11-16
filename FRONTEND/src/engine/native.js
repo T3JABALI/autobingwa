@@ -92,11 +92,14 @@ export async function learnSignature({ ussd, slot = 0 }) {
   if (!s || !s.steps || !s.steps.length) throw new Error('This USSD has no steps to learn')
   const all = s.steps.map(String)
   const res = await AutoBingwa.runUssdFlow({
-    first: s.first, steps: all.slice(0, -1), slot, express: false,
+    first: s.first, steps: all.slice(0, -1), slot, express: false, learn: true,
     stepTimeoutMs: 20000, keyDelayMs: 80, totalTimeoutMs: 90000,
   })
   const screens = (res.responses || []).map((r) => r.text)
   console.log('AB learn', JSON.stringify(res))
+  if (res.status && res.status !== 'complete') {
+    throw new Error(res.message || `Learning stopped (${res.status}). ${screens[screens.length - 1] || ''}`)
+  }
   if (screens.length < all.length) {
     throw new Error(res.message || `The menu ended early at step ${screens.length}: ${screens[screens.length - 1] || 'no screen'}`)
   }

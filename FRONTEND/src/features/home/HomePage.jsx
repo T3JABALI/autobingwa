@@ -163,7 +163,7 @@ const HOME_EXTRA = `
   .hm-s-detail .hm-bottom .hm-actions2 { margin-top: 0 !important; }
   .hm-s-detail .hm-act { padding: 9px 4px; font-size: 12px; gap: 4px; }
   .hm-s-detail .hm-act svg { width: 17px !important; height: 17px !important; }
-  .hm-s-detail .hm-vf svg { width: 17px !important; height: 17px !important; } }
+.hm-s-detail .hm-vf svg { width: 17px !important; height: 17px !important; }
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -219,7 +219,9 @@ function unlimitedLeft(until, now) {
   const d = Math.floor(ms / DAY)
   const h = Math.floor((ms % DAY) / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
-  return `${d}d ${h}h ${m}m left`
+  if (d >= 1) return `${d}D ${h}hrs`        // 19D 14hrs
+  if (h >= 1) return `${h}Hrs ${m}Mins`     // 12Hrs 40Mins
+  return `${m}Mins`                         // under an hour: 40Mins
 }
 // Line icons for the new actions (same style as the copy icon)
 const ICONS = {
@@ -890,15 +892,18 @@ export default function HomePage({
                 <span className="hm-bal-label">Airtime used</span>
               </button>
 
-              <button className="hm-bal tok" onClick={onOpenTokens} aria-label="Open tokens">
-                <span className="hm-bal-val">{mask(`${wallet.units.toLocaleString('en-KE')} units`)}</span>
-                <span className="hm-bal-label">Tokens</span>
-                <span className="hm-bal-sub">
-                  {unlimitedActive && !hide
-                    ? `∞ Unlimited active • ${unlimitedLeft(wallet.unlimitedUntil, now)}`
-                    : 'Tap to top up'}
-                </span>
-              </button>
+<button className="hm-bal tok" onClick={onOpenTokens} aria-label="Open tokens">
+  <span className="hm-bal-val">{mask(`${wallet.units.toLocaleString('en-KE')} units`)}</span>
+  <span className="hm-bal-label">Tokens</span>
+  <span
+    className="hm-bal-sub"
+    style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
+  >
+    {unlimitedActive
+      ? `∞ ${hide ? '••••' : unlimitedLeft(wallet.unlimitedUntil, now)}`
+      : 'Tap to top up'}
+  </span>
+</button>
             </div>
           </section>
 

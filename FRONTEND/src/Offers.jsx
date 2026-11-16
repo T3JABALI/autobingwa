@@ -27,7 +27,9 @@ const isLocked = (o) => Boolean(o.smart || o.signature)
 // true when another offer already uses this price
 const priceTaken = (offers, price, id) =>
   offers.some((o) => o.id !== id && Number(o.price) === Number(price))
-
+// offers whose time window sends customers to this offer outside their hours
+const relyingOn = (offers, id) =>
+  offers.filter((x) => x.id !== id && x.tw && x.tw.on && String(x.tw.altId) === String(id))
 const t12 = (v) => {
   if (!v) return ''
   const [h, m] = v.split(':').map(Number)
@@ -176,7 +178,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
 
   // Always the latest props, so the handlers below can stay the same between renders (keeps the cards from re-drawing)
   const live = useRef({})
-  live.current = { onSave, onDelete }
+live.current = { onSave, onDelete, offers }
 
   const flash = useCallback((m) => {
     setNote(m)
@@ -187,7 +189,16 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
     setSheet(null)
     flash('Saved')
   }
-  const toggle = useCallback((o) => live.current.onSave({ ...o, enabled: !o.enabled }), [])
+const toggle = useCallback((o) => {
+  if (o.enabled) {
+    const deps = relyingOn(live.current.offers, o.id)
+    if (deps.length) {
+      flash(`${deps.map((d) => d.name).join(', ')} uses this offer outside its time window. Change that window first.`)
+      return
+    }
+  }
+  live.current.onSave({ ...o, enabled: !o.enabled })
+}, [flash])
   const openMenu = useCallback((id, dir) => {
     setMenuDir(dir)
     setCardMenu((c) => (c === id ? null : id))
@@ -207,13 +218,18 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
     setCardMenu(null)
     flash((await copyText(o.ussd)) ? 'USSD copied' : 'Could not copy the USSD')
   }, [flash])
-  const remove = useCallback(async (o) => {
-    setCardMenu(null)
-    if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
-      live.current.onDelete(o.id)
-      flash('Offer deleted')
-    }
-  }, [flash])
+const remove = useCallback(async (o) => {
+  setCardMenu(null)
+  const deps = relyingOn(live.current.offers, o.id)
+  if (deps.length) {
+    flash(`${deps.map((d) => d.name).join(', ')} uses this offer outside its time window. Change that window first.`)
+    return
+  }
+  if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
+    live.current.onDelete(o.id)
+    flash('Offer deleted')
+  }
+}, [flash])
 
   function exportOffers() {
     const blob = new Blob([JSON.stringify(offers, null, 2)], { type: 'application/json' })
@@ -240,10 +256,16 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
         const ok = []
         for (const o of list) {
           if (!o || !o.name || checkUssd(o.ussd) || priceTaken(seen, o.price, o.id)) continue
-          ok.push(o)
-          seen.push(o)
+ok.push(o)
+seen.push(o)
         }
-        ok.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
+// a window with no enabled alternative is switched off instead of imported broken
+const final = [...offers, ...ok]
+const cleaned = ok.map((o) =>
+  o.tw && o.tw.on && !final.some((x) => x.id !== o.id && String(x.id) === String(o.tw.altId) && x.enabled)
+    ? { ...o, tw: { ...o.tw, on: false, altId: '' } }
+    : o)
+cleaned.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
         flash(`Imported ${ok.length} of ${list.length} offers`)
       } catch (err) {
         flash('That file could not be read')
@@ -540,18 +562,26 @@ function SettingsSheet({ start, onClose, onSave }) {
 }
 
 function WindowSheet({ start, offers, onClose, onSave }) {
-  const [w, setW] = useState({ ...defaultWindow(), ...(start.tw || {}) })
+  const alternatives = offers.filter((x) => x.id !== start.id && x.enabled)
+  const isAlt = (id) => alternatives.some((x) => String(x.id) === String(id))
+  const [w, setW] = useState(() => {
+    const base = { ...defaultWindow(), ...(start.tw || {}) }
+    // an alternative that was deleted or switched off no longer counts
+    return isAlt(base.altId) ? base : { ...base, altId: '' }
+  })
   const [err, setErr] = useState('')
   const set = (k, v) => setW((p) => ({ ...p, [k]: v }))
-  const alternatives = offers.filter((x) => x.id !== start.id && x.enabled)
+
+  const altOk = isAlt(w.altId)
+  const canSave = !w.on || Boolean(w.from && w.until && w.from !== w.until && altOk)
 
   function save() {
     if (w.on) {
       if (!w.from || !w.until) return setErr('Choose the start and end time')
       if (w.from === w.until) return setErr('The start and end time cannot be the same')
-      if (!w.altId) return setErr('Choose an alternative offer for outside the window')
+      if (!altOk) return setErr('Choose the offer to sell outside this window. It is required.')
     }
-    const alt = w.altId ? offers.find((x) => String(x.id) === String(w.altId)) : null
+    const alt = altOk ? alternatives.find((x) => String(x.id) === String(w.altId)) : null
     onSave({ ...start, tw: { ...w, altId: alt ? alt.id : '' }, updated: new Date().toLocaleString() })
   }
 
@@ -562,7 +592,7 @@ function WindowSheet({ start, offers, onClose, onSave }) {
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn" onClick={save}>Save</button>
+<button className="btn" onClick={save} disabled={!canSave}>Save</button>
         </>
       }
     >
@@ -585,13 +615,14 @@ function WindowSheet({ start, offers, onClose, onSave }) {
           </div>
 
           <label className="field"><span>Alternative offer outside this window (required)</span>
-            <select value={w.altId} onChange={(e) => set('altId', e.target.value)}>
+<select value={altOk ? w.altId : ''} onChange={(e) => set('altId', e.target.value)}>
               <option value="">Choose an offer</option>
               {alternatives.map((x) => (
                 <option key={x.id} value={x.id}>{x.name} · KES {x.price}</option>
               ))}
             </select>
             {alternatives.length === 0 && <small>Add or enable another offer first.</small>}
+            {!altOk && alternatives.length > 0 && <small style={{ color: '#e5484d' }}>Pick an offer to continue.</small>}
           </label>
 
           <div className="switch-row">

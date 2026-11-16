@@ -21,7 +21,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONObject;
-
+import java.util.regex.Matcher;
+import android.content.SharedPreferences;
 public class UssdFlow {
     private static final String TAG = "AutoBingwa";
     private static final Object LOCK = new Object();
@@ -29,11 +30,9 @@ public class UssdFlow {
     // Express: the whole code goes out in one request and the answer comes back without any dialog.
     public static volatile boolean express = true;
 
-    // Dialog route only: how many of the first steps go out WITH the first dial, in one request,
-    // so only the remaining steps are typed into the dialog. 0 = off (every step is typed).
-    // Always keeps at least the last step for the dialog, so the final screen is still read.
-    // Never used with a signature (a signature has to check every menu).
-    public static volatile int chain = 0;
+    // Quick Bingwa: for *180* offers, everything BEFORE the phone number goes out with the first dial,
+    // so the first screen the dialer shows is the phone number prompt. Never used with a signature.
+    public static volatile boolean chainToPhone = false;
     // ---------- USSD Settings page (set by apply) ----------
     public static volatile long executionDelayMs = 0;
     public static volatile long initialDialDelayMs = 0;
@@ -46,9 +45,9 @@ public class UssdFlow {
         initialDialDelayMs = Math.max(0, u.optLong("initialDialDelayMs", 0));
         failureCheckDelayMs = Math.max(0, u.optLong("failureCheckDelayMs", 50));
         cleanupDelayMs = Math.max(0, u.optLong("cleanupDelayMs", 100));
-        chain = u.optBoolean("fasten", false) ? 2 : 0; // only used for *180 offers, see run()
+        chainToPhone = u.optBoolean("fasten", false); // only used for *180 offers, see run()
         UssdAccessibilityService.configure(u);
-        Log.d(TAG, "USSD settings applied: chain=" + chain + " execDelay=" + executionDelayMs
+        Log.d(TAG, "USSD settings applied: chainToPhone=" + chainToPhone + " execDelay=" + executionDelayMs
             + " dialDelay=" + initialDialDelayMs);
     }
 
@@ -201,21 +200,37 @@ public class UssdFlow {
         out.put("code", failure[0]);
         return out;
     }
+    // ---------- Remembering which SIM refuses Express ----------
+    private static final String PREFS = "autobingwa_ussd";
+    private static final int BLOCK_AFTER = 2;               // refused runs in a row before Express is skipped
+    private static final long REPROBE_MS = 3L * 3600000;    // try Express again after this long
 
+    private static boolean skipExpress(Context ctx, int slot) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (sp.getInt("refused" + slot, 0) < BLOCK_AFTER) return false;
+        return System.currentTimeMillis() - sp.getLong("refusedAt" + slot, 0) < REPROBE_MS;
+    }
+
+    private static void noteExpress(Context ctx, int slot, boolean refused) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        SharedPreferences.Editor ed = sp.edit();
+        if (refused) {
+            ed.putInt("refused" + slot, sp.getInt("refused" + slot, 0) + 1);
+            ed.putLong("refusedAt" + slot, System.currentTimeMillis());
+        } else {
+            ed.putInt("refused" + slot, 0);
+        }
+        ed.apply();
+    }
     // True when the network or phone refused the Express request outright (not a real answer, not a hang)
+    // True when the phone refused the Express request outright (not a real answer, not a hang).
+    // A reply that arrived, even "connection problem", may mean the purchase went through, so it is never a refusal.
     private static boolean isExpressRefusal(JSObject r) {
-        String st = r.optString("status", "");
-        if ("error".equals(st)) {
+        if ("error".equals(r.optString("status", ""))) {
             int c = r.optInt("code", 0);
             return c == -1 || c == -2;
         }
-        if ("complete".equals(st)) {
-            JSONArray a = r.optJSONArray("responses");
-            if (a == null || a.length() == 0) return false;
-            JSONObject last = a.optJSONObject(a.length() - 1);
-            return last != null && NET_DROP.matcher(last.optString("text", "")).find();
-        }
-        return false; // no_reply may have sold: never sent again
+        return false; // complete or no_reply: never sent again
     }
 
     // Express with patience: a refused request is sent again after a short, growing pause
@@ -246,7 +261,35 @@ public class UssdFlow {
     private static UssdAccessibilityService.Dialog poll(long ms) throws InterruptedException {
         return UssdAccessibilityService.events.poll(ms, TimeUnit.MILLISECONDS);
     }
+    private static final Pattern MENU_LINE = Pattern.compile("^(\\d{1,2})(?:\\s*[:.)\\-]\\s*|\\s+)(.+)$");
 
+    // True when the screen lists an option with this number ("5:Bingwa Sokoni", "3. 250MBs")
+    private static boolean menuHasOption(String screen, String n) {
+        for (String line : String.valueOf(screen).split("\n")) {
+            Matcher m = MENU_LINE.matcher(line.trim());
+            if (m.find() && m.group(1).equals(n)) return true;
+        }
+        return false;
+    }
+
+    private static final Pattern PHONE_STEP = Pattern.compile("^(?:\\+?254|0)?[17]\\d{8}$");
+
+    // Index of the step that is the customer's phone number (0 if there is none)
+    private static int phoneStepIndex(String[] steps) {
+        for (int i = 0; i < steps.length; i++) {
+            if (PHONE_STEP.matcher(steps[i].trim()).matches()) return i;
+        }
+        return 0;
+    }
+
+    // How many lines on the screen look like menu options ("1. Daily", "5:Bingwa Sokoni")
+    private static int menuLineCount(String screen) {
+        int n = 0;
+        for (String line : String.valueOf(screen).split("\n")) {
+            if (MENU_LINE.matcher(line.trim()).find()) n++;
+        }
+        return n;
+    }
     // After sending a MIDDLE step, wait for the next screen. If it comes, it is returned straight away.
     // If nothing comes for 4 seconds and the SAME menu is still showing, the send did not go through,
     // so send again (at most twice).
@@ -283,7 +326,7 @@ public class UssdFlow {
     // One pass through the dialog route. With a signature, each menu option is found by its text.
     private static Step interactiveOnce(Context ctx, int slot, String first, String[] steps, long stepMs,
                                         long keyDelayMs, long budgetMs, long started, JSArray responses,
-                                        JSONArray sig)
+                                        JSONArray sig, boolean learn, boolean chained)
             throws InterruptedException {
         Step r = new Step();
         if (UssdAccessibilityService.instance == null) {
@@ -366,7 +409,14 @@ public class UssdFlow {
                 r.message = "Menu still open after the last step";
                 return r;
             }
-
+                   // Chained dial: the first screen must be the phone number prompt, not a menu.
+            if (chained && i == 0 && menuLineCount(d.text) >= 2) {
+                r.status = "wrong_path";
+                r.safeRedial = true; // only menus were opened: nothing was typed or bought
+                r.retryNote = "The chained dial landed on a menu. Dialing again, one step at a time";
+                r.message = "The chained dial landed on a menu, not the phone number prompt. Nothing was typed or bought. Check the USSD path.";
+                return r;
+            }
             // What to type: the saved number, or the number the saved option has NOW
             String value = steps[i];
             if (sig != null) {
@@ -385,7 +435,13 @@ public class UssdFlow {
                     value = pick;
                 }
             }
-
+            // Learning: if this menu step's number is not on the screen, the path is wrong. Stop, type nothing.
+            if (learn && sig == null && value.matches("\\d{1,2}") && !value.equals("0") && !value.equals("00")
+                    && !menuHasOption(d.text, value)) {
+                r.status = "wrong_path";
+                r.message = "Step " + (i + 1) + ": option " + value + " is not on the screen. Nothing was typed. Check the USSD code, then learn again.";
+                return r;
+            }
             // The dialog is already on screen and readable, so type at once (no extra pause)
             long typeStart = System.currentTimeMillis();
             boolean ok = false;
@@ -409,7 +465,7 @@ public class UssdFlow {
             sentAt = System.currentTimeMillis();
             Log.d(TAG, "TIMING step " + i + " typed and sent in " + (sentAt - typeStart) + "ms");
                         nap(failureCheckDelayMs);
-            carry = (i < steps.length - 1) ? resendIfStuck(d.text, value) : resendLastIfNotAccepted(d.text, value);
+            carry = learn ? null : ((i < steps.length - 1) ? resendIfStuck(d.text, value) : resendLastIfNotAccepted(d.text, value));
         }
         return r;
     }
@@ -426,9 +482,15 @@ public class UssdFlow {
         return run(ctx, slot, first, steps, stepMs, keyDelayMs, totalMs, useExpress, null);
     }
 
-    @SuppressWarnings("deprecation")
     public static JSObject run(Context ctx, int slot, String first, String[] steps,
                                long stepMs, long keyDelayMs, long totalMs, boolean useExpress, JSONArray sig) {
+        return run(ctx, slot, first, steps, stepMs, keyDelayMs, totalMs, useExpress, sig, false);
+    }
+
+    @SuppressWarnings("deprecation")
+    public static JSObject run(Context ctx, int slot, String first, String[] steps,
+                               long stepMs, long keyDelayMs, long totalMs, boolean useExpress, JSONArray sig,
+                               boolean learn) {
         synchronized (LOCK) {
             JSArray responses = new JSArray();
             String status = "error";
@@ -447,11 +509,17 @@ public class UssdFlow {
                 nap(executionDelayMs);
                 // A signature has to be checked against each menu, so it always uses the dialog route.
                 if (useExpress && sig == null && Build.VERSION.SDK_INT >= 26) {
-                    JSObject fast = runExpressResilient(ctx, slot, first, steps, totalMs, budget, started);
-                    if (fast != null) {
-                        boolean canDialog = dialogAfterExpress && UssdAccessibilityService.instance != null;
-                        if (!isExpressRefusal(fast) || !canDialog) return fast;
-                        add(responses, "-", "The network kept refusing the Express request. Nothing was bought. Using the dialer window.");
+                    boolean canDialog = dialogAfterExpress && UssdAccessibilityService.instance != null;
+                    if (canDialog && skipExpress(ctx, slot)) {
+                        add(responses, "-", "Express was refused on this SIM recently, so the dialer window is used.");
+                    } else {
+                        JSObject fast = runExpressResilient(ctx, slot, first, steps, totalMs, budget, started);
+                        if (fast != null) {
+                            boolean refused = isExpressRefusal(fast);
+                            noteExpress(ctx, slot, refused);
+                            if (!refused || !canDialog) return fast;
+                            add(responses, "-", "The network kept refusing the Express request. Nothing was bought. Using the dialer window.");
+                        }
                     }
                 }
 
@@ -465,7 +533,8 @@ public class UssdFlow {
                 // Optional chaining: the first steps ride along with the first dial, the rest are typed.
                 String dialFirst = first;
                 String[] dialSteps = steps;
-                int k = (sig == null && first.trim().startsWith("*180")) ? Math.max(0, Math.min(chain, steps.length - 1)) : 0;
+                       int k = (chainToPhone && sig == null && !learn && first.trim().startsWith("*180")) ? phoneStepIndex(steps) : 0;
+                boolean chained = k > 0;
                 if (k > 0) {
                     dialFirst = expressCode(first, Arrays.copyOfRange(steps, 0, k));
                     dialSteps = Arrays.copyOfRange(steps, k, steps.length);
@@ -477,7 +546,8 @@ public class UssdFlow {
                 long pause = 1000;
                 int tries = 0;
                 boolean gaveUp = false;
-                for (int attempt = 0; attempt <= redials; attempt++) {
+final int maxRedials = learn ? 0 : redials; // learning is one pass, never dialed again
+for (int attempt = 0; attempt <= maxRedials; attempt++) {
                     if (attempt > 0) {
                         UssdAccessibilityService s0 = UssdAccessibilityService.instance;
                         if (s0 != null) s0.dismiss();
@@ -486,11 +556,18 @@ public class UssdFlow {
                         UssdAccessibilityService.begin();
                     }
                     tries++;
-                    Step r = interactiveOnce(ctx, slot, dialFirst, dialSteps, stepMs, keyDelayMs, budget, started, responses, sig);
+Step r = interactiveOnce(ctx, slot, dialFirst, dialSteps, stepMs, keyDelayMs, budget, started, responses, sig, learn, chained);
                     status = r.status;
                     message = r.message;
-                    note = r.retryNote;
+        note = r.retryNote;
+                    if ("wrong_path".equals(r.status) && chained) {
+                        // the chained dial did not land on the phone prompt: dial the next attempt step by step
+                        dialFirst = first;
+                        dialSteps = steps;
+                        chained = false;
+                    }
                     gaveUp = false;
+                   
                     long left = budget - (System.currentTimeMillis() - started);
                     if (!r.safeRedial) break;      // finished, or the last step was already sent: never dial again
                     gaveUp = true;                 // safe to dial again, unless the tries or the time run out
@@ -498,7 +575,7 @@ public class UssdFlow {
                     // weak network: wait 2s, then 4s, then 8s. Other failures: 1s.
                     pause = r.slowNet ? Math.min(8000L, 2000L << Math.min(attempt, 2)) : 1000;
                 }
-                if (gaveUp && !"complete".equals(status)) {
+if (gaveUp && !learn && !"complete".equals(status)) {
                     message = (message.isEmpty() ? "The network dropped the request" : message)
                         + ". Tried " + tries + " times. Nothing was bought.";
                 }

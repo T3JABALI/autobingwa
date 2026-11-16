@@ -9,6 +9,7 @@ import {
   phoneAlert,
   ussdServiceEnabled,
   saveContact,
+  applyUssdSettings,
 } from './native.js'
 
 import { loadConfig, savedContactName } from './config.js'
@@ -31,6 +32,7 @@ import {
 } from '../features/home/dataStore.js'
 import { startNativeSync } from './nativeSync.js'
 import { loadUssd } from './ussdSettings.js'
+
 function readJson(key, fallback) {
   try {
     const v = JSON.parse(localStorage.getItem(key) || 'null')
@@ -70,7 +72,24 @@ const sigOf = (offer) =>
   offer && offer.sig && offer.sig.complete && (offer.smart || offer.sigEnabled) ? offer.sig : null
 
 const slotOf = (simName) => (simName === 'SIM 1' ? 0 : 1)
+// ---------- Remember which SIM refuses Express ----------
+const EXPRESS_KEY = 'autobingwa:expressRefused'
+const EXPRESS_BLOCK_AFTER = 2 // refused runs in a row before Express is skipped
+const EXPRESS_REPROBE_MS = 3 * 3600000 // try Express again after this long
+const isRefusal = (msg) => /USSD failed, code -[12]\b/.test(msg) || /USSD error/.test(msg)
 
+function readRefusals() {
+  try { return JSON.parse(localStorage.getItem(EXPRESS_KEY) || '{}') || {} } catch (e) { return {} }
+}
+function skipExpress(slot) {
+  const r = readRefusals()[slot]
+  return Boolean(r && r.count >= EXPRESS_BLOCK_AFTER && Date.now() - r.at < EXPRESS_REPROBE_MS)
+}
+function noteExpress(slot, refused) {
+  const all = readRefusals()
+  all[slot] = refused ? { count: ((all[slot] && all[slot].count) || 0) + 1, at: Date.now() } : { count: 0, at: 0 }
+  try { localStorage.setItem(EXPRESS_KEY, JSON.stringify(all)) } catch (e) { /* not saved */ }
+}
 // Browser simulation for testing
 const simulatedBridge = {
   async runUssd({ ussd, mode }) {
@@ -122,6 +141,12 @@ const realBridge = {
     // EXPRESS MODE: One silent USSD request
     if (mode === 'Express') {
       const code = String(ussd).replace(/\bab\b/gi, phone)
+
+      // This SIM refused Express recently: go straight to the dialer window (it also gets Quick Bingwa chaining)
+      if (skipExpress(slot) && (await ussdServiceEnabled())) {
+        return runFlow({ ussd, phone, slot, express: false, ...timeouts })
+      }
+
       const lead = (u.executionDelayMs || 0) + (u.initialDialDelayMs || 0)
       if (lead > 0) await new Promise((r) => setTimeout(r, lead))
 
@@ -132,6 +157,7 @@ const realBridge = {
           express: true,
           timeoutMs: u.expressTimeoutSec * 1000,
         })
+        noteExpress(slot, false)
 
         return {
           ok: true,
@@ -146,13 +172,25 @@ const realBridge = {
       } catch (err) {
         const msg = String(err && err.message ? err.message : err)
         // The phone refused the silent request (code -1 or -2): try once more, then use the dialer window
-        if (/USSD failed, code -[12]\b/.test(msg) || /USSD error/.test(msg)) {
+        if (isRefusal(msg)) {
           try {
             await new Promise((r) => setTimeout(r, 1500))
             const again = await AutoBingwa.runUssd({ code, slot, express: true, timeoutMs: u.expressTimeoutSec * 1000 })
+            noteExpress(slot, false)
             return { ok: true, status: 'complete', responses: [{ input: code, text: again.text || '' }] }
           } catch (err2) {
             console.error('AB express retry', err2)
+            const msg2 = String(err2 && err2.message ? err2.message : err2)
+            // A timeout on the retry means the request went out and may have sold: never dial again
+            if (/timed out/i.test(msg2)) {
+              return {
+                ok: false,
+                status: 'no_reply',
+                message: 'The request was sent but no answer came back. Check the customer before retrying.',
+                responses: [],
+              }
+            }
+            if (isRefusal(msg2)) noteExpress(slot, true)
           }
           if (await ussdServiceEnabled()) {
             return runFlow({ ussd, phone, slot, express: false, ...timeouts })
@@ -171,7 +209,6 @@ const realBridge = {
         throw err
       }
     }
-
     // ADVANCED MODE: Interactive USSD flow
     return runFlow({ ussd, phone, slot, express: false, ...timeouts })
   },
@@ -198,6 +235,7 @@ export const engine = createEngine({
 // Sends each buyer's name and number to the admin Contacts page (queued while offline)
 startContactSync(engine)
 startNativeSync()
+if (isNative()) Promise.resolve(applyUssdSettings(loadUssd())).catch(() => {})
 removeDemoData() // one-time: clears the old sample transactions
 engine.recover()
 

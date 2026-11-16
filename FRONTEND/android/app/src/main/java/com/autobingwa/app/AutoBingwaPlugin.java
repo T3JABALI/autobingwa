@@ -516,6 +516,8 @@ public void portalBeat(PluginCall call) {
         final long totalMs = call.getLong("totalTimeoutMs", 90000L);
         Boolean exArg = call.getBoolean("express", true);
         final boolean useExpress = exArg == null || exArg;
+        Boolean learnArg = call.getBoolean("learn", false);
+final boolean learn = learnArg != null && learnArg;
         if (first == null || first.isEmpty()) {
             call.reject("No USSD code given");
             return;
@@ -549,7 +551,7 @@ public void portalBeat(PluginCall call) {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                call.resolve(UssdFlow.run(getContext(), slot, first, steps, stepMs, keyMs, totalMs, useExpress, sigArr));
+                call.resolve(UssdFlow.run(getContext(), slot, first, steps, stepMs, keyMs, totalMs, useExpress, sigArr, learn));
             }
         }).start();
     }

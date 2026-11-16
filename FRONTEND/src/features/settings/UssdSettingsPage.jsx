@@ -182,7 +182,7 @@ export default function UssdSettingsPage({ onBack }) {
 
           <p className="us-label">Speed</p>
           <div className="us-tile">
-            <div className="us-info"><strong>Quick Bingwa Offers</strong><small>Send the first steps of *180 offers together</small></div>
+            <div className="us-info"><strong>Quick Bingwa Offers</strong><small>Dial *180 offers up to the phone number in one go</small></div>
             <Switch on={draft.fasten} label="Quick Bingwa Offers" onChange={() => set({ fasten: !draft.fasten })} />
           </div>
 

@@ -505,7 +505,12 @@ export function createEngine({
 
       // 1) The final USSD screen usually says Successful / Failed / Already recommended
       const lastText = rs.length ? rs[rs.length - 1].text : ''
-      let conf = classifyScreen(lastText)
+      // A "connection problem" screen after the last step proves nothing: the purchase may have gone through.
+      // A success SMS that already arrived always wins. Otherwise wait for the SMS instead of calling it failed.
+      const connAfterSend = Boolean(result.ok) && CONN_SCREEN.test(lastText)
+      let conf = w.got && w.got.status === 'success'
+        ? w.got
+        : (connAfterSend ? null : classifyScreen(lastText))
       if (!conf && SUCCESS_SCREEN.test(lastText) && !FAIL_SCREEN.test(lastText)) {
         conf = { status: 'success', text: '' } // the screen itself confirmed the purchase
       }
@@ -520,7 +525,7 @@ export function createEngine({
         ok = conf.status === 'success'
         if (conf.text) rs = [...rs, { input: 'SMS', text: conf.text }]
         kind = ok ? 'ok' : conf.reason ? 'stop' : 'failed' // already recommended: retrying cannot help
-      } else if (result.status === 'sig_mismatch' || /accessibility/i.test(String(result.message))) {
+      } else if (result.status === 'sig_mismatch' || result.status === 'wrong_path' || /accessibility/i.test(String(result.message))) {
         kind = 'stop' // nothing was bought, but retrying cannot work until it is fixed
       } else if (result.status === 'no_reply' || result.ok) {
         kind = 'pending'

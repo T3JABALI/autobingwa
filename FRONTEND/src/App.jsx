@@ -1418,7 +1418,18 @@ function App() {
     return () => window.removeEventListener('ab-offer-cmd', onOffer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const [light, setLight] = useState(false)
+const [light, setLight] = useState(() => {
+  try {
+    const saved = localStorage.getItem('ab-theme')
+    if (saved) return saved === 'light'
+  } catch { /* storage unavailable */ }
+  // First launch: follow the phone's theme
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ?? false
+})
+
+useEffect(() => {
+  try { localStorage.setItem('ab-theme', light ? 'light' : 'dark') } catch { /* ignore */ }
+}, [light])
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
   const [automationRunning, setAutomationRunning] = useState(false)
