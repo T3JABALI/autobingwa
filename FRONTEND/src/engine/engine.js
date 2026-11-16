@@ -108,6 +108,7 @@ const SORRY_SMS = /we['’]?re\s+sorry,?\s+your\s+transaction\s+could\s+not\s+be
 const UNVERIFIED_AFTER_MS = 15 * 60000 // wait this long before a purchase can become Unverified
 const MATCH_WINDOW_MS = 6 * 3600000 // a success SMS only matches purchases from the last 6 hours
 const IS_180 = /^\*180[*#]/ // only offers whose USSD starts with *180
+const PENDING_MAX_TRIES = 2 // retries after "sent, no answer". Each one risks a double purchase, so keep it small
 // Per-offer settings win; Default / blank falls back to the app-wide setting
 const modeOf = (offer, fallback) => (offer && (offer.type === 'Express' || offer.type === 'Advanced') ? offer.type : fallback)
 const slotOf = (offer) => (offer && offer.execSim === 'SIM 1' ? 0 : offer && offer.execSim === 'SIM 2' ? 1 : null)
@@ -485,7 +486,9 @@ export function createEngine({
     const slot = slotOf(offer)
     const retryMs = (Number(cfg.retryAfterSec) || 15) * 1000
     const confirmMs = (Number(cfg.confirmWaitSec) || 45) * 1000
-
+    const graceMs = (Number(cfg.pendingWaitSec) || 150) * 1000 // keep listening for the SMS this long before dialing again
+    let pendingTries = 0
+    let afterPending = false // true once an attempt ended with an unknown result
     let attempt = 0
     let result
     let ok = false
@@ -518,7 +521,7 @@ export function createEngine({
       if (!conf && (result.ok || result.status === 'no_reply')) conf = await awaitConfirm(w, confirmMs)
       else waiter = null
 
-      // Completed ONLY when Safaricom's screen or SMS says so. A finished dialog proves nothing.
+       // Completed ONLY when Safaricom's screen or SMS says so. A finished dialog proves nothing.
       ok = false
       alreadyRec = Boolean(conf && conf.reason === 'Already recommended')
       if (conf) {
@@ -535,10 +538,29 @@ export function createEngine({
             ? 'The last step was sent but no reply came back. Check the customer before retrying.'
             : 'No success message or SMS came back. Check the customer before retrying.',
         }]
+        // Auto retry on pending: first keep listening for the SMS, so a purchase that went through is never dialed twice
+        if (retryPending && pendingTries < PENDING_MAX_TRIES && attempt <= maxRetries) {
+          rs = [...rs, { input: '-', text: `Waiting up to ${Math.round(graceMs / 1000)}s for the confirmation SMS before trying again.` }]
+          store.update(tx.id, { attempts: attempt, responses: rs })
+          const late = await awaitConfirm(arm(tx), graceMs)
+          if (late) {
+            if (late.text) rs = [...rs, { input: 'SMS', text: late.text }]
+            ok = late.status === 'success'
+            alreadyRec = Boolean(late.reason === 'Already recommended')
+            kind = ok ? 'ok' : late.reason ? 'stop' : 'failed'
+          }
+        }
       } else {
         kind = 'failed'
       }
 
+      // "Already recommended" on a retry that followed an unknown result: the first attempt DID sell
+      if (alreadyRec && afterPending && /already\s+been\s+recommended/i.test(rs.map((r) => r.text).join(' '))) {
+        ok = true
+        alreadyRec = false
+        kind = 'ok'
+        rs = [...rs, { input: '-', text: 'Safaricom says the customer already has this offer, so the earlier attempt sold. Marked Completed. No second purchase was made.' }]
+      }
       // A connection problem / invalid MMI code is its own retry switch
       const connProblem = kind === 'failed' &&
         CONN_SCREEN.test(`${rs.map((r) => r.text).join(' ')} ${result.message || ''}`)
@@ -546,14 +568,16 @@ export function createEngine({
       store.update(tx.id, { attempts: attempt, responses: rs })
       const again =
         (kind === 'failed' && (connProblem ? retryConn : retryFailed)) ||
-        (kind === 'pending' && retryPending)
+        (kind === 'pending' && retryPending && pendingTries < PENDING_MAX_TRIES)
       if (kind === 'ok' || !again || attempt > maxRetries) break
       if (kind === 'pending') {
+        pendingTries += 1
+        afterPending = true
         store.update(tx.id, {
           responses: [...rs, { input: '-', text: 'Retry pending is on, so the app is trying again. The first attempt may already have sold.' }],
         })
       }
-      const gap = Number(getConfig().gapMs ?? (mode === 'Express' ? 100 : 300))
+      const gap = kind === 'pending' ? 0 : retryMs
       await new Promise((r) => setTimeout(r, gap))
     }
 

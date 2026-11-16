@@ -259,7 +259,9 @@ public class UssdAccessibilityService extends AccessibilityService {
         // Those are found once here and kept for typeAndSend.
         AccessibilityNodeInfo box = input[0] ? findEditable(root) : null;
         AccessibilityNodeInfo send = sendButton(root);
-        boolean complete = send != null && (!input[0] || box != null);
+// Menus with an input box are ready at once. Final messages (no input box) must hold still for
+// the Screen Stability time first, so a half-drawn "Connection probl" is never read as the result.
+boolean complete = send != null && input[0] && box != null;
           if (!complete) {
             long nowMs = System.currentTimeMillis();
             if (!text.equals(pendingText)) {
@@ -276,7 +278,10 @@ public class UssdAccessibilityService extends AccessibilityService {
         cachedFor = text;
         events.offer(new Dialog(text, input[0]));
     }
-
+    // True when a USSD window is on screen right now
+    public boolean windowOpen() {
+        return phoneRoot() != null;
+    }
     // The text of the USSD window on screen right now ("" if none)
     public String currentText() {
         AccessibilityNodeInfo root = phoneRoot();

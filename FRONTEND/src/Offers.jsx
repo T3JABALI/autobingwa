@@ -490,10 +490,11 @@ function SettingsSheet({ start, onClose, onSave }) {
     execSim: ['Default', 'SIM 1', 'SIM 2'].includes(start.execSim) ? start.execSim : 'Default',
     retryConn: Boolean(start.retryConn ?? start.autoRetry),
     retryFailed: Boolean(start.autoRetry) && start.retryFailed !== false,
+    retryPending: Boolean(start.autoRetry) && Boolean(start.retryPending),
     retryCount: Math.min(10, Math.max(1, Number(start.retryCount) || 1)),
   }))
   const set = (k, v) => setS((p) => ({ ...p, [k]: v }))
-  const anyRetry = s.retryConn || s.retryFailed
+  const anyRetry = s.retryConn || s.retryFailed || s.retryPending
 
   // Saved directly (not through applyEdit), so changing settings never switches a signature off
   function save() {
@@ -503,6 +504,7 @@ function SettingsSheet({ start, onClose, onSave }) {
       execSim: s.execSim,
       retryConn: s.retryConn,
       retryFailed: s.retryFailed,
+      retryPending: s.retryPending,
       retryCount: s.retryCount,
       autoRetry: anyRetry,
       updated: new Date().toLocaleString(),
@@ -548,6 +550,11 @@ function SettingsSheet({ start, onClose, onSave }) {
         <div><b>Retry on failed</b><small>Try again when the purchase fails</small></div>
         <Switch on={s.retryFailed} onChange={(v) => set('retryFailed', v)} label="Retry on failed" />
       </div>
+            <div className="switch-row">
+        <div><b>Retry on pending</b><small>Try again when the purchase stays pending with no final answer</small></div>
+        <Switch on={s.retryPending} onChange={(v) => set('retryPending', v)} label="Retry on pending" />
+      </div>
+    
       {anyRetry && (
         <div className="two">
           <label className="field"><span>Number of retries</span>

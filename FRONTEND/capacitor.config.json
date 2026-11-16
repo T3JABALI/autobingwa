@@ -1,5 +1,10 @@
 {
   "appId": "com.autobingwa.app",
   "appName": "AutoBingwa",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_bolt"
+    }
+  }
 }

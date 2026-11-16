@@ -142,7 +142,42 @@ section.block>p{color:var(--muted);margin-top:4px}
 @media(min-width:480px){.crow{grid-template-columns:1fr 1fr}}
 .btn.wa{border-color:var(--green);color:var(--text)}
 .btn.wa:hover{background:var(--card)}
-
+/* ===== Tutorials ===== */
+.tut h1{font-size:clamp(26px,6.5vw,38px);font-weight:800;margin:10px 0 6px}
+.tut>p.lead{color:var(--muted)}
+.about{background:var(--card2);border-radius:22px;padding:20px;margin:18px 0 8px}
+.about h2{font-size:clamp(19px,5vw,24px);color:var(--accent);margin-bottom:8px}
+.about p{color:var(--muted);font-size:14.5px;margin-top:8px}
+.about ul{list-style:none;padding:0;margin-top:12px;display:grid;gap:8px}
+.about li{display:flex;gap:10px;font-size:14px;align-items:flex-start}
+.about li svg{flex:none;margin-top:2px;color:var(--accent)}
+.tsearch{width:100%;margin:16px 0 12px;padding:13px 16px;border-radius:99px;border:1.5px solid var(--line);background:var(--panel);color:var(--text);font:inherit}
+.tsearch::placeholder{color:var(--muted)}
+.tgrid{display:grid;gap:10px}
+@media(min-width:640px){.tgrid{grid-template-columns:1fr 1fr}}
+.tcard{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:1.5px solid var(--line);border-radius:var(--r);padding:16px;transition:border-color .15s,transform .15s}
+.tcard:hover{border-color:var(--accent);transform:translateY(-2px)}
+.tcard .mico{width:48px;height:48px;border-radius:14px}
+.tcard h3{font-size:16px;font-weight:700;margin-bottom:4px}
+.tcard p{font-size:13px;color:var(--muted);line-height:1.45}
+.tcard .meta2{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tag2{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:99px;background:var(--card);color:var(--ok)}
+.tag2.vid{color:var(--accent)}
+.tdet h1{font-size:clamp(24px,6vw,34px);font-weight:800;margin:10px 0 8px}
+.tdet .what{background:var(--card);border-radius:var(--r);padding:16px;margin:14px 0;color:var(--muted)}
+.tdet .what b{display:block;color:var(--text);margin-bottom:4px}
+.tdet h2{font-size:clamp(19px,5vw,24px);margin:24px 0 10px}
+.video{position:relative;border-radius:var(--r);overflow:hidden;background:#000;border:1px solid var(--line);margin:14px 0}
+.video video,.video iframe{display:block;width:100%;aspect-ratio:16/9;border:0;background:#000}
+.vsoon{display:grid;place-items:center;gap:8px;text-align:center;aspect-ratio:16/9;background:var(--card);border:1.5px dashed var(--line);border-radius:var(--r);color:var(--muted);margin:14px 0;padding:16px}
+.vsoon svg{color:var(--accent)}
+.tpager{display:grid;gap:10px;margin-top:24px}
+@media(min-width:520px){.tpager{grid-template-columns:1fr 1fr}}
+.tpager a{display:block;background:var(--card);border-radius:var(--r);padding:14px 16px;border:1px solid var(--line)}
+.tpager a:hover{border-color:var(--accent)}
+.tpager small{display:block;color:var(--muted);font-size:12px}
+.tpager b{font-size:15px}
+.tpager .nx{text-align:right}
 footer{margin-top:36px;border-top:1px solid var(--line);background:var(--panel);text-align:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom,0))}
 footer .fb{display:inline-flex;align-items:center;gap:8px;font:800 16px var(--head)}
 footer .fb svg{color:var(--accent)}
@@ -175,6 +210,13 @@ footer nav a{font-size:14px;padding:6px 12px}
   <symbol id="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/></symbol>
   <symbol id="call" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/></symbol>
   <symbol id="chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1.4-4.3A8 8 0 1 1 8.5 18.7L4 20Z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-.8.8a4 4 0 0 1-1.8-1.8l.8-.8-1-2L9 9.5Z"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></symbol>
+<symbol id="play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="m10 8.5 6 3.5-6 3.5v-7Z"/></symbol>
+<symbol id="clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h9m4 0h3M4 17h3m4 0h9M13 4v6m-6 4v6"/></symbol>
+<symbol id="swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14m0 4 4 4-4 4m4-4H7"/></symbol>
+<symbol id="finger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4a6 6 0 0 0-6 6v2m12 0v-2a6 6 0 0 0-3-5.2M12 8a2 2 0 0 0-2 2v6m2-8a2 2 0 0 1 2 2v7m-8-4v2a6 6 0 0 0 1 3m11-5v1a8 8 0 0 1-1 4"/></symbol>
+<symbol id="list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
 </svg>
 
 <header>
@@ -189,13 +231,14 @@ footer nav a{font-size:14px;padding:6px 12px}
           <a href="#/" data-nav="home">Home</a>
           <a href="#/downloads" data-nav="downloads">APK Downloads</a>
           <a href="#/help" data-nav="help">Help Centre</a>
+          <a href="#/tutorials" data-nav="tutorials">Tutorials</a>
         </nav>
         <button class="ib" id="theme" aria-label="Switch light or dark mode"></button>
         <button class="ib burger" id="burger" aria-label="Open menu" aria-expanded="false"><svg width="26" height="26"><use href="#menu"/></svg></button>
       </div>
     </div>
     <div class="mnav" id="mnav">
-      <a href="#/">Home</a><a href="#/downloads">APK Downloads</a><a href="#/help">Help Centre</a>
+<a href="#/">Home</a><a href="#/downloads">APK Downloads</a><a href="#/tutorials">Tutorials</a><a href="#/help">Help Centre</a>
     </div>
   </div>
 </header>
@@ -254,14 +297,25 @@ footer nav a{font-size:14px;padding:6px 12px}
     <p>Set up the app and get quick answers.</p>
     <div id="helpbody"></div>
   </section>
-
+  <section class="view tut" id="v-tutorials">
+    <a class="back" href="#/"><svg width="17" height="17"><use href="#back"/></svg>Back to updates</a><br>
+    <div id="tlist">
+      <span class="badge">Learn AutoBingwa</span>
+      <h1>Tutorials</h1>
+      <p class="lead">Step-by-step guides to help you get the most out of the app.</p>
+      <div class="about" id="about"></div>
+      <input class="tsearch" id="tsearch" type="search" placeholder="Search tutorials…" aria-label="Search tutorials">
+      <div class="tgrid" id="tgrid"></div>
+    </div>
+    <div class="tdet" id="tdetail" hidden></div>
+  </section>
 </main>
 
 <footer>
   <div class="fb"><svg width="20" height="20"><use href="#bolt"/></svg>AutoBingwa USSD</div>
   <p>Powering smarter business operations.</p>
   <p>© <span id="yr">2026</span> AutoBingwa. All rights reserved.</p>
-  <nav><a href="#/">Home</a><a href="#/downloads">Downloads</a><a href="#/help">Support</a></nav>
+<nav><a href="#/">Home</a><a href="#/downloads">Downloads</a><a href="#/tutorials">Tutorials</a><a href="#/help">Support</a></nav>
 </footer>
 
 <div class="toast" id="toast" role="status"></div>
@@ -296,6 +350,106 @@ const CONTENT = {
     {q:"The app won't open after updating", a:"Restart your phone and open the app again. If it still fails, contact us using the buttons below."}
   ]
 };
+/* ===== Tutorials content (the admin can override CONTENT.tutorials / CONTENT.about from site_content) ===== */
+CONTENT.about = {
+  title: "What is AutoBingwa USSD?",
+  intro: "AutoBingwa USSD is an Android app that sells data, minutes and SMS bundles for you automatically. When a customer pays you by M-Pesa, the app reads the payment message, works out which offer they bought, dials the matching USSD code on your phone and sends the bundle to the customer, with no waiting around and no manual typing.",
+  more: "You stay in control. You choose which offers to sell, which SIM does the dialling, what happens when something fails, and when each offer is available. The Portal lets you watch and manage your phones from anywhere.",
+  points: [
+    "Automatic dialling of your saved USSD flows, around the clock",
+    "Smart Data Plans you can download and use right away",
+    "Signatures that keep a purchase correct even if Safaricom reorders its menu",
+    "Retries, time windows and fallback offers that keep sales moving",
+    "Portal access to monitor and control your phone remotely"
+  ]
+};
+CONTENT.tutorials = [
+  { id:"offers-settings", icon:"sliders", title:"Offers Settings", time:"4 min",
+    desc:"Offer settings decide how each plan is dialled: the dialling mode, the SIM used and what happens when a purchase does not go through.",
+    steps:[
+      {t:"Open your offers", d:"Go to the Offers page. Each offer is a card showing its name, price and USSD code."},
+      {t:"Open the settings", d:"Tap the ⋮ menu on the offer and choose Settings."},
+      {t:"Choose Advanced or Express", d:"Advanced types each menu step one by one and works with signatures. Express sends the whole code in a single dial."},
+      {t:"Pick the SIM card", d:"Choose SIM 1, SIM 2 or Default. This is the SIM that dials the offer."},
+      {t:"Set up retries", d:"Turn on the retry types you want: connection or invalid MMI problems, failed purchases, or purchases that stay pending. Then choose how many retries (1 to 10)."},
+      {t:"Save", d:"Tap Save. Changing settings never switches off a saved signature."}
+    ],
+    tip:"Start with 2 retries on failed purchases. Too many retries can dial the same customer again and again if the network is down." },
+
+  { id:"fallback-settings", icon:"swap", title:"Fallback Settings", time:"3 min",
+    desc:"A fallback is a backup plan. If the main offer cannot be delivered, AutoBingwa can use the fallback you chose instead of leaving the customer with nothing.",
+    steps:[
+      {t:"Open Fallback Plans", d:"Open the menu and choose Fallback Plans."},
+      {t:"Pick the main offer", d:"Choose the offer that needs a backup."},
+      {t:"Choose the backup offer", d:"Select the plan that should be used when the main offer fails. Make sure the backup is enabled."},
+      {t:"Save and test", d:"Save your choice, then run a small test purchase to confirm the fallback works as you expect."}
+    ],
+    tip:"Choose a backup of similar or lower value, so you do not sell more than the customer paid for." },
+
+  { id:"time-window", icon:"clock", title:"Time Window Setting", time:"3 min",
+    desc:"A time window limits an offer to certain hours, for example an overnight bundle that is only sold between 11 PM and 6 AM.",
+    steps:[
+      {t:"Open the window", d:"On the Offers page, tap the timer icon on the offer card."},
+      {t:"Turn it on", d:"Switch on Restrict to a time window."},
+      {t:"Set the hours", d:"Choose Available from and Available until. The two times cannot be the same."},
+      {t:"Choose the alternative offer", d:"Pick the offer to sell outside the window. This is required, and it must be enabled."},
+      {t:"Notify the customer (optional)", d:"Turn this on to send an SMS when the alternative offer is used, and write the message."},
+      {t:"Save", d:"Tap Save. The card now shows the hours it is available."}
+    ],
+    tip:"An offer used as someone else's alternative cannot be switched off or deleted until you change that window." },
+
+  { id:"connect-portal", icon:"radio", title:"How to Connect Portal", time:"5 min",
+    desc:"The Portal is a website where you can watch transactions, check balances and control your phone from anywhere, once the phone is connected.",
+    steps:[
+      {t:"Subscribe to a plan", d:"Create your portal account and choose a subscription plan. A phone can only be connected with an active plan."},
+      {t:"Open Autobingwa Connect", d:"In the app menu, choose Autobingwa Connect and note your Connect ID, for example AUB-ABC12."},
+      {t:"Switch on AutoBingwa Portal", d:"Turn the switch on and wait until the status says Connected."},
+      {t:"Add the phone in the portal", d:"In the portal, enter the Connect ID and give the phone a name."},
+      {t:"Check the link", d:"The phone should show as online. You can now start, stop and monitor it from the portal."}
+    ],
+    tip:"Keep the app open or allowed to run in the background. A phone that has not checked in for about 40 seconds shows as offline." },
+
+  { id:"how-app-dials", icon:"play", title:"How the App Dials", time:"2 min", wantsVideo:true, video:"",
+    desc:"Watch AutoBingwa run real transactions from start to finish: payment received, offer matched, USSD dialled and the customer notified.",
+    steps:[
+      {t:"A payment arrives", d:"The customer pays by M-Pesa and the confirmation message reaches your phone."},
+      {t:"The offer is matched", d:"The app matches the amount to one of your enabled offers."},
+      {t:"The code is dialled", d:"The USSD code is dialled on your chosen SIM, with the customer's number filled in."},
+      {t:"The result is recorded", d:"The transaction shows as Completed, Pending or Failed, and the customer can be notified by SMS."}
+    ],
+    tip:"Keep automation running and the phone unlocked when you first test, so you can watch each step happen." },
+
+  { id:"learning-signature", icon:"finger", title:"Learning Signature", time:"4 min",
+    desc:"A signature remembers what each menu step of an offer should contain, so the app still buys the right plan even if Safaricom changes the order of its menu.",
+    steps:[
+      {t:"Check you are ready", d:"Turn on the AutoBingwa accessibility service and stop automation so a customer payment does not wait behind the test."},
+      {t:"Open Signature", d:"On the Offers page, tap ⋮ on the offer and choose Signature."},
+      {t:"Tap Learn signature", d:"The app dials every step with the test number 0700000000 and stops before the last step, so nothing is bought."},
+      {t:"Keep the phone unlocked", d:"Learning can take up to 90 seconds. Wait for the steps found to appear."},
+      {t:"Review the steps", d:"Check that each step picks the plan you expect."},
+      {t:"Enable and save", d:"Turn on Enable signature and tap Save signature."}
+    ],
+    tip:"Editing an offer's USSD code switches its signature off, so learn it again after any change." },
+
+  { id:"load-offers", icon:"list", title:"How to Load Offers", time:"4 min",
+    desc:"Offers are the plans you sell. You can download ready-made plans, add your own, or import a saved list.",
+    steps:[
+      {t:"Download Smart Data Plans", d:"Open Smart Data Plans and download the plans you want. They arrive verified and ready to use."},
+      {t:"Or add your own", d:"On the Offers page tap ADD OFFER. Enter the name, category, USSD code and price."},
+      {t:"Use AB for the phone number", d:"In the USSD code, write AB where the customer's number goes, for example *180*5*2*AB*1*1#."},
+      {t:"Import a saved list", d:"Tap ⋮ at the top of the Offers page and choose Import offers to load a JSON file."},
+      {t:"Give each offer its own price", d:"Each offer needs a different amount, because the app matches payments to offers by price."}
+    ],
+    tip:"Use Export offers to keep a backup before you change phones." },
+
+  { id:"rearrange-offers", icon:"list", title:"Rearrange Offers", time:"2 min",
+    desc:"Put your most popular offers where you can find them quickly.",
+    steps:[
+      {t:"Open the Offers page", d:"Use the category tabs (All, Data, Tunukiwa, Minutes, SMS) to narrow the list."},
+      {t:"Follow the steps for your version", d:"This tutorial will be completed once the final order controls are confirmed."}
+    ],
+    tip:"" }
+];
 const FALLBACK = [
   { id:"android", label:"latest", name:"AutoBingwa Android", version:"v1.0.9", date:"11 November 2026", size:"18.6 MB",
     about:"The complete AutoBingwa experience, designed for agents who want to manage their business faster.",
@@ -403,7 +557,62 @@ function renderHelp(){
       </div>
     </div>`;
 }
-function renderAll(){ renderStats(); renderReleases(); renderHelp(); }
+const PRIORITY = ['load-offers','offers-settings','learning-signature','how-app-dials','time-window','fallback-settings','connect-portal','rearrange-offers'];
+const tuts = () => [...CONTENT.tutorials].sort((a,b) => {
+  const x = PRIORITY.indexOf(a.id), y = PRIORITY.indexOf(b.id);
+  return (x < 0 ? 99 : x) - (y < 0 ? 99 : y);
+});
+// A video is a file in the "tutorials" storage bucket, e.g. "how-app-dials.mp4"
+const videoUrl = v => !v ? '' : /^https?:\/\//.test(v) ? v
+  : `${SUPABASE_URL}/storage/v1/object/public/tutorials/${String(v).split('/').map(encodeURIComponent).join('/')}`;
+function renderTutorials(){
+  const a = CONTENT.about || {};
+  $('#about').innerHTML = `
+    <h2>${esc(a.title)}</h2>
+    <p>${esc(a.intro)}</p>
+    ${a.more ? `<p>${esc(a.more)}</p>` : ''}
+    ${(a.points||[]).length ? `<ul>${a.points.map(p=>`<li>${ico('check',18)}<span>${esc(p)}</span></li>`).join('')}</ul>` : ''}`;
+  drawTutList($('#tsearch').value);
+}
+function drawTutList(q){
+  q = String(q||'').trim().toLowerCase();
+const items = tuts().filter(t => !q || (t.title + ' ' + t.desc).toLowerCase().includes(q));
+  $('#tgrid').innerHTML = items.length ? items.map(t=>`
+    <a class="tcard" href="#/tutorials/${esc(t.id)}">
+      <span class="mico">${ico(t.icon||'book',24)}</span>
+      <div><h3>${esc(t.title)}</h3><p>${esc(t.desc)}</p>
+        <div class="meta2"><span class="tag2">${esc(t.time||'')}</span>${(t.video||t.wantsVideo)?'<span class="tag2 vid">Video</span>':''}</div>
+      </div>
+    </a>`).join('') : '<p class="msg">No tutorials match your search.</p>';
+}
+function showTutorial(id){
+const T = tuts(), i = T.findIndex(x => x.id === id);
+  const list = $('#tlist'), det = $('#tdetail');
+  if(i < 0){ list.hidden = false; det.hidden = true; return; }
+  const t = T[i], prev = T[i-1], next = T[i+1];
+  let media = '';
+  if(t.video){
+    media = `<div class="video"><video controls playsinline preload="metadata" src="${esc(videoUrl(t.video))}">Your browser cannot play this video.</video></div>`;
+  } else if(t.wantsVideo){
+    media = `<div class="vsoon">${ico('play',44)}<b>Video coming soon</b><span>The demo video will appear here.</span></div>`;
+  }
+  list.hidden = true; det.hidden = false;
+  det.innerHTML = `
+    <a class="back" href="#/tutorials">${ico('back',17)}All tutorials</a><br>
+    <span class="badge">Tutorial · ${esc(t.time||'')}</span>
+    <h1>${esc(t.title)}</h1>
+    <div class="what"><b>What is it?</b>${esc(t.desc)}</div>
+    ${media}
+    <h2>Steps</h2>
+    <ol class="steps">${t.steps.map(s=>`<li><div><b>${esc(s.t)}</b><span>${esc(s.d)}</span></div></li>`).join('')}</ol>
+    ${t.tip ? `<div class="note"><b>Tip:</b> ${esc(t.tip)}</div>` : ''}
+    <div class="tpager">
+      ${prev ? `<a href="#/tutorials/${esc(prev.id)}"><small>← Previous</small><b>${esc(prev.title)}</b></a>` : '<span></span>'}
+      ${next ? `<a class="nx" href="#/tutorials/${esc(next.id)}"><small>Next →</small><b>${esc(next.title)}</b></a>` : ''}
+    </div>`;
+}
+$('#tsearch').addEventListener('input', e => drawTutList(e.target.value));
+function renderAll(){ renderStats(); renderReleases(); renderHelp(); renderTutorials(); route(); }
 
 /* ===== theme ===== */
 function setThemeIcon(){
@@ -419,13 +628,15 @@ $('#theme').onclick = () => {
 
 /* ===== router ===== */
 function route(){
-  const h = (location.hash.replace('#/','') || 'home').split('?')[0];
-  const view = ['home','downloads','help'].includes(h) ? h : 'home';
+  const parts = (location.hash.replace('#/','') || 'home').split('?')[0].split('/');
+  const h = parts[0];
+  const view = ['home','downloads','tutorials','help'].includes(h) ? h : 'home';
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+view));
   document.querySelectorAll('[data-nav]').forEach(a=>a.classList.toggle('on', a.dataset.nav===view));
   $('#mnav').classList.remove('open'); $('#burger').setAttribute('aria-expanded','false');
+  if(view === 'tutorials') showTutorial(parts[1] || '');
   window.scrollTo(0,0);
-  document.title = {home:'AutoBingwa USSD Updates',downloads:'Download AutoBingwa',help:'Help Centre · AutoBingwa'}[view];
+  document.title = {home:'AutoBingwa USSD Updates',downloads:'Download AutoBingwa',tutorials:'Tutorials · AutoBingwa',help:'Help Centre · AutoBingwa'}[view];
 }
 addEventListener('hashchange', route);
 $('#burger').onclick = () => { const o = $('#mnav').classList.toggle('open'); $('#burger').setAttribute('aria-expanded', o); };

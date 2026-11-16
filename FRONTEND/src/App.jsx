@@ -39,6 +39,7 @@ import { loadConfig } from './engine/config.js'
 import Onboarding, { isOnboarded } from './features/setup/Onboarding.jsx'
 import { useAuth } from './features/auth/AuthContext'
 import { App as CapApp } from '@capacitor/app'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { useBackHandler, runBack } from './features/ui/useBack.js'
 const initialTransactions = [
   { id: 1, name: 'IMRAN ABDULLAHI MOHAMED AHMED', phone: '018 072 3954', status: 'Completed', time: 'Just now', initials: 'IA' },
@@ -1385,7 +1386,41 @@ const toOldShape = (o) => ({
   availableUntil: '18:00',
   notifyCustomer: true,
 })
+// ---- Accessibility-off alert ----
+const ACCESS_NOTIF_ID = 9101
+const ACCESS_CHANNEL = 'ussd-access-alerts'
 
+async function notifyAccessibilityOff() {
+  try {
+    const perm = await LocalNotifications.requestPermissions()
+    if (perm.display !== 'granted') return
+    await LocalNotifications.createChannel({
+      id: ACCESS_CHANNEL,
+      name: 'USSD accessibility alerts',
+      description: 'Warns you when USSD automation cannot run',
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+    })
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: ACCESS_NOTIF_ID,
+        channelId: ACCESS_CHANNEL,
+        title: 'USSD automation paused',
+        body: 'Accessibility access for AutoBingwa was switched off, so new sales are waiting. Tap to turn it back on.',
+        largeBody: 'Accessibility access for AutoBingwa was switched off, so new sales are waiting. Tap to turn it back on.\n\nTip: Android often does this when its memory cleaner force-stops the app. Exclude AutoBingwa from the cleaner to stop it happening.',
+        summaryText: 'Action needed',
+        ongoing: true,
+        autoCancel: false,
+        extra: { type: 'ussd-access-off' },
+      }],
+    })
+  } catch (e) { console.error('AB access alert', e) }
+}
+
+async function clearAccessibilityAlert() {
+  try { await LocalNotifications.cancel({ notifications: [{ id: ACCESS_NOTIF_ID }] }) } catch { /* ignore */ }
+}
 function App() {
   const { logout: signOutUser } = useAuth()
   const [myOffers, setMyOffers] = useState(() => {
@@ -1497,6 +1532,7 @@ useEffect(() => {
         setNativeRunning(false)
         setKeepAlive(false)
         localStorage.setItem('ab-auto-run', '0')
+        notifyAccessibilityOff()
         window.dispatchEvent(new Event('ab-need-setup'))
         return
       }
@@ -1530,6 +1566,39 @@ useEffect(() => {
     const t = setInterval(heartbeat, 5000)
     return () => clearInterval(t)
   }, [automationRunning])
+    // Watch the accessibility service while automation runs; alert if it gets switched off
+  useEffect(() => {
+    if (!isNative() || !automationRunning) return undefined
+    let alerted = false
+    let resumeHandle = null
+
+    const check = async () => {
+      if (loadConfig().mode !== 'Advanced') return
+      const on = await ussdServiceEnabled()
+      if (!on && !alerted) { alerted = true; notifyAccessibilityOff() }
+      if (on && alerted) { alerted = false; clearAccessibilityAlert() }
+    }
+
+    check()
+    const t = setInterval(check, 15000)
+    CapApp.addListener('resume', check).then(h => { resumeHandle = h }).catch(() => {})
+    return () => {
+      clearInterval(t)
+      if (resumeHandle) resumeHandle.remove()
+    }
+  }, [automationRunning])
+
+  // Tapping the notification opens the setup guide
+  useEffect(() => {
+    if (!isNative()) return undefined
+    let handle = null
+    LocalNotifications.addListener('localNotificationActionPerformed', (e) => {
+      if (e.notification?.extra?.type === 'ussd-access-off') {
+        window.dispatchEvent(new Event('ab-need-setup'))
+      }
+    }).then(h => { handle = h }).catch(() => {})
+    return () => { if (handle) handle.remove() }
+  }, [])
    // Portal remote control: the web portal's Start/Stop commands arrive as 'ab-remote' events
    useEffect(() => {
      const h = (e) => {

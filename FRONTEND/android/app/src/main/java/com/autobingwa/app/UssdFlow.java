@@ -290,6 +290,34 @@ public class UssdFlow {
         }
         return n;
     }
+        private static final Pattern STALE_FIRST = Pattern.compile("invalid choice|try again", Pattern.CASE_INSENSITIVE);
+
+    // Closes any USSD window still open from an earlier run, and waits until it is really gone
+    private static void clearStaleWindow() {
+        UssdAccessibilityService s = UssdAccessibilityService.instance;
+        if (s == null) return;
+        for (int i = 0; i < 6 && s.windowOpen(); i++) {
+            s.dismiss();
+            nap(400);
+        }
+    }
+
+    // Is this the screen the code expects first? Works for signatures and for any code (*188, *180, ...)
+    private static boolean firstScreenOk(String text, JSONArray sig, String[] steps, boolean chained) {
+        if (STALE_FIRST.matcher(text).find()) return false;
+        if (chained || steps.length == 0) return true;
+        if (sig != null) {
+            JSONObject st = sig.optJSONObject(0);
+            if (st != null && "menu".equals(st.optString("kind"))) {
+                return SigMatch.pick(st.optString("label"), text) != null;
+            }
+            return true;
+        }
+        String want = steps[0].trim();
+        boolean needsOption = want.matches("\\d{1,2}") && !want.equals("0") && !want.equals("00");
+        if (!needsOption) return true;
+        return menuLineCount(text) >= 2 && menuHasOption(text, want);
+    }
     // After sending a MIDDLE step, wait for the next screen. If it comes, it is returned straight away.
     // If nothing comes for 4 seconds and the SAME menu is still showing, the send did not go through,
     // so send again (at most twice).
@@ -352,6 +380,7 @@ public class UssdFlow {
             }
         }
                 nap(initialDialDelayMs);
+        UssdAccessibilityService.events.clear();
         dial(ctx, slot, first);
         String sent = first;
         r.status = "complete";
@@ -408,6 +437,27 @@ public class UssdFlow {
             if (i == steps.length) {
                 r.message = "Menu still open after the last step";
                 return r;
+            }            // First screen of a fresh dial: it must be the real menu, not a leftover or a different menu.
+            // Nothing has been typed yet, so dialing again is safe.
+                if (i == 0 && !firstScreenOk(d.text, sig, steps, chained)) {
+                Log.d(TAG, "first screen is not the expected menu: " + d.text.replace('\n', ' '));
+                // The real menu may still be arriving behind a stale window: give it 3 seconds
+                UssdAccessibilityService.Dialog better = null;
+                long until = System.currentTimeMillis() + 3000;
+                while (System.currentTimeMillis() < until) {
+                    UssdAccessibilityService.Dialog n = poll(300);
+                    if (n != null && !n.text.equals(d.text)) { better = n; break; }
+                }
+                if (better != null && firstScreenOk(better.text, sig, steps, chained)) {
+                    d = better;
+                    add(responses, "-", d.text);
+                } else {
+                    r.status = "ended_early";
+                    r.safeRedial = true;   // nothing typed, nothing bought
+                    r.retryNote = "The first screen was not the expected menu (an old or wrong window). Nothing was typed. Dialing again";
+                    r.message = "The first screen was not the expected menu. Nothing was typed or bought.";
+                    return r;
+                }
             }
                    // Chained dial: the first screen must be the phone number prompt, not a menu.
             if (chained && i == 0 && menuLineCount(d.text) >= 2) {
@@ -417,6 +467,7 @@ public class UssdFlow {
                 r.message = "The chained dial landed on a menu, not the phone number prompt. Nothing was typed or bought. Check the USSD path.";
                 return r;
             }
+     
             // What to type: the saved number, or the number the saved option has NOW
             String value = steps[i];
             if (sig != null) {
@@ -427,6 +478,9 @@ public class UssdFlow {
                         r.status = "sig_mismatch";
                         r.message = "Step " + (i + 1) + ": could not find '" + st.optString("label")
                             + "' in the menu. Nothing was bought. Learn the signature again.";
+                                                    r.safeRedial = i < steps.length - 1; // the purchase step has not been sent yet
+                        r.retryNote = "The menu did not match the saved signature. Nothing was bought. Dialing again";
+
                         return r; // nothing was sent for this step
                     }
                     if (!pick.equals(st.optString("hint"))) {
@@ -541,6 +595,8 @@ public class UssdFlow {
                     Log.d(TAG, "chain " + k + " step(s) into the first dial: " + dialFirst);
                 }
 
+                UssdAccessibilityService s00 = UssdAccessibilityService.instance;
+                              clearStaleWindow(); // a window from the previous transaction must not be read as screen 1
                 UssdAccessibilityService.begin();
                 String note = "";
                 long pause = 1000;
@@ -549,8 +605,7 @@ public class UssdFlow {
 final int maxRedials = learn ? 0 : redials; // learning is one pass, never dialed again
 for (int attempt = 0; attempt <= maxRedials; attempt++) {
                     if (attempt > 0) {
-                        UssdAccessibilityService s0 = UssdAccessibilityService.instance;
-                        if (s0 != null) s0.dismiss();
+                        clearStaleWindow();
                         Thread.sleep(pause);
                         add(responses, "-", note + " (attempt " + (attempt + 1) + " of " + (redials + 1) + ")");
                         UssdAccessibilityService.begin();
