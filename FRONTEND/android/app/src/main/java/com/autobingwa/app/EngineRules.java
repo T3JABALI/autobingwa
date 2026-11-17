@@ -40,6 +40,16 @@ final class EngineRules {
         return null;
     }
 
+    // Every real (not masked) phone number written in a text, as 07xxxxxxxx / 01xxxxxxxx
+    static List<Phone> phonesIn(String text) {
+        java.util.ArrayList<Phone> out = new java.util.ArrayList<>();
+        Matcher m = CANDIDATE.matcher(text == null ? "" : text);
+        while (m.find()) {
+            Phone n = normalizePhone(m.group());
+            if (n != null && !n.masked) out.add(n);
+        }
+        return out;
+    }
     // ---------- M-Pesa SMS ----------
     static final class Mpesa {
         String code = "";

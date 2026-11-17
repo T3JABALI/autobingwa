@@ -200,3 +200,27 @@
   height: 44px;
   justify-content: center;
 }
+/* ===== Old-WebView safety net (keep at the very bottom) ===== */
+:root { --app-h: 100vh; } /* main.jsx replaces this with the real pixel height */
+
+.app { min-height: var(--app-h); }
+
+/* Longhand positions for WebViews without the inset shorthand */
+.app .sidebar { position: fixed; top: 0; left: 0; bottom: 0; height: var(--app-h); max-height: var(--app-h); }
+.menu-backdrop { top: 0; left: 0; right: 0; bottom: 0; }
+
+/* Room under the last item, so nothing hides behind the bottom bar */
+.app .main { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
+.app.has-nav .main { padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important; }
+
+/* Fallback colours where color-mix() is not supported */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .app .sidebar-pinned .nav-item:nth-child(1) .icon { background: rgba(91, 140, 255, 0.18); }
+  .app .sidebar-pinned .nav-item:nth-child(2) .icon { background: rgba(251, 191, 36, 0.2); }
+  .app .sidebar-pinned .nav-item:nth-child(3) .icon { background: rgba(77, 168, 255, 0.18); }
+  .app .sidebar-pinned .nav-item.active .icon { background: rgba(255, 255, 255, 0.2); }
+  .app .logout-btn { border-color: rgba(255, 107, 107, 0.55); }
+  .app .sidebar-foot .ussd-state.live { background: rgba(45, 212, 127, 0.16); border: 1px solid rgba(45, 212, 127, 0.45); }
+  .app .sidebar-foot .ussd-state.stopped { background: rgba(255, 107, 107, 0.14); border: 1px solid rgba(255, 107, 107, 0.45); }
+  .app .sidebar .brand-mark { box-shadow: 0 6px 16px rgba(91, 140, 255, 0.35); }
+}

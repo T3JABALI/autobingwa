@@ -218,10 +218,10 @@ export function createEngine({
     }
   }
 
-  // Safaricom's SMS decides the final result. One transaction runs at a time, so one waiter is enough.
+  // strict: only an SMS that NAMES this customer's number may be accepted
   let waiter = null
-  function arm(tx) {
-    waiter = { phone: tx.phone, got: null, wake: null }
+  function arm(tx, strict = false) {
+    waiter = { phone: tx.phone, got: null, wake: null, strict }
     return waiter
   }
 
@@ -315,15 +315,17 @@ export function createEngine({
     const done = store.update(id, { verify: 'awaiting', verifySince: t.completedAt || now(), sorryAt: null })
     applyEarly(done)
   }
-  function confirm(c) {
+   function confirm(c) {
     // Success SMS for a purchase that is waiting for its second response are handled first
     if (c && c.text && lateSms(c.text)) return true
     const w = waiter
     if (w) {
       let mine = true
+      let numbered = false // true when the SMS itself names THIS customer's number
       if (c.phone && w.phone) {
         const n = normalizePhone(c.phone)
         if (n && n.phone !== w.phone) mine = false // a reply about another customer
+        else if (n) numbered = true
       }
       // A "Thank you for choosing Safaricom" SMS has no phone field, so check the number inside the text
       if (mine && !c.phone && c.text && w.phone) {
@@ -331,9 +333,12 @@ export function createEngine({
           .map(normalizePhone)
           .filter((n) => n && !n.masked)
         if (named.length && !named.some((n) => last9(n.phone) === last9(w.phone))) mine = false
+        else if (named.length) numbered = true
       }
+      // Strict: an SMS that does not name this customer's number is ignored
+      if (mine && w.strict && !numbered) mine = false
       if (mine) {
-        w.got = c
+        w.got = { ...c, numbered }
         if (w.wake) w.wake()
         return true
       }
@@ -511,6 +516,10 @@ export function createEngine({
       // A "connection problem" screen after the last step proves nothing: the purchase may have gone through.
       // A success SMS that already arrived always wins. Otherwise wait for the SMS instead of calling it failed.
       const connAfterSend = Boolean(result.ok) && CONN_SCREEN.test(lastText)
+      if (connAfterSend || result.status === 'no_reply') {
+        w.strict = true
+        if (w.got && !w.got.numbered) w.got = null // one that slipped in before: drop it
+      }
       let conf = w.got && w.got.status === 'success'
         ? w.got
         : (connAfterSend ? null : classifyScreen(lastText))
@@ -542,7 +551,7 @@ export function createEngine({
         if (retryPending && pendingTries < PENDING_MAX_TRIES && attempt <= maxRetries) {
           rs = [...rs, { input: '-', text: `Waiting up to ${Math.round(graceMs / 1000)}s for the confirmation SMS before trying again.` }]
           store.update(tx.id, { attempts: attempt, responses: rs })
-          const late = await awaitConfirm(arm(tx), graceMs)
+          const late = await awaitConfirm(arm(tx, true), graceMs)
           if (late) {
             if (late.text) rs = [...rs, { input: 'SMS', text: late.text }]
             ok = late.status === 'success'

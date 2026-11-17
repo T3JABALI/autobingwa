@@ -24,7 +24,9 @@ const readAirtime = () => {
 
 const DAY = 86400000
 const FILTERS = ['All', 'Completed', 'Pending', 'Scheduled', 'Failed']
-const ALL_FILTERS = ['All', 'Today', 'Completed', 'Pending', 'Scheduled', 'Failed', 'Unmatched', 'Awaiting commission', 'Unverified', 'Paused', 'Skipped']
+const ALL_FILTERS = ['All', 'Completed', 'Pending', 'Scheduled', 'Failed', 'Unmatched', 'Awaiting commission', 'Unverified', 'Paused', 'Skipped']
+const RANGES = [['All', 'All'], ['Today', 'Today'], ['Yesterday', 'Yesterday'], ['7d', '7 Days'], ['30d', '30 Days']]
+const SHORT = { Completed: 'Success', Scheduled: 'Sched.', 'Awaiting commission': 'Awaiting' }
 const TONE = { Completed: 'ok', Pending: 'warn', Processing: 'warn', Scheduled: 'info', Failed: 'bad', Unmatched: 'bad', Paused: 'warn', Skipped: 'warn', 'Awaiting commission': 'warn', Unverified: 'bad' }
 
 // The label a transaction is shown with. Awaiting commission and Unverified are *180 purchases
@@ -164,6 +166,37 @@ const HOME_EXTRA = `
   .hm-s-detail .hm-act { padding: 9px 4px; font-size: 12px; gap: 4px; }
   .hm-s-detail .hm-act svg { width: 17px !important; height: 17px !important; }
 .hm-s-detail .hm-vf svg { width: 17px !important; height: 17px !important; }
+
+  /* Transactions page: swipe rows */
+  .hm-chiprow { position: relative; margin: 0 0 10px; }
+  .hm-page.hm-s-all > .hm-chiprow { position: relative !important; }
+  .hm-chiprow .hm-chips { margin: 0 !important; padding: 2px 2px 6px !important; }
+  .hm-more {
+    position: absolute; top: 0; bottom: 6px; width: 46px; border: 0; z-index: 2; pointer-events: none;
+    display: flex; align-items: center; color: var(--primary); font-size: 32px; font-weight: 800; line-height: 1;
+  }
+  .hm-more.r { right: 0; justify-content: flex-end; padding-right: 6px; background: linear-gradient(to right, transparent, var(--bg) 60%); }
+  .hm-more.l { left: 0; justify-content: flex-start; padding-left: 6px; background: linear-gradient(to left, transparent, var(--bg) 60%); }
+  .hm-more.r span { animation: hmNudge 1.4s ease-in-out infinite; }
+  @keyframes hmNudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(5px); } }
+  .hm-page.hm-s-all .hm-cats .hm-chips { gap: 4px !important; }
+  .hm-page.hm-s-all .hm-cats .hm-chip {
+    flex: 0 0 calc((100% - 20px) / 6) !important; min-width: 0 !important; min-height: 44px !important;
+    padding: 4px 2px !important; border-radius: 14px !important;
+    display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important;
+    gap: 1px; font-size: 10.5px !important; font-weight: 700 !important; line-height: 1.15 !important;
+  }
+  .hm-page.hm-s-all .hm-cats .hm-cl { white-space: nowrap; }
+  .hm-page.hm-s-all .hm-cats .hm-cn { font-size: 12px; font-weight: 800; opacity: 0.85; }
+
+  .hm-page.hm-s-all .hm-times .hm-chips { gap: 4px !important; overflow-x: hidden !important; }
+  .hm-page.hm-s-all .hm-times .hm-chip {
+    flex: 1 1 0 !important; min-width: 0 !important; min-height: 36px !important;
+    padding: 6px 2px !important; font-size: 12px !important; font-weight: 600 !important;
+    text-align: center; white-space: nowrap;
+  }
+  .hm-bal.tok.expired .hm-exp-title { font-size: 20px; font-weight: 800; color: #fff !important; line-height: 1.1; }
+  .hm-bal.tok.expired .hm-exp-sub { font-size: 13px; font-weight: 500; letter-spacing: 0.06em; color: #cfd8dc !important; } }
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -265,6 +298,35 @@ const readOffers = () => {
     return []
   }
 }
+// A row of chips that scrolls sideways and shows an arrow while there is more to see
+function ChipRow({ className = '', children }) {
+  const ref = useRef(null)
+  const [left, setLeft] = useState(false)
+  const [right, setRight] = useState(false)
+  const check = () => {
+    const el = ref.current
+    if (!el) return
+    setLeft(el.scrollLeft > 4)
+    setRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
+  }
+  useEffect(() => {
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [children])
+  const nudge = (dir) => {
+    const el = ref.current
+    if (!el) return
+    try { el.scrollBy({ left: dir * 180, behavior: 'smooth' }) } catch (e) { el.scrollLeft += dir * 180 }
+  }
+  return (
+    <div className={`hm-chiprow ${className}`}>
+      {left && <span className="hm-more l" aria-hidden="true"><span>‹</span></span>}
+      <div className="hm-chips" role="tablist" ref={ref} onScroll={check}>{children}</div>
+      {right && <span className="hm-more r" aria-hidden="true"><span>›</span></span>}
+    </div>
+  )
+}
 export default function HomePage({
   onOpenTokens,
   automationRunning = false,
@@ -279,6 +341,7 @@ export default function HomePage({
   const [hide, setHide] = useState(false)
   const [filter, setFilter] = useState('All')
   const [query, setQuery] = useState('')
+    const [range, setRange] = useState('All')
   const [view, setView] = useState({ name: 'home', id: null, from: 'home' })
   const [spin, setSpin] = useState(false)
   const [simPick, setSimPick] = useState(null)
@@ -385,6 +448,7 @@ export default function HomePage({
   const weekTotal = commissionThisWeek(now)
 
   const unlimitedActive = wallet.unlimitedUntil > now
+    const tokensOut = !unlimitedActive && !(Number(wallet.units) > 0)
   const mask = (text) => (hide ? '••••••' : text)
 
   // A transaction belongs to a chip by status, or by date for Today
@@ -403,7 +467,13 @@ export default function HomePage({
                 ? t.status === 'Completed' && t.verify === 'unverified'
                 : t.status === f
   const matches = (t) => inFilter(t, filter)
-  const countFor = (f) => visible.filter((t) => inFilter(t, f)).length
+  const inRange = (t) =>
+    range === 'All' ? true
+      : range === 'Today' ? t.createdAt >= todayStart
+        : range === 'Yesterday' ? t.createdAt >= todayStart - DAY && t.createdAt < todayStart
+          : range === '7d' ? t.createdAt >= todayStart - 6 * DAY
+            : t.createdAt >= todayStart - 29 * DAY
+  const countFor = (f) => visible.filter((t) => inRange(t) && inFilter(t, f)).length
   const sorted = [...visible].sort((a, b) => b.createdAt - a.createdAt)
   // Home only shows today's transactions. Older ones live in the full list (the arrow).
   const recent = sorted.filter((t) => t.createdAt >= todayStart).filter(matches).slice(0, 5)
@@ -411,7 +481,7 @@ export default function HomePage({
   // Full list page: category + search (name, phone, M-Pesa message/ID, offer)
   const q = query.trim().toLowerCase()
   const allList = sorted.filter((t) => {
-    if (!matches(t)) return false
+    if (!matches(t) || !inRange(t)) return false
     if (!q) return true
     return [t.name, t.phone, t.mpesaId, t.rawMessage, t.offerName].some((v) =>
       String(v || '').toLowerCase().includes(q)
@@ -481,6 +551,7 @@ export default function HomePage({
   }
 
   function openAll() {
+    setRange('All')
     setNotice('')
     setQuery('')
     setView({ name: 'all', id: null, from: 'home' })
@@ -891,19 +962,25 @@ export default function HomePage({
                 <span className="hm-bal-val">{hide ? '••••••' : <><small className="hm-cur">KES</small>{money(airtimeUsed)}</>}</span>
                 <span className="hm-bal-label">Airtime used</span>
               </button>
-
-<button className="hm-bal tok" onClick={onOpenTokens} aria-label="Open tokens">
-  <span className="hm-bal-val">{mask(`${wallet.units.toLocaleString('en-KE')} units`)}</span>
-  <span className="hm-bal-label">Tokens</span>
-  <span
-    className="hm-bal-sub"
-    style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
-  >
-    {unlimitedActive
-      ? `∞ ${hide ? '••••' : unlimitedLeft(wallet.unlimitedUntil, now)}`
-      : 'Tap to top up'}
-  </span>
-</button>
+{tokensOut ? (
+  <button className="hm-bal tok expired" onClick={onOpenTokens} aria-label="Subscription expired. Open tokens">
+    <span className="hm-exp-title">Expired</span>
+    <span className="hm-exp-sub">Subscription</span>
+  </button>
+) : (
+  <button className="hm-bal tok" onClick={onOpenTokens} aria-label="Open tokens">
+    <span className="hm-bal-val">{mask(`${wallet.units.toLocaleString('en-KE')} units`)}</span>
+    <span className="hm-bal-label">Tokens</span>
+    <span
+      className="hm-bal-sub"
+      style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
+    >
+      {unlimitedActive
+        ? `∞ ${hide ? '••••' : unlimitedLeft(wallet.unlimitedUntil, now)}`
+        : 'Tap to top up'}
+    </span>
+  </button>
+)}
             </div>
           </section>
 
@@ -971,7 +1048,7 @@ export default function HomePage({
             <button className="hm-icon" onClick={goBack} aria-label="Back to home">
               <Icon name="back" />
             </button>
-            <h2>Transactions</h2>
+            <div className="hm-titles"><h2>Transactions</h2><small>{allList.length} matching</small></div>
           </div>
 
           <input
@@ -982,7 +1059,23 @@ export default function HomePage({
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search transactions"
           />
-          {chipsFor(ALL_FILTERS, true)}
+                  <ChipRow className="hm-cats">
+            {ALL_FILTERS.map((f) => (
+              <button key={f} role="tab" aria-selected={filter === f}
+                className={`hm-chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>
+                <span className="hm-cl">{SHORT[f] || f}</span>
+                <span className="hm-cn">{countFor(f)}</span>
+              </button>
+            ))}
+          </ChipRow>
+          <ChipRow className="hm-times">
+            {RANGES.map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={range === k}
+                className={`hm-chip ${range === k ? 'on' : ''}`} onClick={() => setRange(k)}>
+                {label}
+              </button>
+            ))}
+          </ChipRow>
 
           {allList.length === 0 ? (
             <div className="hm-card hm-empty">

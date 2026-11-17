@@ -322,9 +322,10 @@ final class EngineCore {
     // ---------- waiting for Safaricom's SMS ----------
     private static final class Waiter {
         final String phone;
-        final CountDownLatch latch = new CountDownLatch(1);
         volatile EngineRules.Conf got = null;
         volatile String text = "";
+        volatile boolean strict = false;   // only an SMS naming this customer's number may be accepted
+        volatile boolean numbered = false; // the accepted SMS named this customer's number
         Waiter(String phone) { this.phone = phone; }
     }
 
@@ -341,24 +342,40 @@ final class EngineCore {
         }
     }
 
-    private static boolean confirm(Context ctx, EngineRules.Conf cf, String text) {
+       private static boolean confirm(Context ctx, EngineRules.Conf cf, String text) {
         Waiter w;
         synchronized (WAIT) { w = waiter; }
         if (w != null) {
             boolean mine = true;
+            boolean numbered = false;
             if (cf.phone != null && !w.phone.isEmpty()) {
                 EngineRules.Phone n = EngineRules.normalizePhone(cf.phone);
                 if (n != null && !n.phone.equals(w.phone)) mine = false; // a reply about another customer
+                else if (n != null) numbered = true;
             }
+            // "Thank you for choosing Safaricom" has no phone field: check the numbers inside the text
+            if (mine && cf.phone == null && text != null && !w.phone.isEmpty()) {
+                java.util.List<EngineRules.Phone> named = EngineRules.phonesIn(text);
+                boolean hit = false;
+                for (EngineRules.Phone p : named) if (p.phone.equals(w.phone)) hit = true;
+                if (!named.isEmpty() && !hit) mine = false; // names a different customer
+                else if (hit) numbered = true;
+            }
+            // Strict: an SMS that does not name this customer's number is ignored
+            if (mine && w.strict && !numbered) mine = false;
             if (mine) {
-                w.got = cf;
-                w.text = text;
-                w.latch.countDown();
+                synchronized (w) {
+                    w.got = cf;
+                    w.text = text;
+                    w.numbered = numbered;
+                    w.notifyAll();
+                }
                 return true;
             }
         }
         return cancelPendingFallback(ctx, cf, text);
     }
+
 
     // A late success SMS cancels a backup that is still waiting out its delay
     private static boolean cancelPendingFallback(Context ctx, EngineRules.Conf cf, String text) {
@@ -393,10 +410,17 @@ final class EngineCore {
     }
 
     private static EngineRules.Conf awaitConfirm(Waiter w, long ms) {
-        try {
-            w.latch.await(ms, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        long end = System.currentTimeMillis() + ms;
+        synchronized (w) {
+            try {
+                while (w.got == null) {
+                    long left = end - System.currentTimeMillis();
+                    if (left <= 0) break;
+                    w.wait(left);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
         disarm(w);
         return w.got;
@@ -656,7 +680,13 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
             }
                // A "connection problem" after the last step may still have bought the plan: wait for the SMS.
             // A success SMS that already arrived wins over any screen.
-            boolean connAfterSend = resultOk && CONN_SCREEN.matcher(lastText).find();
+                     boolean connAfterSend = resultOk && CONN_SCREEN.matcher(lastText).find();
+            if (connAfterSend || "no_reply".equals(status)) {
+                synchronized (w) {
+                    w.strict = true;
+                    if (w.got != null && !w.numbered) { w.got = null; w.text = ""; }
+                }
+            }
             EngineRules.Conf conf;
             String smsText = "";
             if (w.got != null && "success".equals(w.got.status)) {

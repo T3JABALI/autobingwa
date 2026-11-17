@@ -71,3 +71,14 @@
 .an-offer-text small { font-size: 12px; color: var(--soft); }
 .an-offer-text b { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .an-offer-text em { font-style: normal; font-size: 12px; color: var(--soft); }
+
+/* ===== Safe fixes: padding only, no height or overflow changes ===== */
+.app { --nav-h: 64px; }
+@supports (padding: env(safe-area-inset-bottom)) {
+  .app { --nav-h: calc(58px + env(safe-area-inset-bottom, 0px)); }
+}
+body .app.has-nav .main { padding-bottom: calc(var(--nav-h) + 24px) !important; }
+body .app .menu-backdrop ~ .ab-nav { display: none; }
+
+/* Home's inner scroller: real pixel height instead of dvh */
+.app .hm-page.hm-s-home { height: calc(var(--app-h, 100vh) - 66px - var(--nav-h)) !important; }
