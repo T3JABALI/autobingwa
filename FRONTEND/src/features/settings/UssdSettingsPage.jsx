@@ -5,7 +5,7 @@ import { applyUssdSettings } from '../../engine/native.js'
 
 const BOLT = <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
 const GAUGE = <><path d="M4 18a9 9 0 1 1 16 0" /><path d="M12 14l4-5" /></>
-
+const TURBO = <><path d="M5 5l7 7-7 7" /><path d="M12 5l7 7-7 7" /></>
 const TIMEOUTS = [
   { id: 'expressTimeoutSec', title: 'Express USSD', desc: 'Express mode wait', unit: 's', step: 5, min: 20, max: 120 },
   { id: 'advancedTimeoutSec', title: 'Advanced USSD', desc: 'Dialer mode wait per screen', unit: 's', step: 5, min: 10, max: 120 },
@@ -112,12 +112,13 @@ export default function UssdSettingsPage({ onBack }) {
         .us-label { display: flex; align-items: center; gap: 8px; margin: 20px 4px 8px; font-size: 13px; font-weight: 700; color: var(--st-soft); }
         .us-label::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--us-g); }
 
-        .us-bubbles { display: flex; gap: 8px; flex-wrap: wrap; }
-        .us-bub { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border: 1.5px solid var(--st-border); border-radius: 999px; background: var(--st-card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-        .us-bub .ic { width: 26px; height: 26px; border-radius: 50%; background: var(--st-hover); display: grid; place-items: center; flex-shrink: 0; }
-        .us-bub .ic svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-        .us-bub strong { display: block; font-size: 13px; line-height: 1.15; }
-        .us-bub small { display: block; font-size: 10.5px; line-height: 1.2; color: var(--st-soft); }
+.us-bubbles { display: flex; gap: 5px; flex-wrap: nowrap; }
+.us-bub { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 4px; border: 1.5px solid var(--st-border); border-radius: 999px; background: var(--st-card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.us-bub .ic { width: 18px; height: 18px; border-radius: 50%; background: var(--st-hover); display: grid; place-items: center; flex-shrink: 0; }
+.us-bub .ic svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.us-bub > span:last-child { min-width: 0; }
+.us-bub strong { display: block; font-size: 11.5px; line-height: 1.15; }
+.us-bub small { display: block; font-size: 8px; line-height: 1.15; color: var(--st-soft); white-space: nowrap; }
         .us-bub.on { border-color: var(--us-g); background: var(--st-hover); }
         .us-bub.on .ic { background: var(--us-g); color: #fff; }
         .us-hint { display: block; margin: 6px 6px 0; font-size: 11px; }
@@ -158,7 +159,7 @@ export default function UssdSettingsPage({ onBack }) {
         <>
           <p className="us-label">Speed fix</p>
           <div className="us-bubbles" role="radiogroup" aria-label="Speed fix">
-            {[['quick', 'Quick', BOLT, 'Good networks'], ['average', 'Average', GAUGE, 'Slower networks']].map(([id, label, icon, sub]) => (
+            {[['turbo', 'Turbo', TURBO, 'Strong network'], ['quick', 'Quick', BOLT, 'Good networks'], ['average', 'Average', GAUGE, 'Slower networks']].map(([id, label, icon, sub]) => (
               <button key={id} type="button" role="radio" aria-checked={profile === id}
                 className={`us-bub ${profile === id ? 'on' : ''}`} onClick={() => set(USSD_PROFILES[id])}>
                 <span className="ic"><svg viewBox="0 0 24 24">{icon}</svg></span>

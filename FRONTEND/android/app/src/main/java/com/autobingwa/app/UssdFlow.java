@@ -222,6 +222,19 @@ public class UssdFlow {
         }
         ed.apply();
     }
+    
+    // ---------- Quick Bingwa chain: pause after a miss ----------
+    // After the chained dial misses the phone number screen, this many Bingwa (*180) purchases
+    // are dialed step by step before chaining is tried again.
+    private static final int CHAIN_SKIP_RUNS = 3;
+
+    private static int chainSkipLeft(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("chainSkip", 0);
+    }
+
+    private static void setChainSkip(Context ctx, int n) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("chainSkip", Math.max(0, n)).apply();
+    }
     // True when the network or phone refused the Express request outright (not a real answer, not a hang)
     // True when the phone refused the Express request outright (not a real answer, not a hang).
     // A reply that arrived, even "connection problem", may mean the purchase went through, so it is never a refusal.
@@ -587,7 +600,22 @@ public class UssdFlow {
                 // Optional chaining: the first steps ride along with the first dial, the rest are typed.
                 String dialFirst = first;
                 String[] dialSteps = steps;
-                       int k = (chainToPhone && sig == null && !learn && first.trim().startsWith("*180")) ? phoneStepIndex(steps) : 0;
+                int k = 0;
+                if (chainToPhone && sig == null && !learn && first.trim().startsWith("*180")) {
+                    int idx = phoneStepIndex(steps);
+                    if (idx > 0) {
+                        int skipLeft = chainSkipLeft(ctx);
+                        if (skipLeft > 0) {
+                            // the chain missed the phone screen recently: this purchase goes step by step
+                            setChainSkip(ctx, skipLeft - 1);
+                            add(responses, "-", "Quick Bingwa is paused after a missed phone number screen. Dialing step by step ("
+                                + (skipLeft - 1) + " more before it chains again).");
+                            Log.d(TAG, "chain paused, step by step. Left after this one: " + (skipLeft - 1));
+                        } else {
+                            k = idx;
+                        }
+                    }
+                }
                 boolean chained = k > 0;
                 if (k > 0) {
                     dialFirst = expressCode(first, Arrays.copyOfRange(steps, 0, k));
@@ -616,7 +644,12 @@ Step r = interactiveOnce(ctx, slot, dialFirst, dialSteps, stepMs, keyDelayMs, bu
                     message = r.message;
         note = r.retryNote;
                     if ("wrong_path".equals(r.status) && chained) {
-                        // the chained dial did not land on the phone prompt: dial the next attempt step by step
+                        // the chained dial did not land on the phone prompt: this purchase finishes step by step,
+                        // and so do the next CHAIN_SKIP_RUNS Bingwa purchases
+                        setChainSkip(ctx, CHAIN_SKIP_RUNS);
+                        add(responses, "-", "The chained dial missed the phone number screen. The next " + CHAIN_SKIP_RUNS
+                            + " Bingwa purchases will be dialed step by step.");
+                        Log.d(TAG, "chain missed the phone screen, pausing chaining for " + CHAIN_SKIP_RUNS + " purchases");
                         dialFirst = first;
                         dialSteps = steps;
                         chained = false;

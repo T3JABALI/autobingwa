@@ -14,6 +14,12 @@ export const USSD_PROFILES = {
     okButtonDelayMs: 30, failureCheckDelayMs: 100, screenStabilityMs: 250,
     cleanupDelayMs: 150, inputRetries: 3, checkIntervalMs: 200, inputSearchMs: 300, rootNodeMs: 400,
   },
+    turbo: {
+    expressTimeoutSec: 20, advancedTimeoutSec: 30, stepTimeoutMs: 50, betweenMs: 150,
+    executionDelayMs: 0, keyInputDelayMs: 30, initialDialDelayMs: 0,
+    okButtonDelayMs: 0, failureCheckDelayMs: 20, screenStabilityMs: 100,
+    cleanupDelayMs: 50, inputRetries: 2, checkIntervalMs: 30, inputSearchMs: 100, rootNodeMs: 0,
+  },
 }
 
 export const USSD_DEFAULTS = { autoRetry: false, fasten: false, ...USSD_PROFILES.quick }
