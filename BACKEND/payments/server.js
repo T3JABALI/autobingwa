@@ -501,7 +501,7 @@ app.post('/device/sync',
         .eq('device_id', req.dev.id).eq('status', 'pending').neq('type', 'credit_tokens').lt('created_at', cutoff)
       let q = sbAdmin.from('device_commands').select('id,type,payload')
         .eq('device_id', req.dev.id).eq('status', 'pending').order('id').limit(10)
-      if (!portalOn) q = q.in('type', ['portal_on', 'portal_off']) // while off, only the switch commands go out
+      if (!portalOn) q = q.in('type', ['portal_on', 'portal_off', 'credit_tokens']) // while off, only the switch commands and paid credits go out
       const { data } = await q
       const commands = data || []
       // credit_tokens (money already paid) is re-sent until the phone confirms it
@@ -1145,7 +1145,40 @@ app.get('/tokens/mpesa/status/:id', async (req, res) => {
     res.status(500).json({ error: 'Could not check the payment.' })
   }
 })
+// 4. Payments this phone paid for while the app was closed or offline.
+// The phone credits each one once (the receipt is its reference).
+app.get('/tokens/mpesa/paid', async (req, res) => {
+  try {
+    if (!dbReady) return res.status(503).json({ error: 'Server is starting.' })
+    const deviceId = String(req.query.deviceId || '')
+    if (!deviceId) return res.status(400).json({ error: 'Missing device.' })
 
+    // A payment whose callback never arrived is checked with Safaricom (a few at a time)
+    const stuck = (await pool.query(
+      "SELECT * FROM payments WHERE device_id=$1 AND status='pending' AND created_at < now() - interval '40 seconds' AND created_at > now() - interval '24 hours' ORDER BY created_at DESC LIMIT 5",
+      [deviceId])).rows
+    for (const p of stuck) {
+      try {
+        const ts = stamp()
+        const q = await daraja('/mpesa/stkpushquery/v1/query', {
+          BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts, CheckoutRequestID: p.checkout_id,
+        })
+        if (q.ResultCode === undefined) continue
+        const code = Number(q.ResultCode)
+        if (code === 0) await pool.query("UPDATE payments SET status='paid', receipt=COALESCE(receipt,$2) WHERE id=$1 AND status='pending'", [p.id, p.checkout_id])
+        else if (code !== 4999) await pool.query("UPDATE payments SET status=$2, message=$3 WHERE id=$1 AND status='pending'", [p.id, code === 1032 ? 'cancelled' : 'failed', q.ResultDesc || ''])
+      } catch (e) { console.error('paid recheck', e.message) }
+    }
+
+    const { rows } = await pool.query(
+      "SELECT id, plan_id, amount, receipt FROM payments WHERE device_id=$1 AND status='paid' AND created_at > now() - interval '7 days' ORDER BY created_at",
+      [deviceId])
+    res.json({ payments: rows.map((r) => ({ paymentId: r.id, planId: r.plan_id, amount: r.amount, receipt: r.receipt || '' })) })
+  } catch (e) {
+    console.error('paid list', e)
+    res.status(500).json({ error: 'Could not check your payments.' })
+  }
+})
 app.listen(PORT, () => {
   console.log('Token server on', PORT)
   initDb()
