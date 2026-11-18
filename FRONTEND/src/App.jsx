@@ -1790,11 +1790,12 @@ if (!onboarded) return (
           </button>
 
           {activePage === 'Home' && homeScreen === 'home' && (<>
-          <div className="greeting">
-            <span>{greetingFor(clock)},</span>
-            <strong>{firstNameOf(profile.fullName) || 'User'}</strong>
-          </div>
-
+         <div className="greeting">
+  <div className="greet-line">
+    <em className="greet-hi">{greetingFor(clock)},</em>
+    <b className="greet-name">{(firstNameOf(profile.fullName) || 'User').toUpperCase()}</b>
+  </div>
+</div>
           <div className="topbar-actions">
             <span className="profile-icon">
               {profile.photo ? <img className="profile-photo" src={profile.photo} alt="" /> : '♙'}

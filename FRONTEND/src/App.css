@@ -1651,3 +1651,311 @@ button, [role="tab"], [role="switch"] {
 /* ===== Touch ===== */
 .hm-row { content-visibility: auto; contain-intrinsic-size: auto 78px; transition: none !important; }
 .hm-row:active { filter: brightness(1.15); }
+/* ===== BOLD COLOURS: ALL PAGES, LIGHT + DARK (keep at the very bottom) ===== */
+
+/* ---------- 1. Colour variables ---------- */
+.app.light {
+  --bg: #F3EEE0;  --card: #FBF8EF;  --panel: #FBF8EF;
+  --text: #0B2623;
+  --soft: #2C3C37;  --muted: #2C3C37;  --muted-text: #2C3C37;
+  --border: #BFB18C;  --border-color: #BFB18C;
+  --primary: #0A6557;  --primary-hover: #084F44;  --accent-color: #0A6557;
+  --on-primary: #FFFFFF;
+  --success: #12683B;  --green: #12683B;
+  --warning: #8A5508;
+  --danger: #A32E1F;   --red: #A32E1F;
+  --success-bg: #CBE8D5;  --danger-bg: #F1D3CA;
+  --muted-bg: #DCE8DF;  --hover: #D6E6DB;
+}
+.app.dark {
+  --bg: #021917;  --card: #0B332F;  --panel: #0B332F;
+  --text: #FFFFFF;
+  --soft: #C9EDE3;  --muted: #C9EDE3;  --muted-text: #C9EDE3;
+  --border: #2F7A70;  --border-color: #2F7A70;
+  --primary: #4FEBC6;  --primary-hover: #7DF3D8;  --accent-color: #4FEBC6;
+  --on-primary: #021F1B;
+  --success: #5CF0A8;  --green: #5CF0A8;
+  --warning: #FFC845;
+  --danger: #FF8A75;   --red: #FF8A75;
+  --success-bg: rgba(92, 240, 168, 0.22);
+  --danger-bg: rgba(255, 138, 117, 0.22);
+  --muted-bg: #14463F;  --hover: #14463F;
+}
+
+/* ---------- 2. No fading anywhere ---------- */
+.app .hm-cur { opacity: 1 !important; }
+.app .of-card.off { opacity: 1; }                 /* off offers stay readable */
+.app .of-card.off .of-title b,
+.app .of-card.off .of-price { color: var(--soft) !important; }
+.app .of-switch:disabled, .app .btn:disabled { opacity: .7; }
+
+/* ---------- 3. Home ---------- */
+.app .greeting span, .app .hm-total,
+.app .hm-stat-l, .app .hm-row-sub, .app .when,
+.app .hm-bal-sub { color: var(--soft) !important; font-weight: 600 !important; }
+.app .greeting span { font-size: 11px !important; }
+.app .hm-total      { font-size: 11px !important; }
+.app .hm-stat-l     { font-size: 10px !important; font-weight: 700 !important; }
+.app .hm-row-sub    { font-size: 10px !important; }
+.app .when          { font-size: 10px !important; }
+.app .hm-row-name   { font-size: 12px !important; font-weight: 700 !important; color: var(--text) !important; }
+.app .st            { font-size: 10.5px !important; font-weight: 800 !important; }
+.app .hm-chip       { font-size: 10.5px !important; font-weight: 700 !important; color: var(--text) !important; border-color: var(--border) !important; }
+.app .hm-chip.on, .app .hm-chip.selected { color: var(--on-primary) !important; }
+.app .hm-stat-n     { font-weight: 800 !important; }
+
+/* Balance cards: solid, bold, full-contrast text */
+.app .hm-bals > .hm-bal:nth-child(1) { background: var(--primary) !important; }
+.app .hm-bals > .hm-bal:nth-child(2) { background: var(--warning) !important; }
+.app .hm-bals > .hm-bal:nth-child(3) { background: var(--success) !important; }
+.app .hm-bals > .hm-bal,
+.app .hm-bals > .hm-bal * { color: var(--on-primary) !important; }
+.app .hm-bal-label { font-weight: 800 !important; }
+
+/* ---------- 4. Offers / Smart Data Plans / Signatures ---------- */
+.app .of-count   { background: var(--primary) !important; color: var(--on-primary) !important; }
+.app .of-cat     { color: var(--text) !important; font-weight: 800 !important; border-color: var(--border) !important; }
+.app .of-cat.on  { background: var(--primary) !important; color: var(--on-primary) !important; }
+.app .of-title b, .app .sp-name b, .app .sp-card .sig-title b { color: var(--primary) !important; font-weight: 800 !important; }
+.app .of-price, .app .sp-price { color: var(--text) !important; font-weight: 800 !important; }
+.app .of-ussd, .app .sp-ussd, .app .sig-main code { color: var(--soft) !important; font-weight: 600 !important; }
+.app .of-win, .app .of-win small { color: var(--text) !important; font-weight: 700 !important; }
+.app .of-win.glow, .app .of-win.glow small { color: var(--primary) !important; }
+.app .of-note, .app .of-hint, .app .muted-line, .app .updated,
+.app .offer-grid small, .app .offer-top small { color: var(--soft) !important; font-weight: 600 !important; }
+.app .of-hint, .app .of-note { font-size: 13px !important; }
+.app .of-switch { background: var(--border) !important; }
+.app .of-switch.on { background: var(--primary) !important; }
+.app .of-switch i { background: #FFFFFF !important; }
+.app .of-dots { border-color: var(--border) !important; color: var(--text) !important; }
+.app .of-pop button { font-weight: 700 !important; color: var(--text) !important; }
+.app .of-pop .danger { color: var(--danger) !important; }
+.app .chip { color: var(--text) !important; font-weight: 700 !important; border-color: var(--border) !important; }
+.app .chip.on { background: var(--primary) !important; color: var(--on-primary) !important; }
+.app .pill { color: var(--text) !important; font-weight: 700 !important; }
+.app .pill.ok  { color: var(--success) !important; }
+.app .pill.bad { color: var(--danger) !important; }
+.app .tick { color: var(--success) !important; }
+
+/* Add-offer button: dark text on bright orange stays readable in both modes */
+.app .of .fab { color: #1F0F00 !important; font-weight: 900 !important; }
+
+/* ---------- 5. Sheets, forms, pickers ---------- */
+.app .field span, .app .field small { color: var(--soft) !important; font-weight: 700 !important; }
+.app .field span { font-size: 13px !important; }
+.app .field input, .app .field select, .app .sig-search, .app .of-area, .app .hm-search {
+  border: 1.5px solid var(--border) !important; color: var(--text) !important; font-weight: 600 !important;
+}
+.app .field input::placeholder, .app .sig-search::placeholder, .app .hm-search::placeholder {
+  color: var(--soft) !important; opacity: 1 !important;
+}
+.app .switch-row small { color: var(--soft) !important; font-weight: 600 !important; }
+.app .btn { font-weight: 800 !important; }
+.app .btn.ghost { background: var(--muted-bg) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.app .err { color: var(--danger) !important; font-weight: 700 !important; }
+.app .pk-trigger, .app .pk-trigger span, .app .pk-opt, .app .pk-cell, .app .pk-part { color: var(--text) !important; font-weight: 600 !important; }
+.app .pk-trigger .pk-ph { color: var(--soft) !important; }
+.app .pk-part.on, .app .pk-ap button.on { color: var(--on-primary) !important; }
+
+/* ---------- 6. Settings / Analytics / other pages ---------- */
+.app .st-section, .app .rp-ph strong { color: var(--primary) !important; font-weight: 800 !important; }
+.app small, .app .muted, .app .page-description, .app .page-note,
+.app .demo-note, .app .empty, .app .empty-state { color: var(--soft) !important; font-weight: 600 !important; }
+.app .panel, .app .home-card { border: 1.5px solid var(--border) !important; }
+
+/* ---------- 7. Chart ---------- */
+.app .chart-label { fill: var(--text) !important; font-size: 11px !important; font-weight: 700 !important; }
+.app .chart-grid  { stroke: var(--border) !important; }
+.app .chart-line  { stroke: var(--primary) !important; stroke-width: 3.5 !important; }
+.app .chart-dot   { fill: var(--primary) !important; }
+.app .chart-caption { color: var(--soft) !important; }
+/* ===== END BOLD COLOURS ===== */
+/* ===== HOME: greeting on one line + bold filter chips ===== */
+
+/* Extra colour for "Scheduled" */
+.app.light { --info: #0B6E8A; --chip-on: #FFFFFF; }
+.app.dark  { --info: #4FD8F2; --chip-on: #021F1B; }
+
+/* Greeting: "Good Evening, JABALI" on one straight line */
+.app .greeting {
+  flex-direction: row !important;
+  align-items: baseline !important;
+  gap: 6px !important;
+}
+.app .greeting span {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: var(--soft) !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+.app .greeting strong {
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  color: var(--text) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Home chips: one row, bigger, bold, each with its own colour */
+.app .hm-s-home .hm-chips {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 5px !important;
+  margin: 2px 0 6px !important;
+}
+.app .hm-s-home .hm-chip {
+  --chip-c: var(--primary);
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  padding: 7px 6px !important;
+  font-size: 11.5px !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+  background: var(--card) !important;
+  color: var(--chip-c) !important;
+  border: 1.5px solid var(--chip-c) !important;
+  border-radius: 999px !important;
+}
+.app .hm-s-home .hm-chip:nth-child(2) { --chip-c: var(--success); }   /* Completed */
+.app .hm-s-home .hm-chip:nth-child(3) { --chip-c: var(--warning); }   /* Pending   */
+.app .hm-s-home .hm-chip:nth-child(4) { --chip-c: var(--info); }      /* Scheduled */
+.app .hm-s-home .hm-chip:nth-child(5) { --chip-c: var(--danger); }    /* Failed    */
+
+/* Selected chip: solid colour, high-contrast text */
+.app .hm-s-home .hm-chip.on {
+  background: var(--chip-c) !important;
+  color: var(--chip-on) !important;
+}
+/* ===== END HOME ===== */
+/* ===== Greeting on one line: "Good Evening, JABALI" ===== */
+.app .greet-line {
+  display: block !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1.25 !important;
+}
+.app .greet-hi {
+  font-style: normal !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: var(--soft) !important;
+  margin-right: 5px !important;
+}
+.app .greet-name {
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  color: var(--text) !important;
+}
+/* ===== Recent transactions arrow: bold and obvious ===== */
+.app .hm-page .hm-linkhead {
+  align-items: center !important;
+  margin: 0 0 6px !important;
+}
+.app .hm-page .hm-linkhead h2 {
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+.app .hm-page .hm-arrow {
+  display: grid !important;
+  place-items: center !important;
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 50% !important;
+  background: var(--primary) !important;
+  color: var(--on-primary) !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  box-shadow: none !important;
+  animation: hmArrowNudge 1.6s ease-in-out infinite;
+}/* ===== Header: no separator line, same colour as the page ===== */
+.app header.topbar,
+.app.slim-top header.topbar {
+  border: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  background: var(--bg) !important;
+}
+/* ===== Menu button: no box, no border, broader icon ===== */
+.app header.topbar .menu-button,
+.app.slim-top header.topbar .menu-button {
+  width: 60px !important;
+  min-width: 60px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: 0 !important;            /* hides the old ☰ character */
+  display: grid !important;
+  place-items: center !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.app header.topbar .menu-button:hover,
+.app header.topbar .menu-button:focus,
+.app header.topbar .menu-button:focus-visible,
+.app header.topbar .menu-button:active {
+  background: transparent !important;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Three bold bars, drawn with CSS */
+.app header.topbar .menu-button::before {
+  content: "";
+  display: block;
+  width: 30px;
+  height: 20px;
+  background:
+    linear-gradient(var(--text), var(--text)) 0 0    / 100% 3.5px no-repeat,
+    linear-gradient(var(--text), var(--text)) 0 50%   / 100% 3.5px no-repeat,
+    linear-gradient(var(--text), var(--text)) 0 100%  / 100% 3.5px no-repeat;
+}
+.app header.topbar .menu-button:active::before { opacity: .6; }
+/* ===== FLAT PAGES: no boxed panel around full pages (keep at the very bottom) ===== */
+
+/* Only the page wrappers that are direct children of <main>.
+   Inner cards (offer cards, stat boxes, etc.) are not affected. */
+.app .main > .panel:not(.overview):not(.commissions):not(.recent) {
+  padding: 0 !important;
+  margin: 0 0 16px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Same side margin as the Home screen, nothing extra */
+.app .main {
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+
+/* Leave room above the bottom nav so the last item isn't hidden */
+.app.has-nav .main {
+  padding-bottom: 110px !important;
+}
+
+/* The page's own content fills the full width */
+.app .main > .panel > * {
+  max-width: 100%;
+}
+
+/* Desktop / tablet: keep the sidebar offset and a comfortable width */
+@media (min-width: 1100px) {
+  .app .main {
+    padding-left: 28px !important;
+    padding-right: 28px !important;
+  }
+}
+/* ===== END FLAT PAGES ===== */
