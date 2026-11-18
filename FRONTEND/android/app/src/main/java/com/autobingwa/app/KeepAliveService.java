@@ -70,7 +70,7 @@ public class KeepAliveService extends Service {
         }
     }
 
-    // Brings the app to the front so the web engine runs again. MainActivity sends it back afterwards.
+      // Brings the app to the front so the web engine runs again. MainActivity sends it back afterwards.
     // Never during a USSD purchase: it would cover the phone's USSD window.
     static void wakeNow(Context ctx) {
         try {
@@ -169,7 +169,7 @@ public class KeepAliveService extends Service {
                 }
                                 overlayNative(s);
                 body.put("snapshot", s);
-                body.put("snapshot", s);
+
             }
 
             c = (HttpURLConnection) new URL("https://autobingwa-payments-l22u.onrender.com/device/sync").openConnection();

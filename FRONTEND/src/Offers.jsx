@@ -8,6 +8,7 @@ import VerifiedBadge from './features/home/VerifiedBadge.jsx'
 import FingerprintIcon from './features/home/FingerprintIcon.jsx'
 import Icon from './features/ui/Icons.jsx'
 import { useBackHandler } from './features/ui/useBack.js'
+import { Select, TimeField } from './features/ui/Pickers.jsx'
 const CATS = ['ALL', 'DATA', 'TUNUKIWA', 'MINUTES', 'SMS']
 const PICK = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA'] // the four categories an offer can be added under
 const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buying!'
@@ -425,13 +426,10 @@ for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
        <input value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="1GB 1HR" />
       </label>
 
-      <label className="field"><span>Category</span>
-      <select value={f.category} onChange={(e) => set('category', e.target.value)}>
-          {PICK.map((c) => (
-            <option key={c} value={c}>{c.charAt(0) + c.slice(1).toLowerCase()}</option>
-          ))}
-        </select>
-      </label>
+      <div className="field"><span>Category</span>
+        <Select title="Category" value={f.category} onChange={(v) => set('category', v)}
+          options={PICK.map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))} />
+      </div>
 
 <label className="field"><span>USSD code</span>
   <input
@@ -463,9 +461,9 @@ for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
         <Switch on={Boolean(f.autoReschedule)} onChange={(v) => set('autoReschedule', v)} label="Auto reschedule next day" />
       </div>
       {f.autoReschedule && (
-        <label className="field"><span>Time the next day</span>
-          <input type="time" value={f.rescheduleTime || '06:00'} onChange={(e) => set('rescheduleTime', e.target.value)} />
-        </label>
+        <div className="field"><span>Time the next day</span>
+          <TimeField title="Time the next day" value={f.rescheduleTime || '06:00'} onChange={(v) => set('rescheduleTime', v)} />
+        </div>
       )}
 
       <div className="switch-row">
@@ -533,14 +531,11 @@ function SettingsSheet({ start, onClose, onSave }) {
         <Switch on={s.type === 'Express'} onChange={(v) => set('type', v ? 'Express' : 'Advanced')} label="Express mode" />
       </div>
 
-      <label className="field">
+      <div className="field">
         <span><Icon name="sim" size={14} /> SIM card</span>
-        <select value={s.execSim} onChange={(e) => set('execSim', e.target.value)}>
-          <option value="Default">Default</option>
-          <option value="SIM 1">SIM 1</option>
-          <option value="SIM 2">SIM 2</option>
-        </select>
-      </label>
+        <Select title="SIM card" value={s.execSim} onChange={(v) => set('execSim', v)}
+          options={['Default', 'SIM 1', 'SIM 2']} />
+      </div>
 
       <div className="switch-row">
         <div><b>Connection / invalid MMI retry</b><small>Try again after a connection problem or an invalid MMI code</small></div>
@@ -557,11 +552,10 @@ function SettingsSheet({ start, onClose, onSave }) {
     
       {anyRetry && (
         <div className="two">
-          <label className="field"><span>Number of retries</span>
-            <select value={s.retryCount} onChange={(e) => set('retryCount', Number(e.target.value))}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
+          <div className="field"><span>Number of retries</span>
+            <Select title="Number of retries" value={s.retryCount} onChange={(v) => set('retryCount', Number(v))}
+              options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]} />
+          </div>
         </div>
       )}
     </Sheet>
@@ -613,24 +607,28 @@ function WindowSheet({ start, offers, onClose, onSave }) {
       {w.on && (
         <>
           <div className="two">
-            <label className="field"><span>Available from</span>
-              <input type="time" value={w.from} onChange={(e) => set('from', e.target.value)} />
-            </label>
-            <label className="field"><span>Available until</span>
-              <input type="time" value={w.until} onChange={(e) => set('until', e.target.value)} />
-            </label>
+            <div className="field"><span>Available from</span>
+              <TimeField title="Available from" value={w.from} onChange={(v) => set('from', v)} />
+            </div>
+            <div className="field"><span>Available until</span>
+              <TimeField title="Available until" value={w.until} onChange={(v) => set('until', v)} />
+            </div>
           </div>
 
-          <label className="field"><span>Alternative offer outside this window (required)</span>
-<select value={altOk ? w.altId : ''} onChange={(e) => set('altId', e.target.value)}>
-              <option value="">Choose an offer</option>
-              {alternatives.map((x) => (
-                <option key={x.id} value={x.id}>{x.name} · KES {x.price}</option>
-              ))}
-            </select>
+          <div className="field"><span>Alternative offer outside this window (required)</span>
+            <Select
+              title="Alternative offer"
+              value={altOk ? w.altId : ''}
+              onChange={(v) => set('altId', v)}
+              placeholder="Choose an offer"
+              options={[
+                { value: '', label: 'Choose an offer' },
+                ...alternatives.map((x) => ({ value: x.id, label: `${x.name} · KES ${x.price}` })),
+              ]}
+            />
             {alternatives.length === 0 && <small>Add or enable another offer first.</small>}
             {!altOk && alternatives.length > 0 && <small style={{ color: '#e5484d' }}>Pick an offer to continue.</small>}
-          </label>
+          </div>
 
           <div className="switch-row">
             <div><b>Notify the customer</b><small>Send an SMS when the alternative offer is used</small></div>

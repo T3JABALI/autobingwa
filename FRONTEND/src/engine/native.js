@@ -50,10 +50,24 @@ export async function listContacts() {
 // Dials *144# on the chosen SIM (slot 0 = SIM 1, slot 1 = SIM 2) with no popup, and saves the balance
 export async function refreshAirtime(slot) {
   if (!isNative()) throw new Error('Airtime can only be checked inside the Android app')
-  const res = await AutoBingwa.runUssd({ code: '*144#', slot })
+  const simNo = slot === 1 ? 2 : 1
+  let res
+  try {
+    res = await AutoBingwa.runUssd({ code: '*144#', slot })
+  } catch (e) {
+    console.error('AB airtime dial', e)
+    throw new Error(`The phone could not run *144# on SIM ${simNo}: ${e && e.message ? e.message : e}`)
+  }
   console.log('AB airtime raw', JSON.stringify(res))
-  const value = parseAirtimeBalance(res.text)
-  if (value === null) throw new Error('Could not find the balance in: ' + res.text)
+  const shown = String((res && res.text) || '').trim()
+  const value = parseAirtimeBalance(shown)
+  if (value === null) {
+    throw new Error(
+      shown
+        ? `Could not find the balance in the answer: ${shown}`
+        : `*144# was sent on SIM ${simNo} but the app did not receive the answer. Check that this is the Safaricom SIM and that the AutoBingwa accessibility service is on.`
+    )
+  }
   setAirtimeBalance(value, slot)
   return value
 }

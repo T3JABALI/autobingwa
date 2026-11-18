@@ -186,6 +186,15 @@ footer nav{display:flex;justify-content:center;gap:6px;margin-top:8px;flex-wrap:
 footer nav a{font-size:14px;padding:6px 12px}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0));transform:translate(-50%,40px);background:var(--card2);border:1px solid var(--accent);padding:12px 20px;border-radius:99px;opacity:0;pointer-events:none;transition:.25s;font-size:14px;z-index:50;max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+.community{display:flex;align-items:center;gap:14px;margin:22px 0 0;padding:16px;border-radius:22px;background:var(--card2);border:1.5px solid var(--line);text-align:left;transition:border-color .15s,transform .15s}
+.community:hover{border-color:var(--accent)}
+.community:active{transform:scale(.99)}
+.community .cico{width:52px;height:52px;border-radius:16px;background:var(--green);color:#fff;display:grid;place-items:center;flex:none}
+.community .ctext{flex:1;min-width:0}
+.community h3{font-size:18px;font-weight:800}
+.community p{color:var(--muted);font-size:13px;margin-top:3px;line-height:1.4}
+.community .cgo{flex:none;display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:99px;background:var(--green);color:#fff;font-weight:600;font-size:14px}
+@media(max-width:480px){.community{flex-wrap:wrap}.community .cgo{width:100%;justify-content:center}}
 .view{display:none}.view.on{display:block}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 </style>
@@ -259,6 +268,15 @@ footer nav a{font-size:14px;padding:6px 12px}
       <p class="tag">Android application · Official release centre</p>
     </div>
 
+    <a class="community" href="https://chat.whatsapp.com/GOWxBKKlXEFJ6B0duBxf4p" target="_blank" rel="noopener">
+      <span class="cico"><svg width="26" height="26"><use href="#chat"/></svg></span>
+      <span class="ctext">
+        <h3>Join our Community</h3>
+        <p>Chat with other agents, get updates first and ask for help in our WhatsApp group.</p>
+      </span>
+      <span class="cgo">Join group<svg width="16" height="16"><use href="#arrow"/></svg></span>
+    </a>
+
     <div class="stats" id="stats"></div>
 
     <section class="block">
@@ -315,7 +333,7 @@ footer nav a{font-size:14px;padding:6px 12px}
   <div class="fb"><svg width="20" height="20"><use href="#bolt"/></svg>AutoBingwa USSD</div>
   <p>Powering smarter business operations.</p>
   <p>© <span id="yr">2026</span> AutoBingwa. All rights reserved.</p>
-<nav><a href="#/">Home</a><a href="#/downloads">Downloads</a><a href="#/tutorials">Tutorials</a><a href="#/help">Support</a></nav>
+<nav><a href="https://chat.whatsapp.com/GOWxBKKlXEFJ6B0duBxf4p" target="_blank" rel="noopener">Community</a><a href="#/">Home</a><a href="#/downloads">Downloads</a><a href="#/tutorials">Tutorials</a><a href="#/help">Support</a></nav>
 </footer>
 
 <div class="toast" id="toast" role="status"></div>

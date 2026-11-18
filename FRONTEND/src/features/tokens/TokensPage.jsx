@@ -72,7 +72,7 @@ export default function TokensPage({ onBack }) {
     const off = subscribe(refreshWallet)
      const t = setInterval(() => setNow(Date.now()), 30000)
     refreshPlans()
-    flushAirtimeReports()
+      try { Promise.resolve(flushAirtimeReports()).catch(() => {}) } catch (e) { /* offline: tried again later */ }
     // A payment interrupted earlier (app closed, no answer yet) comes back here
     const a = pendingAirtimePayment()
     const m = pendingMpesaPayment()
@@ -116,7 +116,9 @@ export default function TokensPage({ onBack }) {
 
   function showDone(via, packId) {
     const last = loadHistory()[0]
-    if (via === 'airtime') reportAirtime(packId || (selected && selected.id))
+    if (via === 'airtime') {
+      try { Promise.resolve(reportAirtime(packId || (selected && selected.id))).catch(() => {}) } catch (e) { /* tried again later */ }
+    }
     setReceipt({
       title: last ? last.label : selected ? selected.title : '',
       price: last ? last.price : selected ? selected.price : 0,

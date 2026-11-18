@@ -4,6 +4,7 @@ const TX_KEY = 'transactions:list'
 const AIRTIME_KEY = 'airtime:balance'
 const WALLET_KEY = 'tokens:wallet'
 const CONFIG_KEY = 'settings:config'
+const CUSTOMERS_KEY = 'customers:summary'
 const EVENT = 'autobingwa-data'
 
 // Tokens used by each transaction chain (not used while an unlimited plan is active).
@@ -86,13 +87,49 @@ function trim(list) {
   }
   return keep.reverse()
 }
+// ---- Lifetime customer summary (never trimmed) ----
+const custKey = (t) => String((t && (t.phone || t.name)) || '').trim()
 
+function addToSummary(map, tx) {
+  const key = custKey(tx)
+  if (!key) return
+  const at = Number(tx.completedAt || tx.createdAt) || Date.now()
+  const c = map[key] || (map[key] = {
+    key, name: tx.name || tx.phone || '', phone: tx.phone || '',
+    first: at, last: at, count: 0, total: 0,
+  })
+  c.count += 1
+  c.total = Math.round((c.total + (Number(tx.amount) || 0)) * 100) / 100
+  if (at < c.first) c.first = at
+  if (at > c.last) c.last = at
+  if (tx.name) c.name = tx.name
+  if (tx.phone) c.phone = tx.phone
+}
+
+// Used once, to start the summary from the transactions you already have
+function summaryFromTransactions() {
+  const map = {}
+  loadTransactions().filter((t) => t.status === 'Completed').forEach((t) => addToSummary(map, t))
+  return map
+}
+
+export function loadCustomers() {
+  const saved = read(CUSTOMERS_KEY, null)
+  return Object.values(saved && typeof saved === 'object' ? saved : summaryFromTransactions())
+}
+
+function recordCustomer(tx) {
+  const saved = read(CUSTOMERS_KEY, null)
+  const map = saved && typeof saved === 'object' ? saved : summaryFromTransactions()
+  addToSummary(map, tx)
+  write(CUSTOMERS_KEY, map)
+}
 // Airtime goes down when a transaction completes.
 function applyCompletion(tx) {
   const cost = Number(tx.cost) || 0
   if (cost) write(AIRTIME_KEY, Math.max(0, loadAirtime() - cost))
+  recordCustomer(tx)
 }
-
 // One token per dialed transaction chain (unlimited plans ignore this)
 export function chargeToken() {
   const wallet = loadWallet()

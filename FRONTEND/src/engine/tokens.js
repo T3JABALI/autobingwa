@@ -67,6 +67,8 @@ export async function flushReferralQueue() {
       }
     }
     writeRefQueue(left)
+  } catch (e) {
+    // offline or login check failed: the queue stays saved and is tried again later
   } finally {
     flushing = false
   }

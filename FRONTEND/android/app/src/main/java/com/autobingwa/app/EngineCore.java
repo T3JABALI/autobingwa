@@ -485,6 +485,7 @@ final class EngineCore {
         }
     }
 
+    // A backup (fallback) goes before any other waiting payment; otherwise the oldest goes first
     private static JSONObject oldestPending(Context c) {
         synchronized (LOCK) {
             JSONArray a = load(c);
@@ -492,7 +493,11 @@ final class EngineCore {
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.optJSONObject(i);
                 if (o == null || !"Pending".equals(o.optString("status"))) continue;
-                if (best == null || o.optLong("createdAt", 0) < best.optLong("createdAt", 0)) best = o;
+                if (best == null) { best = o; continue; }
+                boolean oFb = o.optBoolean("isFallback", false);
+                boolean bestFb = best.optBoolean("isFallback", false);
+                if (oFb && !bestFb) best = o;
+                else if (oFb == bestFb && o.optLong("createdAt", 0) < best.optLong("createdAt", 0)) best = o;
             }
             return best;
         }

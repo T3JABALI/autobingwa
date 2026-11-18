@@ -1464,7 +1464,29 @@ const [light, setLight] = useState(() => {
 
 useEffect(() => {
   try { localStorage.setItem('ab-theme', light ? 'light' : 'dark') } catch { /* ignore */ }
+  // Theme the page edges (overscroll area) with whatever --bg the app is really using
+  const app = document.querySelector('.app')
+  const bg = app ? getComputedStyle(app).getPropertyValue('--bg').trim() : ''
+  if (bg) {
+    document.documentElement.style.background = bg
+    document.body.style.background = bg
+  }
 }, [light])
+
+// Real screen height in pixels. Works on every WebView, old or new.
+useEffect(() => {
+  const set = () => {
+    const h = window.innerHeight || document.documentElement.clientHeight
+    document.documentElement.style.setProperty('--app-h', `${h}px`)
+  }
+  set()
+  window.addEventListener('resize', set)
+  window.addEventListener('orientationchange', set)
+  return () => {
+    window.removeEventListener('resize', set)
+    window.removeEventListener('orientationchange', set)
+  }
+}, [])
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePage, setActivePage] = useState('Home')
   const [automationRunning, setAutomationRunning] = useState(false)

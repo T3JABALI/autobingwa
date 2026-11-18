@@ -13,7 +13,7 @@ const PENDING = 'tokens:pending'
 const MPESA_PENDING = 'tokens:mpesaPending'
 const EXPIRE_MS = 10 * 60000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
+const FAILED_WORDS = /insufficient|not enough|invalid|failed|unable|incorrect|cannot|could not|not allowed/i
 // Reads the phone's answer to *140*amount*number#:
 // "You have transferred 5.00 KSH from your account to 0143926894. Your account balance is : 3363.24 KSH, ..."
 export function parseTransfer(text) {
@@ -55,6 +55,12 @@ export async function verifyAirtimePayment({ onStatus = () => {} } = {}) {
   const p = pendingAirtimePayment()
   if (!p) throw new Error('There is no payment waiting to be confirmed.')
   if (p.status !== 'paid') {
+    if (typeof p.before !== 'number') {
+      return {
+        status: 'unconfirmed',
+        message: "The phone did not show Safaricom's confirmation for this payment, so no token was added. If your airtime dropped, contact support and quote the time of this payment.",
+      }
+    }
     onStatus('Confirming the airtime left your SIM...')
     const after = await refreshAirtime(p.slot)
     if (!(p.before - after >= p.amount - 0.01)) {
@@ -76,7 +82,8 @@ export function cancelAirtimePayment() {
   engine.hold(false)
 }
 
-// Dials *140*amount*0143926894# silently, checks the balance dropped, then adds the token
+// Dials *140*amount*0143926894# silently. The phone's own answer ("You have transferred ... to 0143926894")
+// is the proof. The token is added only when that answer matches the amount and the number.
 export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSlot } = {}) {
   if (!isNative()) throw new Error('Paying with airtime only works inside the Android app.')
   if (pendingAirtimePayment()) throw new Error('A payment is still being confirmed. Confirm or cancel it first.')
@@ -90,37 +97,43 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
   try {
     onStatus('Waiting for running transactions to finish...')
     await waitIdle()
-    onStatus('Checking your airtime balance...')
-    const before = await refreshAirtime(slot)
-    if (before < amount) throw new Error(`Not enough airtime. You have KES ${before} and need KES ${amount}.`)
 
     // Saved BEFORE dialing, so a crash can never dial twice
-    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed' })
+    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before: null, startedAt: Date.now(), status: 'dialed' })
     onStatus('Sending airtime...')
     let screen = ''
+    let dialError = ''
     try {
       const res = await AutoBingwa.runUssd({ code: `*140*${amount}*${AIRTIME_NUMBER}#`, slot, express: true })
       screen = String((res && res.text) || '')
     } catch (e) {
-      console.error('AB airtime dial', e) // the balance check below decides what really happened
+      dialError = e && e.message ? e.message : String(e)
+      console.error('AB airtime dial', e)
     }
-    // 1) The phone's own answer is the surest proof: right amount, right number
+    console.log('AB sambaza answer', JSON.stringify(screen))
+
+    // 1) Right amount to the right number: paid
     const got = parseTransfer(screen)
     if (got && Math.abs(got.amount - amount) < 0.01 && got.to.slice(-9) === AIRTIME_NUMBER.slice(-9)) {
       write(PENDING, { ...(read(PENDING) || {}), status: 'paid', screen })
       if (got.balance !== null) setAirtimeBalance(got.balance, slot)
       onStatus('Payment confirmed by the phone...')
-    } else {
-      // 2) No usable answer screen: the balance drop decides, as before
-      await sleep(6000)
+      return await verifyAirtimePayment({ onStatus })
     }
-    try {
-      const r = await verifyAirtimePayment({ onStatus })
-      if (r.status === 'unconfirmed') keepHold = true
-      return r
-    } catch (e) {
-      keepHold = true
-      return { status: 'unconfirmed', message: `Could not confirm the payment: ${e && e.message ? e.message : e}` }
+
+    // 2) Safaricom refused it (for example not enough airtime): nothing was paid
+    if (screen && FAILED_WORDS.test(screen)) {
+      clear(PENDING)
+      throw new Error(`Safaricom did not send the airtime: ${screen.replace(/\s+/g, ' ').trim()} No token was added.`)
+    }
+
+    // 3) No usable answer: we cannot prove it, so no token is added
+    keepHold = true
+    return {
+      status: 'unconfirmed',
+      message: dialError
+        ? `The phone could not read Safaricom's answer (${dialError}). Check if your airtime dropped. No token was added.`
+        : 'Safaricom did not confirm the transfer, so no token was added. Check if your airtime dropped.',
     }
   } finally {
     if (!keepHold) engine.hold(false)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { GlowChart, WEEKDAYS } from './CommissionChart.jsx'
-import { subscribe, loadTransactions } from './dataStore.js'
+import { subscribe, loadTransactions, loadCustomers } from './dataStore.js'
+import CustomersView from './CustomersView.jsx'
 const DAY = 86400000
 const HOUR_START = 6 // first 3-hour block starts at 6 AM
 const BLOCKS = 6 // 6 blocks of 3 hours: 6 AM to midnight
@@ -40,6 +41,7 @@ const Ico = ({ name }) => <svg viewBox="0 0 24 24" aria-hidden="true">{ICON[name
 
 export default function AnalyticsPage({ txs = [], now = Date.now() }) {
   const [period, setPeriod] = useState('week')
+  const [tab, setTab] = useState('performance')
 
   // Every completed sale: money in, airtime spent, when, and which offer
   const done = useMemo(
@@ -51,10 +53,15 @@ export default function AnalyticsPage({ txs = [], now = Date.now() }) {
           money: Number(t.amount) || 0,
           air: Number(t.cost) || 0,
           offer: t.offerName || 'Unknown',
+          name: t.customerName || t.name || '',
+          phone: t.phone || t.msisdn || t.customerPhone || '',
         }))
         .filter((t) => t.at),
     [txs]
   )
+
+  // Lifetime customer records (saved in dataStore.js, never trimmed)
+  const lifetime = useMemo(() => loadCustomers(), [txs])
 
   // ---- This week, Sunday to Saturday ----
   const weekStart = startOfWeek(now)
@@ -115,65 +122,76 @@ export default function AnalyticsPage({ txs = [], now = Date.now() }) {
         <span className="an-live"><i />LIVE</span>
       </div>
 
-      <div className="an-card">
-        <h3 className="an-title">Money received vs Airtime used</h3>
-        <p className="an-sub">This week, Sunday to Saturday</p>
-        <div className="an-legend">
-          <div className="an-leg">
-            <span><i className="an-dot" style={{ background: 'var(--primary)' }} />Money received</span>
-            <b>{kes(weekMoney)}</b>
-          </div>
-          <div className="an-leg">
-            <span><i className="an-dot" style={{ background: 'var(--warning)' }} />Airtime used</span>
-            <b>{kes(weekAir)}</b>
-          </div>
-        </div>
-        <div className="an-chart">
-          <GlowChart
-            uid="wk"
-            labels={WEEKDAYS}
-            upto={today}
-            highlight={today}
-            series={[
-              { values: moneyW, color: 'var(--primary)', fill: true },
-              { values: airW, color: 'var(--warning)' },
-            ]}
-          />
-        </div>
-        <div className="an-two">
-          <div className="an-stat">
-            <small>Daily margin</small>
-            <b className={dayMargin >= 0 ? 'an-pos' : 'an-neg'}>{kes(dayMargin)}</b>
-          </div>
-          <div className="an-stat">
-            <small>Weekly margin</small>
-            <b className={weekMargin >= 0 ? 'an-pos' : 'an-neg'}>{kes(weekMargin)}</b>
-          </div>
-        </div>
+      <div className="an-tabs">
+        <button className={`an-tab ${tab === 'performance' ? 'on' : ''}`} onClick={() => setTab('performance')}>Performance</button>
+        <button className={`an-tab ${tab === 'customers' ? 'on' : ''}`} onClick={() => setTab('customers')}>Customers</button>
       </div>
 
-      <div className="an-card">
-        <h3 className="an-title">Hourly performance</h3>
-        <p className="an-sub">Revenue by the hour (today), every 3 hours</p>
-        <div className="an-chart">
-          <GlowChart uid="hr" labels={BLOCK_LABELS} upto={nowBlock} highlight={nowBlock} showValues
-            series={[{ values: hourly, color: 'var(--primary)', fill: true }]} />
-        </div>
-      </div>
+      {tab === 'customers' && <CustomersView done={done} lifetime={lifetime} now={now} />}
 
-      <div className="an-card">
-        <h3 className="an-title">Offers analysis</h3>
-        <div className="an-chips">
-          {PERIODS.map(([k, label]) => (
-            <button key={k} className={`an-chip ${period === k ? 'on' : ''}`} onClick={() => setPeriod(k)}>{label}</button>
-          ))}
-        </div>
-        <div className="an-offers">
-          {offerCard('bag', 'blue', 'Total sales', `${inRange.length} sales`)}
-          {offerCard('cash', 'green', 'Revenue', kes(revenue))}
-          {offerCard('bolt', 'gold', 'Top plan', top ? top[0] : '—', top ? `Sold ${top[1]} time${top[1] === 1 ? '' : 's'}` : 'No sales yet')}
-        </div>
-      </div>
+      {tab === 'performance' && (
+        <>
+          <div className="an-card">
+            <h3 className="an-title">Money received vs Airtime used</h3>
+            <p className="an-sub">This week, Sunday to Saturday</p>
+            <div className="an-legend">
+              <div className="an-leg">
+                <span><i className="an-dot" style={{ background: 'var(--primary)' }} />Money received</span>
+                <b>{kes(weekMoney)}</b>
+              </div>
+              <div className="an-leg">
+                <span><i className="an-dot" style={{ background: 'var(--warning)' }} />Airtime used</span>
+                <b>{kes(weekAir)}</b>
+              </div>
+            </div>
+            <div className="an-chart">
+              <GlowChart
+                uid="wk"
+                labels={WEEKDAYS}
+                upto={today}
+                highlight={today}
+                series={[
+                  { values: moneyW, color: 'var(--primary)', fill: true },
+                  { values: airW, color: 'var(--warning)' },
+                ]}
+              />
+            </div>
+            <div className="an-two">
+              <div className="an-stat">
+                <small>Daily margin</small>
+                <b className={dayMargin >= 0 ? 'an-pos' : 'an-neg'}>{kes(dayMargin)}</b>
+              </div>
+              <div className="an-stat">
+                <small>Weekly margin</small>
+                <b className={weekMargin >= 0 ? 'an-pos' : 'an-neg'}>{kes(weekMargin)}</b>
+              </div>
+            </div>
+          </div>
+
+          <div className="an-card">
+            <h3 className="an-title">Hourly performance</h3>
+            <p className="an-sub">Revenue by the hour (today), every 3 hours</p>
+            <div className="an-chart">
+              <GlowChart uid="hr" labels={BLOCK_LABELS} upto={nowBlock} highlight={nowBlock} showValues
+                series={[{ values: hourly, color: 'var(--primary)', fill: true }]} />
+            </div>
+          </div>
+
+          <div className="an-card">
+            <h3 className="an-title">Offers analysis</h3>
+            <div className="an-chips">
+              {PERIODS.map(([k, label]) => (
+                <button key={k} className={`an-chip ${period === k ? 'on' : ''}`} onClick={() => setPeriod(k)}>{label}</button>
+              ))}
+            </div>
+            <div className="an-offers">
+              {offerCard('bag', 'blue', 'Total sales', `${inRange.length} sales`)}
+              {offerCard('cash', 'green', 'Revenue', kes(revenue))}
+              {offerCard('bolt', 'gold', 'Top plan', top ? top[0] : '—', top ? `Sold ${top[1]} time${top[1] === 1 ? '' : 's'}` : 'No sales yet')}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

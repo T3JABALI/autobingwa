@@ -105,7 +105,7 @@ const VERIFY_SMS = [
 ]
 // This SMS has no number in it, so it is never matched to one purchase. It only counts as a warning.
 const SORRY_SMS = /we['’]?re\s+sorry,?\s+your\s+transaction\s+could\s+not\s+be\s+completed/i
-const UNVERIFIED_AFTER_MS = 15 * 60000 // wait this long before a purchase can become Unverified
+const UNVERIFIED_AFTER_MS = 10 * 60000 // wait this long before a purchase can become Unverified
 const MATCH_WINDOW_MS = 6 * 3600000 // a success SMS only matches purchases from the last 6 hours
 const IS_180 = /^\*180[*#]/ // only offers whose USSD starts with *180
 const PENDING_MAX_TRIES = 2 // retries after "sent, no answer". Each one risks a double purchase, so keep it small
@@ -282,13 +282,26 @@ export function createEngine({
       return true
     }
 
-    // "We're sorry": leave a warning on every purchase that is still inside its 15 minutes.
-    // It is never matched to one purchase, and it still continues to the normal handling below.
+    // "We're sorry": only the NEWEST purchase still waiting for its confirmation turns Unverified at once.
+    // (The 10-minute rule in tick() still applies on its own to all of them.)
     if (SORRY_SMS.test(text)) {
-      store
+      const newest = store
         .list()
         .filter((t) => t.verify === 'awaiting' && now() - (t.verifySince || 0) < UNVERIFIED_AFTER_MS)
-        .forEach((t) => store.update(t.id, { sorryAt: now() }))
+        .sort((a, b) => (b.verifySince || 0) - (a.verifySince || 0))[0]
+      if (newest) {
+        const done = store.update(newest.id, {
+          verify: 'unverified',
+          verifiedAt: now(),
+          sorryAt: now(),
+          responses: [
+            ...(newest.responses || []),
+            { input: 'SMS', text },
+            { input: '-', text: 'A "We\'re sorry, your transaction could not be completed" SMS arrived while waiting. Marked Unverified.' },
+          ],
+        })
+        emit('unverified', done)
+      }
       return true // never handed on to the purchase that is being dialled right now
     }
     return false
@@ -651,7 +664,8 @@ export function createEngine({
         const next = store
           .list()
           .filter((t) => t.status === 'Pending' && (running || force || manual.has(t.id)))
-          .sort((a, b) => a.createdAt - b.createdAt)[0]
+          // a backup (fallback) goes before any other waiting payment, so the customer is finished first
+          .sort((a, b) => (b.isFallback ? 1 : 0) - (a.isFallback ? 1 : 0) || a.createdAt - b.createdAt)[0]
         if (!next) break
         await process(next)
         manual.delete(next.id)
@@ -710,17 +724,17 @@ export function createEngine({
   // Scheduled transactions whose time has come become Pending (or Paused if automation is off)
   function tick() {
     armRenewals()
-    // 15 minutes with no success SMS, and a "We're sorry" SMS arrived meanwhile: Unverified
+    // 10 minutes with no success SMS: Unverified
     store
       .list()
-      .filter((t) => t.verify === 'awaiting' && t.sorryAt && now() - (t.verifySince || 0) >= UNVERIFIED_AFTER_MS)
+      .filter((t) => t.verify === 'awaiting' && now() - (t.verifySince || 0) >= UNVERIFIED_AFTER_MS)
       .forEach((t) => {
         const done = store.update(t.id, {
           verify: 'unverified',
           verifiedAt: now(),
           responses: [
             ...(t.responses || []),
-            { input: '-', text: 'No confirmation SMS came within 15 minutes, and a "We\'re sorry, your transaction could not be completed" SMS arrived while waiting. Marked Unverified.' },
+            { input: '-', text: 'No confirmation SMS came within 10 minutes. Marked Unverified.' },
           ],
         })
         emit('unverified', done)
