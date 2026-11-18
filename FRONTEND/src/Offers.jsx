@@ -12,6 +12,7 @@ import { Select, TimeField } from './features/ui/Pickers.jsx'
 const CATS = ['ALL', 'DATA', 'TUNUKIWA', 'MINUTES', 'SMS']
 const PICK = ['DATA', 'MINUTES', 'SMS', 'TUNUKIWA'] // the four categories an offer can be added under
 const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buying!'
+const RED = '#e5484d'
 
 // The offer's category: the one picked, otherwise worked out from its name
 const catOf = (o) => {
@@ -154,6 +155,7 @@ const OfferCard = memo(function OfferCard({ o, menuOpen, menuDir, onToggle, onMe
                 <button onClick={() => onSheet('settings', o)}><span><Icon name="gear" /></span> Settings</button>
                 <button onClick={() => onSheet('edit', o)}><span><Icon name="edit" /></span> Edit</button>
                 <button onClick={() => onCopy(o)}><span><Icon name="copy" /></span> Copy USSD</button>
+                <button onClick={() => onSheet('window', o)}><span><Icon name="timer" /></span> Time Window</button>
                 <button onClick={() => onSheet('signature', o)}><span><FingerprintIcon size={18} /></span> Signature</button>
                 <button className="danger" onClick={() => onRemove(o)}><span><Icon name="trash" /></span> Delete</button>
               </div>
@@ -179,7 +181,7 @@ export default function Offers({ offers = [], onSave = () => {}, onDelete = () =
 
   // Always the latest props, so the handlers below can stay the same between renders (keeps the cards from re-drawing)
   const live = useRef({})
-live.current = { onSave, onDelete, offers }
+  live.current = { onSave, onDelete, offers }
 
   const flash = useCallback((m) => {
     setNote(m)
@@ -190,22 +192,22 @@ live.current = { onSave, onDelete, offers }
     setSheet(null)
     flash('Saved')
   }
-const toggle = useCallback((o) => {
-  if (o.enabled) {
-    const deps = relyingOn(live.current.offers, o.id)
-    if (deps.length) {
-      flash(`${deps.map((d) => d.name).join(', ')} uses this offer outside its time window. Change that window first.`)
-      return
+  const toggle = useCallback((o) => {
+    if (o.enabled) {
+      const deps = relyingOn(live.current.offers, o.id)
+      if (deps.length) {
+        flash(`${deps.map((d) => d.name).join(', ')} uses this offer outside its time window. Change that window first.`)
+        return
+      }
     }
-  }
-  live.current.onSave({ ...o, enabled: !o.enabled })
-}, [flash])
+    live.current.onSave({ ...o, enabled: !o.enabled })
+  }, [flash])
   const openMenu = useCallback((id, dir) => {
     setMenuDir(dir)
     setCardMenu((c) => (c === id ? null : id))
   }, [])
   const closeMenu = useCallback(() => setCardMenu(null), [])
-    // Back closes an open ⋮ menu first. Sheets handle their own back (see Sheet).
+  // Back closes an open ⋮ menu first. Sheets handle their own back (see Sheet).
   useBackHandler(() => {
     if (cardMenu) { setCardMenu(null); return }
     if (menu) { setMenu(false); return }
@@ -219,18 +221,18 @@ const toggle = useCallback((o) => {
     setCardMenu(null)
     flash((await copyText(o.ussd)) ? 'USSD copied' : 'Could not copy the USSD')
   }, [flash])
-const remove = useCallback(async (o) => {
-  setCardMenu(null)
-  const deps = relyingOn(live.current.offers, o.id)
-  if (deps.length) {
-    flash(`${deps.map((d) => d.name).join(', ')} uses this offer outside its time window. Change that window first.`)
-    return
-  }
-  if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
-    live.current.onDelete(o.id)
-    flash('Offer deleted')
-  }
-}, [flash])
+  const remove = useCallback(async (o) => {
+    setCardMenu(null)
+    const deps = relyingOn(live.current.offers, o.id)
+    if (deps.length) {
+      flash(`${deps.map((d) => d.name).join(', ')} uses this offer outside its time window. Change that window first.`)
+      return
+    }
+    if (await confirmDialog(`${o.name} will be removed for good.`, { title: 'Delete offer?', confirmLabel: 'Delete', danger: true })) {
+      live.current.onDelete(o.id)
+      flash('Offer deleted')
+    }
+  }, [flash])
 
   function exportOffers() {
     const blob = new Blob([JSON.stringify(offers, null, 2)], { type: 'application/json' })
@@ -257,16 +259,16 @@ const remove = useCallback(async (o) => {
         const ok = []
         for (const o of list) {
           if (!o || !o.name || checkUssd(o.ussd) || priceTaken(seen, o.price, o.id)) continue
-ok.push(o)
-seen.push(o)
+          ok.push(o)
+          seen.push(o)
         }
-// a window with no enabled alternative is switched off instead of imported broken
-const final = [...offers, ...ok]
-const cleaned = ok.map((o) =>
-  o.tw && o.tw.on && !final.some((x) => x.id !== o.id && String(x.id) === String(o.tw.altId) && x.enabled)
-    ? { ...o, tw: { ...o.tw, on: false, altId: '' } }
-    : o)
-cleaned.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
+        // a window with no enabled alternative is switched off instead of imported broken
+        const final = [...offers, ...ok]
+        const cleaned = ok.map((o) =>
+          o.tw && o.tw.on && !final.some((x) => x.id !== o.id && String(x.id) === String(o.tw.altId) && x.enabled)
+            ? { ...o, tw: { ...o.tw, on: false, altId: '' } }
+            : o)
+        cleaned.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
         flash(`Imported ${ok.length} of ${list.length} offers`)
       } catch (err) {
         flash('That file could not be read')
@@ -337,10 +339,10 @@ cleaned.forEach((o, i) => onSave({ ...o, id: o.id || Date.now() + i }))
         />
       ))}
 
-<button className="fab" aria-label="Add offer" onClick={() => setSheet({ type: 'edit', offer: blank() })}>
-  <span className="fab-plus">+</span>
-  <span>ADD OFFER</span>
-</button>
+      <button className="fab" aria-label="Add offer" onClick={() => setSheet({ type: 'edit', offer: blank() })}>
+        <span className="fab-plus">+</span>
+        <span>ADD OFFER</span>
+      </button>
 
       {sheet && sheet.type === 'edit' && (
         <EditSheet start={sheet.offer} offers={offers} onClose={() => setSheet(null)} onSave={save} />
@@ -369,6 +371,12 @@ function EditSheet({ start, offers, onClose, onSave }) {
   const lock = isLocked(start)
   const ussdLocked = Boolean(start.smart) && !start.isNew // smart plan USSD comes from the admin
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
+
+  // Live check: another offer already uses the price being typed
+  const typedPrice = Number(f.price)
+  const dupeOffer = typedPrice > 0
+    ? offers.find((o) => o.id !== start.id && Number(o.price) === typedPrice)
+    : null
 
   function turnNotify(on) {
     setF((p) => ({ ...p, notifyOn: on, notifyMsg: on && !p.notifyMsg ? DEFAULT_NOTIFY : p.notifyMsg }))
@@ -399,7 +407,7 @@ function EditSheet({ start, offers, onClose, onSave }) {
     // 'custom' remembers which fields you changed, so a catalog update does not overwrite them.
     if (start.smart) {
       const custom = { ...(start.custom || {}) }
-for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
+      for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
       return onSave({ ...start, ...patch, custom, updated: stamp })
     }
     // A manual offer's signature is switched off, so it is learnt again.
@@ -423,7 +431,7 @@ for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
       )}
 
       <label className="field"><span>Offer name</span>
-       <input value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="1GB 1HR" />
+        <input value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="1GB 1HR" />
       </label>
 
       <div className="field"><span>Category</span>
@@ -431,21 +439,21 @@ for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
           options={PICK.map((c) => ({ value: c, label: c.charAt(0) + c.slice(1).toLowerCase() }))} />
       </div>
 
-<label className="field"><span>USSD code</span>
-  <input
-    value={f.ussd}
-    onChange={(e) => set('ussd', e.target.value)}
-    placeholder="*180*5*2*AB*1*1#"
-    readOnly={ussdLocked}
-    disabled={ussdLocked}
-    style={ussdLocked ? { opacity: 0.6 } : undefined}
-  />
-  <small>
-    {ussdLocked
-      ? 'This USSD path was learned by the admin and cannot be edited.'
-      : 'Use AB where the customer phone number goes.'}
-  </small>
-</label>
+      <label className="field"><span>USSD code</span>
+        <input
+          value={f.ussd}
+          onChange={(e) => set('ussd', e.target.value)}
+          placeholder="*180*5*2*AB*1*1#"
+          readOnly={ussdLocked}
+          disabled={ussdLocked}
+          style={ussdLocked ? { opacity: 0.6 } : undefined}
+        />
+        <small>
+          {ussdLocked
+            ? 'This USSD path was learned by the admin and cannot be edited.'
+            : 'Use AB where the customer phone number goes.'}
+        </small>
+      </label>
 
       <div className="two">
         <label className="field"><span>Amount (KES)</span>
@@ -455,6 +463,11 @@ for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
           <input type="number" inputMode="decimal" value={f.safPrice} onChange={(e) => set('safPrice', e.target.value)} />
         </label>
       </div>
+      {dupeOffer && (
+        <p role="alert" style={{ color: RED, fontWeight: 700, fontSize: 14, margin: '-4px 0 12px' }}>
+          KES {typedPrice} is already used by {dupeOffer.name}. Each offer needs its own price.
+        </p>
+      )}
 
       <div className="switch-row">
         <div><b>Auto reschedule to the next day</b><small>If a purchase fails, save it for tomorrow and try again then</small></div>
@@ -477,7 +490,7 @@ for (const k of ['name', 'safPrice']) if (patch[k] !== was[k]) custom[k] = true
         </label>
       )}
 
-      {err && <p className="err">{err}</p>}
+      {err && <p className="err" role="alert" style={{ color: RED, fontWeight: 700 }}>{err}</p>}
     </Sheet>
   )
 }
@@ -545,11 +558,11 @@ function SettingsSheet({ start, onClose, onSave }) {
         <div><b>Retry on failed</b><small>Try again when the purchase fails</small></div>
         <Switch on={s.retryFailed} onChange={(v) => set('retryFailed', v)} label="Retry on failed" />
       </div>
-            <div className="switch-row">
+      <div className="switch-row">
         <div><b>Retry on pending</b><small>Try again when the purchase stays pending with no final answer</small></div>
         <Switch on={s.retryPending} onChange={(v) => set('retryPending', v)} label="Retry on pending" />
       </div>
-    
+
       {anyRetry && (
         <div className="two">
           <div className="field"><span>Number of retries</span>
@@ -593,7 +606,7 @@ function WindowSheet({ start, offers, onClose, onSave }) {
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-<button className="btn" onClick={save} disabled={!canSave}>Save</button>
+          <button className="btn" onClick={save} disabled={!canSave}>Save</button>
         </>
       }
     >
@@ -627,7 +640,7 @@ function WindowSheet({ start, offers, onClose, onSave }) {
               ]}
             />
             {alternatives.length === 0 && <small>Add or enable another offer first.</small>}
-            {!altOk && alternatives.length > 0 && <small style={{ color: '#e5484d' }}>Pick an offer to continue.</small>}
+            {!altOk && alternatives.length > 0 && <small style={{ color: RED }}>Pick an offer to continue.</small>}
           </div>
 
           <div className="switch-row">

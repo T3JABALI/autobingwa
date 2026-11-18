@@ -68,7 +68,9 @@ public class UssdFlow {
     public static volatile boolean dialogAfterExpress = true;
     // A run may take at least this long in total, so a weak network has time to recover
     public static volatile long minBudgetMs = 120000;
-
+    // Before the last step nothing is bought yet. If the phone shows "USSD code running" but no
+    // next screen comes for this long, drop the session and dial again.
+    public static volatile long progressStallMs = 15000;
     // The network refused or dropped the request (checked on any screen BEFORE the last step is sent)
     private static final Pattern TRANSIENT = Pattern.compile(
         "connection problem|invalid mmi|network (error|busy|unavailable)|unable to connect"
@@ -412,7 +414,7 @@ public class UssdFlow {
             // Weak network: the phone still shows "USSD code running", so the request is alive. Keep waiting.
             if (d == null && UssdAccessibilityService.sawProgress()) {
                 long hard = started + budgetMs;
-                long patience = System.currentTimeMillis() + base * 2;
+                long patience = System.currentTimeMillis() + (beforeLast ? Math.min(base * 2, progressStallMs) : base * 2);
                 while (d == null && UssdAccessibilityService.sawProgress()
                         && System.currentTimeMillis() < Math.min(patience, hard)) {
                     d = poll(300);

@@ -798,7 +798,13 @@ public void stopKeepAlive(PluginCall call) {
         if (id != null && !id.isEmpty()) EngineCore.release(getContext(), id);
         call.resolve();
     }
-    
+        // The app tells the background engine which finished transactions it has saved
+    @PluginMethod
+    public void nativeAck(PluginCall call) {
+        JSArray items = call.getArray("items");
+        if (items != null) EngineCore.ack(getContext(), items);
+        call.resolve();
+    }
     // ---------- USSD Settings page ----------
     @PluginMethod
     public void setUssdSettings(PluginCall call) {

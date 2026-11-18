@@ -16,6 +16,7 @@ import { loadConfig, last9, isBlacklisted } from '../../engine/config.js'
 import { loadClients, saveClients, CLIENTS_EVENT } from '../../engine/clientsStore.js'
 import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
 import { useBackHandler } from '../ui/useBack.js'
+import { tokenStatus } from '../../engine/tokens.js'
 // The card reads the balance the *144# check saved; the old store is only a fallback
 const readAirtime = () => {
   const b = getAirtimeBalance()
@@ -196,7 +197,7 @@ const HOME_EXTRA = `
     text-align: center; white-space: nowrap;
   }
   .hm-bal.tok.expired .hm-exp-title { font-size: 20px; font-weight: 800; color: #fff !important; line-height: 1.1; }
-  .hm-bal.tok.expired .hm-exp-sub { font-size: 13px; font-weight: 500; letter-spacing: 0.06em; color: #cfd8dc !important; } }
+
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -342,6 +343,7 @@ export default function HomePage({
   const [filter, setFilter] = useState('All')
   const [query, setQuery] = useState('')
     const [range, setRange] = useState('All')
+      const [limit, setLimit] = useState(200)
   const [view, setView] = useState({ name: 'home', id: null, from: 'home' })
   const [spin, setSpin] = useState(false)
   const [simPick, setSimPick] = useState(null)
@@ -447,8 +449,9 @@ export default function HomePage({
   const todayIndex = commission.today
   const weekTotal = commissionThisWeek(now)
 
-  const unlimitedActive = wallet.unlimitedUntil > now
-    const tokensOut = !unlimitedActive && !(Number(wallet.units) > 0)
+  const tokens = tokenStatus(now)
+  const unlimitedActive = tokens.kind === 'unlimited'
+  const tokensOut = tokens.kind === 'none'
   const mask = (text) => (hide ? '••••••' : text)
 
   // A transaction belongs to a chip by status, or by date for Today
@@ -605,6 +608,7 @@ export default function HomePage({
   const clearSel = () => setSel([])
   const toggleSel = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
   useEffect(() => { setSel([]) }, [screen])
+    useEffect(() => { setLimit(200) }, [screen, filter, range, query])
   // Phone back button: close the top layer first (pop-ups, selection), then step back one screen
   useBackHandler(() => {
     if (msgTo) { if (!msgBusy) setMsgTo(null); return }
@@ -969,18 +973,23 @@ export default function HomePage({
   </button>
 ) : (
   <button className="hm-bal tok" onClick={onOpenTokens} aria-label="Open tokens">
-    <span className="hm-bal-val">{mask(`${wallet.units.toLocaleString('en-KE')} units`)}</span>
-    <span className="hm-bal-label">Tokens</span>
-    <span
-      className="hm-bal-sub"
-      style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
-    >
-      {unlimitedActive
-        ? `∞ ${hide ? '••••' : unlimitedLeft(wallet.unlimitedUntil, now)}`
-        : 'Tap to top up'}
-    </span>
+    {unlimitedActive ? (
+      <>
+        <span className="hm-bal-val">{mask(`∞ ${unlimitedLeft(wallet.unlimitedUntil, now)}`)}</span>
+        <span className="hm-bal-label">Unlimited</span>
+      </>
+    ) : (
+      <>
+        <span className="hm-bal-val">{mask(`${Number(wallet.units).toLocaleString('en-KE')} units`)}</span>
+        <span className="hm-bal-label">Tokens</span>
+        <span className="hm-bal-sub" style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}>
+          Tap to top up
+        </span>
+      </>
+    )}
   </button>
 )}
+
             </div>
           </section>
 
@@ -1082,7 +1091,14 @@ export default function HomePage({
               <p>{txs.length === 0 ? 'No transactions yet.' : 'No transactions match your search.'}</p>
             </div>
           ) : (
-            <div className="hm-list">{allList.map((t) => row(t, 'all'))}</div>
+            <div className="hm-list">
+              {allList.slice(0, limit).map((t) => row(t, 'all'))}
+              {allList.length > limit && (
+                <button className="hm-btn ghost" onClick={() => setLimit(limit + 200)}>
+                  Show more ({allList.length - limit} left)
+                </button>
+              )}
+            </div>
           )}
         </>
       )}

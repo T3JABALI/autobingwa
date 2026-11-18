@@ -222,23 +222,30 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
       <Switch on={config[field]} onChange={() => updateConfig({ [field]: !config[field] })} label={label} />
     </div>
   )
-const Chevron = () => (
-  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 6l6 6-6 6" />
-  </svg>
-)
-const simRows = (field) => ['SIM 1', 'SIM 2'].map((sim) => (
-  <div className="sx-item" key={sim}>
-    <strong>{sim}</strong>
-    <Switch on={config[field] === sim} onChange={() => chooseSim(field, sim)} label={sim} />
-  </div>
-))
-const sxToggle = (label, desc, field) => (
-  <div className="sx-item">
-    <span><strong>{label}</strong>{desc && <small>{desc}</small>}</span>
-    <Switch on={config[field]} onChange={() => updateConfig({ [field]: !config[field] })} label={label} />
-  </div>
-)
+  const Chevron = () => (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  )
+  const SignOutIcon = () => (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
+  )
+  const simRows = (field) => ['SIM 1', 'SIM 2'].map((sim) => (
+    <div className="sx-item" key={sim}>
+      <strong>{sim}</strong>
+      <Switch on={config[field] === sim} onChange={() => chooseSim(field, sim)} label={sim} />
+    </div>
+  ))
+  const sxToggle = (label, desc, field) => (
+    <div className="sx-item">
+      <span><strong>{label}</strong>{desc && <small>{desc}</small>}</span>
+      <Switch on={config[field]} onChange={() => updateConfig({ [field]: !config[field] })} label={label} />
+    </div>
+  )
   const engLine = () => {
     if (!isNative()) return 'The background service only exists in the Android app.'
     if (!eng) return 'Checking the background service...'
@@ -353,7 +360,9 @@ const sxToggle = (label, desc, field) => (
 .sx-item strong { display: block; font-size: 17px; font-weight: 600; }
 .sx-item small { display: block; margin-top: 4px; color: var(--st-soft); font-size: 13px; }
 .sx-pad { padding: 4px 16px 14px; }
-.sx-danger strong { color: var(--st-bad); }
+.sx-danger { justify-content: flex-start; gap: 12px; color: #e5484d; }
+.sx-danger strong { color: #e5484d !important; }
+.sx-danger svg { flex-shrink: 0; color: #e5484d; }
 .sx-dot { width: 24px; height: 24px; border-radius: 50%; border: 3px solid var(--st-border); flex-shrink: 0; display: grid; place-items: center; }
 .sx-radio.on .sx-dot { border-color: #2e9e45; }
 .sx-radio.on .sx-dot::after { content: ''; width: 11px; height: 11px; border-radius: 50%; background: #2e9e45; }
@@ -383,95 +392,98 @@ const sxToggle = (label, desc, field) => (
       `}</style>
 
       <div className="st-inner">
-{screen === 'main' && (
-  <div className="sx">
-    {notice && <p className="st-note" role="status">{notice}</p>}
+        {screen === 'main' && (
+          <div className="sx">
+            {notice && <p className="st-note" role="status">{notice}</p>}
 
-    <p className="sx-label">Account</p>
-    <button className="sx-item" onClick={openEdit}>
-      <span>
-        <strong>Profile</strong>
-        <small>{displayName}{profile.business ? ` · ${profile.business}` : ''}</small>
-      </span>
-      <Chevron />
-    </button>
-    <button className="sx-item" onClick={() => { setNotice(''); setScreen('ussd') }}>
-      <span><strong>USSD Settings</strong><small>How Express and Advanced mode dial</small></span>
-      <Chevron />
-    </button>
-    <p className="sx-label">Appearance</p>
-    <div className="sx-item">
-      <strong>Light mode</strong>
-      <Switch on={light} onChange={() => onToggleTheme && onToggleTheme()} label="Light mode" />
-    </div>
+            <p className="sx-label">Account</p>
+            <button className="sx-item" onClick={openEdit}>
+              <span>
+                <strong>Profile</strong>
+                <small>{displayName}{profile.business ? ` · ${profile.business}` : ''}</small>
+              </span>
+              <Chevron />
+            </button>
+            <button className="sx-item" onClick={() => { setNotice(''); setScreen('ussd') }}>
+              <span><strong>USSD Settings</strong><small>How Express and Advanced mode dial</small></span>
+              <Chevron />
+            </button>
+            <p className="sx-label">Appearance</p>
+            <div className="sx-item">
+              <strong>Light mode</strong>
+              <Switch on={light} onChange={() => onToggleTheme && onToggleTheme()} label="Light mode" />
+            </div>
 
-    <p className="sx-label">USSD SIM</p>
-    {simRows('bingwaSim')}
+            <p className="sx-label">USSD SIM</p>
+            {simRows('bingwaSim')}
 
-    <p className="sx-label">Auto-replies SIM</p>
-    {simRows('replySim')}
+            <p className="sx-label">Auto-replies SIM</p>
+            {simRows('replySim')}
 
-    <p className="sx-label">Message processing</p>
-    {sxToggle('M-Pesa messages', '', 'processMpesa')}
-    {sxToggle('Till messages', '', 'processTill')}
-    {sxToggle('Paybill messages', '', 'processPaybill')}
-    {sxToggle('SiteLink messages', '', 'processSitelink')}
+            <p className="sx-label">Message processing</p>
+            {sxToggle('M-Pesa messages', '', 'processMpesa')}
+            {sxToggle('Till messages', '', 'processTill')}
+            {sxToggle('Paybill messages', '', 'processPaybill')}
+            {sxToggle('SiteLink messages', '', 'processSitelink')}
 
-    <p className="sx-label">My customers</p>
-    {sxToggle('Auto-save contacts', 'Saved to your phone after each payment', 'autoSave')}
-    {config.autoSave && (
-      <div className="sx-pad">
-        <label className="st-label" htmlFor="st-suffix">Common ending for saved names</label>
-        <input id="st-suffix" className="st-field" value={config.saveSuffix} maxLength={30}
-          placeholder="e.g. AutoBingwa"
-          onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
-<p className="st-preview">Saved as: <strong>John Doe{suffix ? ` ${suffix}` : ''}</strong></p>
-      </div>
-    )}
-    <button className="sx-item" onClick={openBlacklist}>
-      <span><strong>Blacklist ({blockedCount})</strong><small>Not processed and not saved to contacts</small></span>
-      <Chevron />
-    </button>
+            <p className="sx-label">My customers</p>
+            {sxToggle('Auto-save contacts', 'Saved to your phone after each payment', 'autoSave')}
+            {config.autoSave && (
+              <div className="sx-pad">
+                <label className="st-label" htmlFor="st-suffix">Common ending for saved names</label>
+                <input id="st-suffix" className="st-field" value={config.saveSuffix} maxLength={30}
+                  placeholder="e.g. AutoBingwa"
+                  onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
+                <p className="st-preview">Saved as: <strong>John Doe{suffix ? ` ${suffix}` : ''}</strong></p>
+              </div>
+            )}
+            <button className="sx-item" onClick={openBlacklist}>
+              <span><strong>Blacklist ({blockedCount})</strong><small>Not processed and not saved to contacts</small></span>
+              <Chevron />
+            </button>
 
-    <p className="sx-label">Portal</p>
-    <div className="sx-item">
-      <span><strong>AutoBingwa Portal</strong><small>View and manage transactions remotely</small></span>
-      <Switch on={config.portal} label="AutoBingwa Portal"
-        onChange={() => { updateConfig({ portal: !config.portal }); window.dispatchEvent(new Event('ab-connect')) }} />
-    </div>
-    {!config.portal && (
-      <p className="sx-pad st-desc">Switch this on first. The portal will not work while it is off.</p>
-    )}
+            <p className="sx-label">Portal</p>
+            <div className="sx-item">
+              <span><strong>AutoBingwa Portal</strong><small>View and manage transactions remotely</small></span>
+              <Switch on={config.portal} label="AutoBingwa Portal"
+                onChange={() => { updateConfig({ portal: !config.portal }); window.dispatchEvent(new Event('ab-connect')) }} />
+            </div>
+            {!config.portal && (
+              <p className="sx-pad st-desc">Switch this on first. The portal will not work while it is off.</p>
+            )}
 
-    <p className="sx-label">Processing mode</p>
-    {MODES.map((m) => (
-      <button key={m.id} role="radio" aria-checked={config.mode === m.id}
-        className={`sx-item sx-radio ${config.mode === m.id ? 'on' : ''}`} onClick={() => chooseMode(m.id)}>
-        <span><strong>{m.label}</strong><small>{m.desc}</small></span>
-        <span className="sx-dot" />
-      </button>
-    ))}
-    <p className="sx-label">Background engine</p>
-    <div className="sx-item">
-      <span><strong>Process payments in the background</strong><small>Payments keep processing even when the app is closed</small></span>
-      <Switch on={own} onChange={toggleNative} label="Process payments in the background" />
-    </div>
-    {ownMsg && <p className="sx-pad st-desc">{ownMsg}</p>}
-    <p className="sx-pad st-desc">{engLine()}</p>
-    {isNative() && (
-      <div className="sx-pad">
-        <button className="st-chip" disabled={engBusy} onClick={() => loadEngine(true)}>
-          {engBusy ? 'Checking...' : 'Check now'}
-        </button>
-      </div>
-    )}
-    <p className="sx-label">Session</p>
-    {user && user.email && <p className="sx-pad st-desc">Signed in as {user.email}</p>}
-    <button className="sx-item sx-danger" onClick={logout}><strong>Sign out</strong></button>
-  </div>
-)}
+            <p className="sx-label">Processing mode</p>
+            {MODES.map((m) => (
+              <button key={m.id} role="radio" aria-checked={config.mode === m.id}
+                className={`sx-item sx-radio ${config.mode === m.id ? 'on' : ''}`} onClick={() => chooseMode(m.id)}>
+                <span><strong>{m.label}</strong><small>{m.desc}</small></span>
+                <span className="sx-dot" />
+              </button>
+            ))}
+            <p className="sx-label">Background engine</p>
+            <div className="sx-item">
+              <span><strong>Process payments in the background</strong><small>Payments keep processing even when the app is closed</small></span>
+              <Switch on={own} onChange={toggleNative} label="Process payments in the background" />
+            </div>
+            {ownMsg && <p className="sx-pad st-desc">{ownMsg}</p>}
+            <p className="sx-pad st-desc">{engLine()}</p>
+            {isNative() && (
+              <div className="sx-pad">
+                <button className="st-chip" disabled={engBusy} onClick={() => loadEngine(true)}>
+                  {engBusy ? 'Checking...' : 'Check now'}
+                </button>
+              </div>
+            )}
+            <p className="sx-label">Session</p>
+            {user && user.email && <p className="sx-pad st-desc">Signed in as {user.email}</p>}
+            <button className="sx-item sx-danger" onClick={logout} style={{ color: '#e5484d' }}>
+              <SignOutIcon />
+              <strong style={{ color: '#e5484d' }}>Sign out</strong>
+            </button>
+          </div>
+        )}
         {screen === 'ussd' && <UssdSettingsPage onBack={() => setScreen('main')} />}
-          {screen === 'edit' && (
+        {screen === 'edit' && (
           <div className="pf">
             <div className="pf-head">
               <button className="st-icon" onClick={() => setScreen('main')} aria-label="Back to settings">

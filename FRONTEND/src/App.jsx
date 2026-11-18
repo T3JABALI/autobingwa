@@ -48,7 +48,23 @@ const initialTransactions = [
   { id: 4, name: 'PURITY CHEPNGETICH BOWEN', phone: '076 901 0855', status: 'Completed', time: '15m ago', initials: 'PB' },
   { id: 5, name: 'SYDNEY WANGWE', phone: '079 760 9585', status: 'Completed', time: '18m ago', initials: 'SW' },
 ]
-
+// Sidebar icon wrapper: larger, outlined, takes the text colour
+const Ico = ({ children }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width="26"
+    height="26"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    style={{ width: 26, height: 26 }}
+  >
+    {children}
+  </svg>
+)
 const navigation = [
   'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
   'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
@@ -56,36 +72,72 @@ const navigation = [
   'Phone Setup',
 ]
 
-const navIcons = ['⌂', '◇', '✦', '☎', '↻', '◎', '▤', '♙', '♧', '✉', '↩', '⌁', '⇄', <ReferralIcon size={18} key="ref" />, '✓']
+const navIcons = [
+  // Home
+  <Ico><path d="M3 11l9-8 9 8" /><path d="M5 10v10h14V10" /><path d="M10 20v-6h4v6" /></Ico>,
+  // Offers (tag)
+  <Ico><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" /><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" /></Ico>,
+  // Smart Data Plans (sparkles)
+  <Ico><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" /></Ico>,
+  // QuickDial (dial pad)
+  <Ico><g fill="currentColor" stroke="none"><circle cx="6" cy="4.5" r="1.5" /><circle cx="12" cy="4.5" r="1.5" /><circle cx="18" cy="4.5" r="1.5" /><circle cx="6" cy="10" r="1.5" /><circle cx="12" cy="10" r="1.5" /><circle cx="18" cy="10" r="1.5" /><circle cx="6" cy="15.5" r="1.5" /><circle cx="12" cy="15.5" r="1.5" /><circle cx="18" cy="15.5" r="1.5" /><circle cx="12" cy="21" r="1.5" /></g></Ico>,
+  // Autorenewal (cycle arrows)
+  <Ico><path d="M21 12a9 9 0 0 1-15.5 6.2" /><path d="M3 12a9 9 0 0 1 15.5-6.2" /><path d="M18.5 2v4h-4" /><path d="M5.5 22v-4h4" /></Ico>,
+  // Sitelink (chain link)
+  <Ico><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></Ico>,
+  // Tokens (coin)
+  <Ico><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5.5" /><path d="M12 9.5v5" /></Ico>,
+  // Client Management (two people)
+  <Ico><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" /><circle cx="17.5" cy="9" r="2.5" /><path d="M17 14.2c2.6.2 4.5 2 4.5 4.8" /></Ico>,
+  // Contacts (address book)
+  <Ico><rect x="5" y="3" width="14" height="18" rx="2" /><circle cx="12" cy="10" r="2.5" /><path d="M8 17c.6-2 2.2-3 4-3s3.4 1 4 3" /><path d="M3 8h2M3 12h2M3 16h2" /></Ico>,
+  // Bulk SMS (chat bubble)
+  <Ico><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /><path d="M8.5 10h7M8.5 13.5h4" /></Ico>,
+  // Auto Replies (reply arrow)
+  <Ico><path d="M9 14L4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v3" /></Ico>,
+  // Autobingwa Connect (signal)
+  <Ico><path d="M2 9a15 15 0 0 1 20 0" /><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19.5" r="1" fill="currentColor" /></Ico>,
+  // Fallback Plans (shuffle)
+  <Ico><path d="M16 3h5v5" /><path d="M4 20L21 3" /><path d="M21 16v5h-5" /><path d="M15 15l6 6" /><path d="M4 4l5 5" /></Ico>,
+  // Referrals (your existing icon, bigger)
+  <ReferralIcon size={26} key="ref" />,
+  // Phone Setup (phone with tick)
+  <Ico><rect x="6" y="2" width="12" height="20" rx="3" /><path d="M10 18h4" /><path d="M9.5 10.5l2 2 3.5-4" /></Ico>,
+]
 
 // These three stay locked at the bottom of the menu
 const PINNED = [
   {
     name: 'Settings',
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-      </svg>
+      <Ico>
+        <path d="M3 6h11M18 6h3" />
+        <path d="M3 12h3M10 12h11" />
+        <path d="M3 18h13M20 18h1" />
+        <circle cx="16" cy="6" r="2" />
+        <circle cx="8" cy="12" r="2" />
+        <circle cx="18" cy="18" r="2" />
+      </Ico>
     ),
   },
   {
     name: 'Help & Support',
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
+      <Ico>
         <circle cx="12" cy="12" r="9" />
         <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7" />
         <path d="M12 17h.01" />
-      </svg>
+      </Ico>
     ),
   },
   {
     name: 'Updates',
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M21 12a9 9 0 1 1-3-6.7" />
-        <path d="M21 4v5h-5" />
-      </svg>
+      <Ico>
+        <path d="M12 3v11" />
+        <path d="M8 10.5l4 4 4-4" />
+        <path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" />
+      </Ico>
     ),
   },
 ]

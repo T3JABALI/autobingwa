@@ -3,7 +3,7 @@
 const COMM_KEY = 'ab:commission:snaps'
 const USED_KEY = 'ab:airtime:used'
 const BAL_KEY = 'ab:airtime:balance'
-
+const ADJ_KEY = 'ab:commission:adjust'
 function read(key, fallback) {
   try {
     const v = JSON.parse(localStorage.getItem(key) || 'null')
@@ -98,13 +98,26 @@ export function parseCommission(text) {
   return m ? toNumber(m[1]) : null
 }
 
-// Keeps every weekly total with the time it arrived. A repeated message is ignored.
+// Keeps every message of the current week. Older days are squeezed to one message per day
+// (that day's last total), which gives the same daily values in almost no space. No limit on days.
+function compact(snaps, now) {
+  const ws = startOfWeek(now)
+  const olderDays = new Map()
+  const thisWeek = []
+  for (const s of snaps) {
+    if (s.t >= ws) thisWeek.push(s)
+    else olderDays.set(dayKey(s.t), s)
+  }
+  return [...olderDays.values(), ...thisWeek]
+}
+
+// A repeated message is ignored.
 export function recordCommission(id, total, time = Date.now()) {
   const snaps = read(COMM_KEY, [])
   if (snaps.some((s) => s.id === id)) return false
   snaps.push({ id, t: Number(time) || Date.now(), total: Number(total) })
   snaps.sort((a, b) => a.t - b.t)
-  write(COMM_KEY, snaps.slice(-500))
+  write(COMM_KEY, compact(snaps, Date.now()))
   changed()
   return true
 }
@@ -133,5 +146,33 @@ export function commissionByDay(now = Date.now()) {
     prev = s
     if (s.t >= ws && s.t < ws + 7 * 86400000) values[new Date(s.t).getDay()] += delta
   }
+  const adj = read(ADJ_KEY, {})
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(ws)
+    d.setDate(d.getDate() + i)
+    values[i] += Number(adj[dayKey(d.getTime())]) || 0
+  }
   return { values: values.map((v, i) => (i > today ? null : round2(v))), today }
+}
+// One-time repair: gives the week's missing commission back to the day it was lost on
+export function healCommissionWeek(now = Date.now()) {
+  const ws = startOfWeek(now)
+  const flag = 'ab:commission:healed:' + dayKey(ws)
+  try {
+    if (localStorage.getItem(flag)) return
+    const first = read(COMM_KEY, []).find((s) => s.t >= ws)
+    if (!first) return
+    const sum = commissionByDay(now).values.reduce((a, v) => a + (v || 0), 0)
+    const gap = round2(commissionThisWeek(now) - sum)
+    if (gap > 0.5) {
+      const adj = read(ADJ_KEY, {})
+      const k = dayKey(first.t)
+      adj[k] = round2((adj[k] || 0) + gap)
+      write(ADJ_KEY, adj)
+    }
+    localStorage.setItem(flag, '1')
+    changed()
+  } catch (e) {
+    console.error('heal commission', e)
+  }
 }

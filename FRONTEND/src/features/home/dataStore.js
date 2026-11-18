@@ -1,6 +1,7 @@
 import { notify } from '../notify/notify.js'
+import { loadRows, putRows, deleteRows, settled, loadCustomerRows, putCustomers } from './txDb.js'
 
-const TX_KEY = 'transactions:list'
+const TX_KEY = 'transactions:list' // the old home of the transactions, now read only once to move them
 const AIRTIME_KEY = 'airtime:balance'
 const WALLET_KEY = 'tokens:wallet'
 const CONFIG_KEY = 'settings:config'
@@ -29,6 +30,8 @@ function write(key, value) {
   window.dispatchEvent(new Event(EVENT))
 }
 
+const tell = () => window.dispatchEvent(new Event(EVENT))
+
 // Pages call this to be told whenever the data changes.
 export function subscribe(listener) {
   window.addEventListener(EVENT, listener)
@@ -39,9 +42,90 @@ export function subscribe(listener) {
   }
 }
 
+// ---- Transactions: kept in memory, saved to IndexedDB ----
+const KEEP = 50000 // rows kept in total
+const FULL = 5000 // the newest rows keep everything; older finished rows lose their raw SMS and USSD text
+const isOpen = (s) => s === 'Pending' || s === 'Processing' || s === 'Scheduled' || s === 'Paused'
+const slim = (t) => ({ ...t, rawMessage: '', ussd: '', responses: [] })
+const heavy = (t) => t.rawMessage || t.ussd || (t.responses && t.responses.length)
+
+let cache = [] // newest first. A NEW array is made on every change, so screens redraw
+let useDb = true
+
+// Returns the trimmed list, the ids that were dropped and the rows that were slimmed
+function trim(list) {
+  const dropped = []
+  let out = list
+  if (list.length > KEEP) {
+    let drop = list.length - KEEP
+    const keep = []
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (drop > 0 && !isOpen(list[i].status)) { drop--; dropped.push(list[i].id); continue }
+      keep.push(list[i])
+    }
+    out = keep.reverse()
+  }
+  const slimmed = []
+  out = out.map((t, i) => {
+    if (i >= FULL && !isOpen(t.status) && heavy(t)) {
+      const s = slim(t)
+      slimmed.push(s)
+      return s
+    }
+    return t
+  })
+  return { out, dropped, slimmed }
+}
+
+function persist(changed, removed) {
+  if (useDb) {
+    if (changed.length) putRows(changed).catch((e) => console.error('Could not save transactions', e))
+    if (removed && removed.length) deleteRows(removed).catch((e) => console.error('Could not delete transactions', e))
+  } else {
+    try { localStorage.setItem(TX_KEY, JSON.stringify(cache)) } catch (e) { console.error('Could not save transactions', e) }
+  }
+}
+
 export function loadTransactions() {
-  const list = read(TX_KEY, [])
-  return Array.isArray(list) ? list : []
+  return cache
+}
+// Resolves when every change made so far is really stored (the background engine is told only after this)
+export const whenSaved = () => (useDb ? settled() : Promise.resolve())
+
+// Runs once when the app starts (main.jsx), before the app draws.
+// The first time, it moves the old transactions out of localStorage into the database.
+
+export async function initTransactions() {
+  try {
+    let rows = await loadRows()
+    if (!rows.length) {
+      const old = read(TX_KEY, [])
+      if (Array.isArray(old) && old.length) {
+        await putRows(old)
+        rows = await loadRows()
+        if (rows.length >= old.length) {
+          try { localStorage.removeItem(TX_KEY) } catch (e) { /* ignore */ }
+        }
+      }
+    }
+    cache = rows
+  } catch (e) {
+    console.error('Could not open the transaction database, using the old storage', e)
+    useDb = false
+    const old = read(TX_KEY, [])
+    cache = Array.isArray(old) ? old : []
+  }
+  // The customer summary has its own safety net, so a problem here never affects the transactions
+  try {
+    if (!useDb) throw new Error('no database')
+    await loadCustomersFromDb()
+  } catch (e) {
+    console.error('Could not open the customer database, using the old storage', e)
+    custDb = false
+    const saved = read(CUSTOMERS_KEY, null)
+    custMap = saved && typeof saved === 'object' ? saved : summaryFromTransactions()
+  }
+  tell()
 }
 
 export function loadAirtime() {
@@ -74,21 +158,11 @@ function announce(tx) {
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
-// Keep the app fast: only the newest 500 finished transactions are kept
-const KEEP = 500
-const isOpen = (s) => s === 'Pending' || s === 'Processing' || s === 'Scheduled' || s === 'Paused'
-function trim(list) {
-  if (list.length <= KEEP) return list
-  let drop = list.length - KEEP
-  const keep = []
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (drop > 0 && !isOpen(list[i].status)) { drop--; continue }
-    keep.push(list[i])
-  }
-  return keep.reverse()
-}
-// ---- Lifetime customer summary (never trimmed) ----
+// ---- Lifetime customer summary (never trimmed). Kept in memory, saved to the database ----
 const custKey = (t) => String((t && (t.phone || t.name)) || '').trim()
+
+let custMap = {}
+let custDb = true
 
 function addToSummary(map, tx) {
   const key = custKey(tx)
@@ -113,16 +187,35 @@ function summaryFromTransactions() {
   return map
 }
 
-export function loadCustomers() {
+// Runs at startup. The first time, it moves the old summary out of localStorage into the database.
+async function loadCustomersFromDb() {
+  const rows = await loadCustomerRows()
+  if (rows.length) {
+    custMap = {}
+    rows.forEach((c) => { custMap[c.key] = c })
+    return
+  }
   const saved = read(CUSTOMERS_KEY, null)
-  return Object.values(saved && typeof saved === 'object' ? saved : summaryFromTransactions())
+  custMap = saved && typeof saved === 'object' ? saved : summaryFromTransactions()
+  const list = Object.values(custMap)
+  if (list.length) {
+    await putCustomers(list)
+    if (saved) {
+      try { localStorage.removeItem(CUSTOMERS_KEY) } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+export function loadCustomers() {
+  return Object.values(custMap)
 }
 
 function recordCustomer(tx) {
-  const saved = read(CUSTOMERS_KEY, null)
-  const map = saved && typeof saved === 'object' ? saved : summaryFromTransactions()
-  addToSummary(map, tx)
-  write(CUSTOMERS_KEY, map)
+  const key = custKey(tx)
+  if (!key) return
+  addToSummary(custMap, tx)
+  if (custDb) putCustomers([custMap[key]]).catch((e) => console.error('Could not save customers', e))
+  else write(CUSTOMERS_KEY, custMap)
 }
 // Airtime goes down when a transaction completes.
 function applyCompletion(tx) {
@@ -130,6 +223,7 @@ function applyCompletion(tx) {
   if (cost) write(AIRTIME_KEY, Math.max(0, loadAirtime() - cost))
   recordCustomer(tx)
 }
+
 // One token per dialed transaction chain (unlimited plans ignore this)
 export function chargeToken() {
   const wallet = loadWallet()
@@ -153,13 +247,15 @@ export function addTransaction(data) {
     applyCompletion(tx)
   }
   announce(tx)
-  write(TX_KEY, trim([tx, ...loadTransactions()]))
+  const { out, dropped, slimmed } = trim([tx, ...cache])
+  cache = out
+  persist([tx, ...slimmed], dropped)
+  tell()
   return tx
 }
 
 export function updateTransaction(id, patch) {
-  const list = loadTransactions()
-  const old = list.find((t) => t.id === id)
+  const old = cache.find((t) => t.id === id)
   if (!old) return
   const next = { ...old, ...patch }
   if (patch.status === 'Completed' && old.status !== 'Completed') {
@@ -167,7 +263,9 @@ export function updateTransaction(id, patch) {
     applyCompletion(next)
   }
   if (patch.status && patch.status !== old.status) announce(next)
-  write(TX_KEY, list.map((t) => (t.id === id ? next : t)))
+  cache = cache.map((t) => (t.id === id ? next : t))
+  persist([next])
+  tell()
 }
 
 const DELETED_KEY = 'transactions:deleted'
@@ -182,7 +280,7 @@ export const wasDeleted = (key) => Boolean(key) && loadDeletedKeys().includes(St
 // Deleting one transaction deletes its whole fallback chain (the original and its backups),
 // because the user sees them as one transaction.
 export function deleteTransaction(id) {
-  const list = loadTransactions()
+  const list = cache
   const gone = new Set([String(id)])
   let grew = true
   while (grew) {
@@ -194,13 +292,17 @@ export function deleteTransaction(id) {
     }
   }
   const marks = []
+  const ids = []
   list.forEach((t) => {
     if (!gone.has(String(t.id))) return
+    ids.push(t.id)
     marks.push(String(t.id))
     if (t.mpesaId) marks.push(String(t.mpesaId))
   })
   write(DELETED_KEY, [...new Set([...loadDeletedKeys(), ...marks])].slice(-1000))
-  write(TX_KEY, list.filter((t) => !gone.has(String(t.id))))
+  cache = list.filter((t) => !gone.has(String(t.id)))
+  persist([], ids)
+  tell()
 }
 
 // One-time cleanup of the old sample transactions
@@ -214,9 +316,13 @@ const DEMO_ROWS = [
 export function removeDemoData() {
   try {
     if (localStorage.getItem('ab:demo-removed') === '1') return
-    const list = loadTransactions()
-    const keep = list.filter((t) => !DEMO_ROWS.includes(`${t.name || ''}|${t.phone || ''}`))
-    if (keep.length !== list.length) write(TX_KEY, keep)
+    const isDemo = (t) => DEMO_ROWS.includes(`${t.name || ''}|${t.phone || ''}`)
+    const ids = cache.filter(isDemo).map((t) => t.id)
+    if (ids.length) {
+      cache = cache.filter((t) => !isDemo(t))
+      persist([], ids)
+      tell()
+    }
     if (loadAirtime() === 11274.24) write(AIRTIME_KEY, 0)
     localStorage.setItem('ab:demo-removed', '1')
   } catch (e) {
@@ -227,6 +333,11 @@ export function removeDemoData() {
 export function applyNativeCharges(total) {
   const t = Number(total) || 0
   const w = loadWallet()
+  // A wallet with no counter is new (or was wiped): start from the native counter, subtract nothing
+  if (w.chargesApplied === undefined) {
+    write(WALLET_KEY, { ...w, chargesApplied: t })
+    return
+  }
   const applied = Number(w.chargesApplied) || 0
   if (t <= applied) return
   const next = { ...w, chargesApplied: t }

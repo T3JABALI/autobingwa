@@ -49,10 +49,10 @@ export function GlowChart({ series = [], labels = [], upto = -1, highlight = -1,
   const ticks = []
   for (let v = 0; v <= top + 1e-9; v += step) ticks.push(v)
 
-  const padL = 32
-  const padR = 16
-  const padT = 16
-  const padB = 18
+const padL = 36
+const padR = 16
+const padT = 24
+const padB = 18
   const inset = 12
   const cw = Math.max(10, w - padL - padR)
   const ch = Math.max(10, h - padT - padB)
@@ -83,12 +83,12 @@ export function GlowChart({ series = [], labels = [], upto = -1, highlight = -1,
           ))}
         </defs>
 
-        <text x="2" y="9" style={{ ...txt, fill: 'var(--soft)', fontSize: 8 }}>KES</text>
+<text x={padL - 5} y="10" textAnchor="end" style={{ ...txt, fill: 'var(--soft)', fontSize: 8 }}>KES</text>
 
         {ticks.map((t) => (
           <g key={t}>
             <line x1={padL} x2={w - padR} y1={y(t)} y2={y(t)} style={{ stroke: 'var(--border)', strokeWidth: 1, strokeDasharray: t === 0 ? 'none' : '3 4' }} />
-            <text x={padL - 5} y={y(t) + 3} textAnchor="end" style={{ ...txt, fill: 'var(--soft)' }}>
+<text x={padL - 5} y={y(t) + 3} textAnchor="end" style={{ ...txt, fill: 'var(--soft)' }}>
               {short(t)}
             </text>
           </g>

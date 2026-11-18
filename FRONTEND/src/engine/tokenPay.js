@@ -203,7 +203,31 @@ export async function waitForMpesaPayment({ onStatus = () => {}, timeoutMs = 120
   }
   return { status: 'pending', message: 'No answer yet. If you paid, press Check payment in a moment.' }
 }
-
+// Credits M-Pesa payments the server received while the app was closed.
+// Each payment is credited once: grantTokens ignores a reference it has already seen.
+export async function recoverPaidMpesa() {
+  try {
+    const d = await api(`/tokens/mpesa/paid?deviceId=${encodeURIComponent(deviceId())}`)
+    const list = Array.isArray(d.payments) ? d.payments : []
+    if (!list.length) return 0
+    let plans = cachedTokenPlans() || []
+    try { plans = await fetchTokenPlans() } catch (e) { /* use the saved list */ }
+    let added = 0
+    for (const p of list) {
+      const def = plans.find((x) => String(x.id) === String(p.planId))
+      if (!def) continue // the plan was removed by the admin: leave it for support
+      const n = Number(def.amount) || 0
+      const plan = {
+        id: def.id, label: def.label, price: Number(p.amount) || def.price,
+        ...(def.kind === 'days' ? { days: n } : { units: n }),
+      }
+      if (grantTokens(plan, 'mpesa', p.receipt || p.paymentId)) added++
+    }
+    return added
+  } catch (e) {
+    return 0 // offline: tried again next time the app opens
+  }
+}
 // Called when the app opens: finishes anything that was interrupted
 export function recoverTokenPayments() {
   const p = read(PENDING)
@@ -212,6 +236,7 @@ export function recoverTokenPayments() {
     clear(PENDING)
   } else if (pendingAirtimePayment()) {
     engine.hold(true) // keep customer transactions away from the SIM until it is confirmed or cancelled
+      recoverPaidMpesa()
   }
 }
 // ---------------- Live token plans and coupons (set by the admin) ----------------

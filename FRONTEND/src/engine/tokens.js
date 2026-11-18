@@ -11,10 +11,18 @@ const REFQ_KEY = 'ab:refq'
 const API = (import.meta.env.VITE_TOKEN_API || '').replace(/\/+$/, '')
 
 // True when there is an unlimited plan running, or at least one limited token left
-export function tokensActive(at = Date.now()) {
+// The one answer to "what token state is this phone in". The screen and the engine both use it.
+// Only ONE state at a time: unlimited wins, then units, otherwise none.
+export function tokenStatus(at = Date.now()) {
   const w = loadWallet()
-  return Number(w.unlimitedUntil) > at || Number(w.units) > 0
+  const until = Number(w.unlimitedUntil) || 0
+  const units = Math.max(0, Number(w.units) || 0)
+  if (until > at) return { kind: 'unlimited', until, units }
+  if (units > 0) return { kind: 'units', units, until: 0 }
+  return { kind: 'none', units: 0, until }
 }
+
+export const tokensActive = (at = Date.now()) => tokenStatus(at).kind !== 'none'
 
 export function loadHistory() {
   try {

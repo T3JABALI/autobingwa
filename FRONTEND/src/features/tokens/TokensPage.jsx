@@ -390,10 +390,16 @@ export default function TokensPage({ onBack }) {
               <div className="tk-cube">⬡</div>
               <div>
                 <small>Available Tokens</small>
-                <div className="tk-units">{Number(wallet.units || 0).toLocaleString('en-KE')} units</div>
-                <div className={`tk-unl ${unlimitedActive ? 'on' : ''}`}>
-                  {unlimitedActive ? `∞ Unlimited active • ${timeLeft(wallet.unlimitedUntil, now)}` : '∞ No unlimited plan active'}
-                </div>
+                {unlimitedActive ? (
+                  <>
+                    <div className="tk-units">∞ Unlimited</div>
+                    <div className="tk-unl on">{timeLeft(wallet.unlimitedUntil, now)}</div>
+                  </>
+                ) : Number(wallet.units) > 0 ? (
+                  <div className="tk-units">{Number(wallet.units).toLocaleString('en-KE')} units</div>
+                ) : (
+                  <div className="tk-units">No tokens</div>
+                )}
               </div>
             </div>
 

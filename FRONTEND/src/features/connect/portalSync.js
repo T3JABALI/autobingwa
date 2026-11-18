@@ -6,7 +6,7 @@ import { isNative, refreshAirtime, learnSignature, ussdServiceEnabled, AutoBingw
 import { applyEdit, checkUssd, normalizeUssd } from '../../engine/offerRules.js'
 import { loadConfig, setPortal } from '../../engine/config.js'
 import { getAirtimeBalance, commissionThisWeek } from '../../engine/balances.js'
-import { payWithAirtime } from '../../engine/tokenPay.js'
+import { payWithAirtime, fetchTokenPlans, cachedTokenPlans } from '../../engine/tokenPay.js'
 import { grantTokens, tokensActive } from '../../engine/tokens.js'
 import { parsePhone } from '../quickdial/ussd.js'
 import { subscribe, loadTransactions, loadAirtime, loadWallet, loadDeletedKeys } from '../home/dataStore.js'
@@ -27,7 +27,24 @@ const PACKS = {
   d7: { id: 'd7', label: '7 days unlimited', price: 200, days: 7 },
   d30: { id: 'd30', label: '30 days unlimited', price: 550, days: 30 },
 }
-
+// Finds a token plan by id: the live list from the server first, then the saved list, then PACKS.
+// This way a plan the admin created or renamed still works.
+async function findPack(packId) {
+  const key = String(packId)
+  const asPlan = (def) => {
+    const n = Number(def.amount) || 0
+    return {
+      id: def.id, label: def.label, price: Number(def.price) || 0,
+      ...(def.kind === 'days' ? { days: n } : { units: n }),
+    }
+  }
+  let def = null
+  try {
+    def = (await fetchTokenPlans()).find((x) => String(x.id) === key)
+  } catch (e) { /* offline: use the saved list */ }
+  if (!def) def = (cachedTokenPlans() || []).find((x) => String(x.id) === key)
+  return def ? asPlan(def) : PACKS[key] || null
+}
 let timer = null
 let soonTimer = null
 let offData = null
@@ -313,7 +330,7 @@ async function handleCommand(c, auth) {
     await report(c, auth, r.ok, r.text)
   } else if (c.type === 'buy_tokens') {
     // Airtime payment started from the portal. Tokens are added only after the transfer is confirmed.
-    const plan = PACKS[p.packId]
+    const plan = await findPack(p.packId)
     if (!plan) return report(c, auth, false, 'Unknown token pack.')
     if (Number(p.amount) !== plan.price) return report(c, auth, false, 'The price did not match the app. Nothing was sent.')
     if (paying) return report(c, auth, false, 'Another token payment is already in progress.')
@@ -329,8 +346,14 @@ async function handleCommand(c, auth) {
     soon()
   } else if (c.type === 'credit_tokens') {
     // The server queues this only after M-Pesa confirmed the money. The payment id stops a double credit.
-    const plan = PACKS[p.packId]
-    if (!plan || !p.paymentId) return report(c, auth, false, 'Unknown token pack or payment.')
+    if (!p.paymentId) return report(c, auth, false, 'Missing payment id.')
+    const plan = await findPack(p.packId)
+    if (!plan) {
+      // Do not report a failure: the server keeps sending this command until the phone confirms,
+      // so it is tried again once the plan list can be loaded
+      console.error('credit_tokens: plan not found yet', p.packId)
+      return
+    }
     grantTokens(plan, 'mpesa', String(p.paymentId)) // returns null if this payment was already credited
     await report(c, auth, true, `${plan.label} added.`)
     soon()
@@ -434,8 +457,9 @@ async function handleCommand(c, auth) {
 }
 function dispatch(commands, auth, on) {
   for (const c of commands || []) {
-    const switchCmd = c.type === 'portal_on' || c.type === 'portal_off'
-    if (!on && !switchCmd) continue // while off, only the switch commands are obeyed
+    // While the switch is off only these are obeyed. credit_tokens is money already paid, so it always runs.
+    const allowedOff = c.type === 'portal_on' || c.type === 'portal_off' || c.type === 'credit_tokens'
+    if (!on && !allowedOff) continue
     if (inflight.has(c.id)) continue // the server resends credit_tokens until we report; handle each once
     inflight.add(c.id)
     handleCommand(c, auth)

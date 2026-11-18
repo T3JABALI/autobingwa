@@ -125,23 +125,46 @@ final class EngineCore {
     private static boolean terminal(String s) {
         return "Completed".equals(s) || "Failed".equals(s) || "Skipped".equals(s) || "Unmatched".equals(s);
     }
+    private static final int KEEP_SAVED = 300;    // finished rows the app has saved: newest 300 kept
+    private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT saved yet: never dropped before this
 
+    // True when the app has saved this row exactly as it is now
+    private static boolean saved(JSONObject o) {
+        return o.optLong("appRev", -1) >= o.optLong("rev", 1);
+    }
+
+    // Open transactions are never dropped. Finished ones the app already saved go first, oldest first.
+    private static JSONArray trimRows(JSONArray a) {
+        int savedN = 0, unsavedN = 0;
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null || !terminal(o.optString("status"))) continue;
+            if (saved(o)) savedN++; else unsavedN++;
+        }
+        int dropSaved = Math.max(0, savedN - KEEP_SAVED);
+        int dropUnsaved = Math.max(0, unsavedN - KEEP_UNSAVED);
+        if (dropSaved == 0 && dropUnsaved == 0) return a;
+        JSONArray t = new JSONArray();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o != null && terminal(o.optString("status"))) {
+                if (saved(o)) {
+                    if (dropSaved > 0) { dropSaved--; continue; }
+                } else if (dropUnsaved > 0) {
+                    dropUnsaved--;
+                    continue;
+                }
+            }
+            t.put(a.opt(i));
+        }
+        return t;
+    }
     private static void add(Context c, JSONObject tx) {
         synchronized (LOCK) {
             JSONArray a = load(c);
             try { tx.put("rev", 1); } catch (Exception ignored) { }
             a.put(tx);
-            // keep the newest 300: only finished transactions are ever dropped
-            if (a.length() > 300) {
-                JSONArray t = new JSONArray();
-                int drop = a.length() - 300;
-                for (int i = 0; i < a.length(); i++) {
-                    JSONObject o = a.optJSONObject(i);
-                    if (drop > 0 && o != null && terminal(o.optString("status"))) { drop--; continue; }
-                    t.put(a.opt(i));
-                }
-                a = t;
-            }
+                    a = trimRows(a);
             save(c, a);
         }
     }
@@ -211,11 +234,11 @@ final class EngineCore {
     private static long effectiveUnits(Context c) {
         JSONObject w = EngineStore.snapshot(c).optJSONObject("wallet");
         long units = w == null ? 0 : w.optLong("units", 0);
-        long applied = w == null ? 0 : w.optLong("chargesApplied", 0);
         long total = sp(c).getLong("chargesTotal", 0);
+        // no counter in the wallet means nothing is owed yet
+        long applied = w == null ? 0 : w.optLong("chargesApplied", total);
         return units - Math.max(0, total - applied);
     }
-
     static boolean hasToken(Context c) {
         JSONObject w = EngineStore.snapshot(c).optJSONObject("wallet");
         long until = w == null ? 0 : w.optLong("unlimitedUntil", 0);
@@ -405,7 +428,8 @@ final class EngineCore {
         if (text != null && !text.isEmpty()) rs.put(resp("SMS", text));
         rs.put(resp("-", "Fallback cancelled: the original purchase was confirmed."));
         update(ctx, fbId, obj("status", "Skipped", "fallbackPending", false, "scheduledFor", JSONObject.NULL, "responses", rs));
-        if ("failed".equals(trigger) && !fromId.isEmpty()) update(ctx, fromId, obj("status", "Completed"));
+            if ("failed".equals(trigger) && !fromId.isEmpty()) update(ctx, fromId, obj("status", "Completed"));
+        pump(ctx);
         return true;
     }
 
@@ -485,14 +509,22 @@ final class EngineCore {
         }
     }
 
-    // A backup (fallback) goes before any other waiting payment; otherwise the oldest goes first
+    // A backup (fallback) goes before any other waiting payment; otherwise the oldest goes first.
+    // While a fallback is still waiting out its delay, no other payment may start.
     private static JSONObject oldestPending(Context c) {
         synchronized (LOCK) {
             JSONArray a = load(c);
+            boolean fbWaiting = false;
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o != null && o.optBoolean("isFallback", false) && o.optBoolean("fallbackPending", false)
+                        && "Scheduled".equals(o.optString("status"))) { fbWaiting = true; break; }
+            }
             JSONObject best = null;
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.optJSONObject(i);
                 if (o == null || !"Pending".equals(o.optString("status"))) continue;
+                if (fbWaiting && !o.optBoolean("isFallback", false)) continue;
                 if (best == null) { best = o; continue; }
                 boolean oFb = o.optBoolean("isFallback", false);
                 boolean bestFb = best.optBoolean("isFallback", false);
@@ -552,7 +584,7 @@ final class EngineCore {
 
         // A complete, switched-on signature always uses the dialer window
         JSONObject sigObj = offer.optJSONObject("sig");
-        boolean sigOn = sigObj != null && sigObj.optBoolean("complete", false)
+        boolean sigOn = !"Express".equals(mode) && sigObj != null && sigObj.optBoolean("complete", false)
             && (offer.optBoolean("smart", false) || offer.optBoolean("sigEnabled", false));
         if (sigOn) {
             JSONArray st = sigObj.optJSONArray("steps");
@@ -885,6 +917,29 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
                 }
                 return;
             }
+        }
+    }
+        // The app has saved these transactions (id and the revision it saved). Only the revision is marked,
+    // so a later change on this side makes the row count as unsaved again.
+    static void ack(Context c, JSONArray items) {
+        synchronized (LOCK) {
+            JSONArray a = load(c);
+            java.util.HashMap<String, Long> got = new java.util.HashMap<>();
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject it = items.optJSONObject(i);
+                if (it != null) got.put(it.optString("id"), it.optLong("rev", 0));
+            }
+            boolean changed = false;
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                Long r = got.get(o.optString("id"));
+                if (r == null) continue;
+                if (r >= o.optLong("rev", 1) && o.optLong("appRev", -1) < r) {
+                    try { o.put("appRev", r); changed = true; } catch (Exception ignored) { }
+                }
+            }
+            if (changed) save(c, a);
         }
     }
     private static void failNow(Context c, String id, String label, String text) {

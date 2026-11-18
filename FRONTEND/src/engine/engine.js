@@ -243,7 +243,9 @@ export function createEngine({
       ],
     })
     if (fb.fallbackTrigger === 'failed' && fb.fallbackFromId) store.update(fb.fallbackFromId, { status: 'Completed' })
+    pump()
     return true
+   
   }
   // ---------- Second response for "Recommendation ... submitted successfully" purchases ----------
   // Verified   : a success SMS that names the customer's number (matched by number, never by order).
@@ -661,9 +663,13 @@ export function createEngine({
       for (;;) {
         // No token or a payment in progress: nothing new starts. Waiting transactions stay Pending.
         if (held || !hasToken()) break
-        const next = store
-          .list()
-          .filter((t) => t.status === 'Pending' && (running || force || manual.has(t.id)))
+        const all = store.list()
+        // A fallback still waiting out its delay holds the whole queue: finish this customer first
+        const fbWaiting = all.some((t) => t.isFallback && t.fallbackPending && t.status === 'Scheduled')
+        const next = all
+          .filter((t) => t.status === 'Pending'
+            && (running || force || manual.has(t.id))
+            && (!fbWaiting || t.isFallback))
           // a backup (fallback) goes before any other waiting payment, so the customer is finished first
           .sort((a, b) => (b.isFallback ? 1 : 0) - (a.isFallback ? 1 : 0) || a.createdAt - b.createdAt)[0]
         if (!next) break

@@ -29,10 +29,12 @@ import {
   removeDemoData,
   applyNativeCharges,
   wasDeleted,
+    whenSaved,
 } from '../features/home/dataStore.js'
 import { startNativeSync } from './nativeSync.js'
 import { loadUssd } from './ussdSettings.js'
-
+import { healCommissionWeek } from './balances.js'
+healCommissionWeek()
 function readJson(key, fallback) {
   try {
     const v = JSON.parse(localStorage.getItem(key) || 'null')
@@ -133,7 +135,7 @@ const realBridge = {
     }
 
     // SIGNATURE: dial step by step and pick each option by what it says, not by its number
-    const sig = sigOf(offer)
+        const sig = mode === 'Express' ? null : sigOf(offer)
     if (sig) {
       return runFlow({ ussd, phone, slot, express: false, sig: sig.steps, ...timeouts })
     }
@@ -404,7 +406,7 @@ let importing = false
 let lastNativeSig = ''
 
 export async function importNative() {
-  if (!isNative() || importing || document.hidden) return 0
+  if (!isNative() || importing) return 0
   importing = true
   let changed = 0
   try {
@@ -436,7 +438,32 @@ export async function importNative() {
       changed++
       if (local.status !== nt.status) fireFinished(nt.status, loadTransactions().find((t) => t.id === nt.id))
     }
-    lastNativeSig = sig
+    // Tell the background engine which finished transactions are now safely saved,
+    // so it never throws away one the app has not saved yet
+    const FINISHED = ['Completed', 'Failed', 'Skipped', 'Unmatched']
+    const savedById = new Map(loadTransactions().map((t) => [t.id, t]))
+    const items = []
+    for (const nt of list) {
+      if (!FINISHED.includes(nt.status)) continue
+      const rev = Number(nt.rev) || 1
+      if (Number(nt.appRev) >= rev) continue // already acknowledged
+      const mine = savedById.get(nt.id)
+      const safe = mine
+        ? mine.engine === 'js' || (Number(mine.rev) || 0) >= rev
+        : wasDeleted(nt.id) || wasDeleted(nt.mpesaId)
+      if (safe) items.push({ id: nt.id, rev })
+    }
+    let acked = true
+    if (items.length) {
+      try {
+        await whenSaved() // only after the database has really stored them
+        await AutoBingwa.nativeAck({ items })
+      } catch (e) {
+        acked = false
+        console.error('AB native ack', e)
+      }
+    }
+    if (acked) lastNativeSig = sig
   } catch (e) {
     console.error('AB import native', e)
   } finally {
