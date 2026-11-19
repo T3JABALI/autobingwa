@@ -74,6 +74,10 @@ async function claim(list) {
   }
 }
 
+// Ties this agent to the code they signed up with. Silent: a failure here is never shown.
+export async function attachReferral() {
+  try { await api('/referral/attach', { method: 'POST' }) } catch (e) { /* try again next login */ }
+}
 const fmt = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function ReferralDashboard() {

@@ -1,13 +1,24 @@
 package com.autobingwa.app;
 
+import android.accessibilityservice.AccessibilityService;
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
+import android.util.AtomicFile;
 import android.util.Log;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.Iterator;
-import java.util.concurrent.CountDownLatch;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -15,17 +26,42 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 // The native engine: SMS in, USSD out, with no web view. Port of engine.js process() and ingest().
-// Step 2: nothing calls this yet. Fallbacks, renewals, customer SMS and contacts come in Step 4.
+//
+// What changed in this version (the "everything went to Pending" fix):
+//  1. A USSD attempt can no longer hang the queue. Every attempt runs on its own thread with a hard time limit.
+//     If it does not finish, the USSD dialog is closed, the payment is marked "check the customer", and the queue moves on.
+//  2. A payment has a total time budget, so 10 retries can no longer block the queue for half an hour.
+//  3. The transaction list lives in memory and is saved to its own file in the background. Before, every
+//     update parsed and rewrote the whole list (up to 4000 rows) on the calling thread, while holding the lock.
+//  4. A "Processing" row left behind by a dead worker is cleaned up on every pump, not only after a restart.
+//  5. A small diagnostics log (and Android's own record of why the app last died) is kept for support.
 final class EngineCore {
     private static final String TAG = "AutoBingwa";
     private static final String FILE = "autobingwa_native";
     private static final Object LOCK = new Object();
     private static final Object WAIT = new Object();
+    private static final Object DIAG = new Object();
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
+    private static final ScheduledExecutorService WRITER = Executors.newSingleThreadScheduledExecutor();
     private static final AtomicBoolean pumping = new AtomicBoolean(false);
     private static volatile boolean recovered = false;
     private static Waiter waiter = null;
 
+    // The transaction list, kept in memory. Every access below holds LOCK.
+    private static JSONArray txCache = null;
+    private static boolean flushQueued = false;
+    private static final long FLUSH_DELAY_MS = 300;
+
+    // One USSD attempt may run its own timeout plus this much longer before it is cut off.
+    private static final long ATTEMPT_GRACE_MS = 30_000;
+    // One payment (all its retries) may use this long. No retry starts if it could not finish inside it.
+    private static final long TX_BUDGET_MS = 2 * 60_000;
+    private static volatile Thread lastUssdThread = null;
+// How many payments in a row ended with no reply from the phone (cut-off or timed out)
+private static int stallStreak = 0;
+// After this many in a row, the queue waits STALL_PAUSE_MS before dialing the next payment
+private static final int STALL_LIMIT = 2;
+private static final long STALL_PAUSE_MS = 15_000;
     private static final Pattern SUCCESS_SCREEN = Pattern.compile(
         "successfully\\s+(purchased|bought|subscribed|activated|recommended)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FAIL_SCREEN = Pattern.compile(
@@ -66,6 +102,70 @@ final class EngineCore {
         return v > 0 ? v : fallback;
     }
 
+    private static JSONArray copyOf(JSONArray a) {
+        try {
+            return new JSONArray(a == null ? "[]" : a.toString());
+        } catch (Exception e) {
+            return new JSONArray();
+        }
+    }
+
+    // ---------- diagnostics (kept on the phone, newest 60 lines) ----------
+    private static void diag(Context c, String line) {
+        Log.w(TAG, "diag " + line);
+        synchronized (DIAG) {
+            try {
+                JSONArray old = new JSONArray(sp(c).getString("diag", "[]"));
+                JSONArray out = new JSONArray();
+                for (int i = Math.max(0, old.length() - 59); i < old.length(); i++) out.put(old.get(i));
+                String stamp = new java.text.SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date());
+                out.put(stamp + " " + line);
+                sp(c).edit().putString("diag", out.toString()).apply();
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private static String reasonName(int r) {
+        switch (r) {
+            case ApplicationExitInfo.REASON_ANR: return "ANR";
+            case ApplicationExitInfo.REASON_CRASH: return "CRASH";
+            case ApplicationExitInfo.REASON_CRASH_NATIVE: return "NATIVE CRASH";
+            case ApplicationExitInfo.REASON_LOW_MEMORY: return "LOW MEMORY";
+            case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE: return "EXCESSIVE RESOURCE USAGE";
+            case ApplicationExitInfo.REASON_USER_REQUESTED: return "USER REQUESTED";
+            case ApplicationExitInfo.REASON_USER_STOPPED: return "USER STOPPED";
+            case ApplicationExitInfo.REASON_PERMISSION_CHANGE: return "PERMISSION CHANGE";
+            case ApplicationExitInfo.REASON_SIGNALED: return "SIGNALED";
+            case ApplicationExitInfo.REASON_EXIT_SELF: return "EXIT SELF";
+            case ApplicationExitInfo.REASON_DEPENDENCY_DIED: return "DEPENDENCY DIED";
+            case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE: return "INIT FAILURE";
+            case ApplicationExitInfo.REASON_OTHER: return "OTHER";
+            default: return "reason " + r;
+        }
+    }
+
+    // Android keeps a short record of why this app's process last ended (Android 11+). An ANR shows up here with its cause.
+    private static void logExitReasons(Context c) {
+        if (Build.VERSION.SDK_INT < 30) return;
+        try {
+            ActivityManager am = (ActivityManager) c.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return;
+            List<ApplicationExitInfo> list = am.getHistoricalProcessExitReasons(c.getPackageName(), 0, 6);
+            long seen = sp(c).getLong("exitSeen", 0);
+            long newest = seen;
+            for (int i = list.size() - 1; i >= 0; i--) { // oldest first
+                ApplicationExitInfo e = list.get(i);
+                if (e.getTimestamp() <= seen) continue;
+                newest = Math.max(newest, e.getTimestamp());
+                String when = new java.text.SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date(e.getTimestamp()));
+                diag(c, "LAST EXIT " + when + " " + reasonName(e.getReason()) + " | " + e.getDescription());
+            }
+            if (newest > seen) sp(c).edit().putLong("exitSeen", newest).apply();
+        } catch (Throwable t) {
+            Log.e(TAG, "exit reasons", t);
+        }
+    }
+
     // ---------- switches (kept on the phone, so they survive the app being closed) ----------
     static boolean owns(Context c) { return sp(c).getBoolean("owner", false); }
     static boolean running(Context c) { return sp(c).getBoolean("running", false); }
@@ -99,16 +199,63 @@ final class EngineCore {
     }
 
     // ---------- transactions (same field names as the app's transactions:list) ----------
-    private static JSONArray load(Context c) {
+    // The list is kept in memory and saved to its own file by a background thread.
+    // All of load, save, flush and the code that touches txCache must hold LOCK.
+    private static File txFile(Context c) {
+        return new File(c.getFilesDir(), "autobingwa_tx.json");
+    }
+
+    private static JSONArray readFromDisk(Context c) {
         try {
-            return new JSONArray(sp(c).getString("tx", "[]"));
+            AtomicFile af = new AtomicFile(txFile(c));
+            if (af.getBaseFile().exists()) {
+                return new JSONArray(new String(af.readFully(), StandardCharsets.UTF_8));
+            }
         } catch (Exception e) {
-            return new JSONArray();
+            Log.e(TAG, "tx file read", e);
         }
+        // First start after this update: the rows used to live in the preferences file.
+        try {
+            String old = sp(c).getString("tx", null);
+            if (old != null) return new JSONArray(old);
+        } catch (Exception ignored) { }
+        return new JSONArray();
+    }
+
+    private static JSONArray load(Context c) {
+        if (txCache == null) txCache = readFromDisk(c.getApplicationContext());
+        return txCache;
     }
 
     private static void save(Context c, JSONArray a) {
-        sp(c).edit().putString("tx", a.toString()).commit();
+        txCache = a;
+        if (flushQueued) return;
+        flushQueued = true;
+        final Context app = c.getApplicationContext();
+        WRITER.schedule(new Runnable() {
+            @Override public void run() { flush(app); }
+        }, FLUSH_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    // Runs on the writer thread. The list is turned into text under the lock; the slow disk write happens outside it.
+    private static void flush(Context c) {
+        String json;
+        synchronized (LOCK) {
+            flushQueued = false;
+            if (txCache == null) return;
+            json = txCache.toString();
+        }
+        AtomicFile af = new AtomicFile(txFile(c));
+        FileOutputStream out = null;
+        try {
+            out = af.startWrite();
+            out.write(json.getBytes(StandardCharsets.UTF_8));
+            af.finishWrite(out);
+            if (sp(c).contains("tx")) sp(c).edit().remove("tx").apply(); // old copy, no longer needed
+        } catch (Exception e) {
+            Log.e(TAG, "tx file write", e);
+            if (out != null) af.failWrite(out);
+        }
     }
 
     private static boolean hasCode(Context c, String code) {
@@ -126,7 +273,7 @@ final class EngineCore {
         return "Completed".equals(s) || "Failed".equals(s) || "Skipped".equals(s) || "Unmatched".equals(s);
     }
     private static final int KEEP_SAVED = 300;    // finished rows the app has saved: newest 300 kept
-    private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT saved yet: never dropped before this
+private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT saved yet: never dropped before this
 
     // True when the app has saved this row exactly as it is now
     private static boolean saved(JSONObject o) {
@@ -159,12 +306,13 @@ final class EngineCore {
         }
         return t;
     }
+
     private static void add(Context c, JSONObject tx) {
         synchronized (LOCK) {
             JSONArray a = load(c);
             try { tx.put("rev", 1); } catch (Exception ignored) { }
             a.put(tx);
-                    a = trimRows(a);
+            a = trimRows(a);
             save(c, a);
         }
     }
@@ -192,11 +340,31 @@ final class EngineCore {
         }
     }
 
-    // What the app reads: the switches, the token charge counter and every native transaction
+      // What the app reads: the switches, the token charge counter and the transactions the app still needs.
+    // Finished rows the app has already saved are NOT sent again. At most 300 finished rows go in one call,
+    // oldest first; the app asks again every 3 seconds, so a big backlog arrives in pieces.
+    private static final int MAX_SYNC = 300;
+
     static JSONObject state(Context c) {
         synchronized (LOCK) {
+            JSONArray log = new JSONArray();
+            try { log = new JSONArray(sp(c).getString("diag", "[]")); } catch (Exception ignored) { }
+            JSONArray a = load(c);
+            JSONArray out = new JSONArray();
+            int finished = 0;
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                boolean open = !terminal(o.optString("status"));
+                if (!open) {
+                    if (saved(o)) continue;
+                    if (finished >= MAX_SYNC) continue;
+                    finished++;
+                }
+                try { out.put(new JSONObject(o.toString())); } catch (Exception ignored) { }
+            }
             return obj("owner", owns(c), "running", running(c),
-                "chargesTotal", sp(c).getLong("chargesTotal", 0), "transactions", load(c));
+                "chargesTotal", sp(c).getLong("chargesTotal", 0), "transactions", out, "diag", log);
         }
     }
 
@@ -210,6 +378,7 @@ final class EngineCore {
     }
 
     // True the first time an SMS id is seen. Native keeps its own list and never touches the app's SMS queue.
+    // (The payment code check in ingest() is the real guard against a double sale, so this save need not wait for the disk.)
     private static boolean markHandled(Context c, String id) {
         synchronized (LOCK) {
             try {
@@ -221,7 +390,7 @@ final class EngineCore {
                     for (int i = h.length() - 500; i < h.length(); i++) t.put(h.get(i));
                     h = t;
                 }
-                sp(c).edit().putString("handled", h.toString()).commit();
+                sp(c).edit().putString("handled", h.toString()).apply();
                 return true;
             } catch (Exception e) {
                 return false;
@@ -268,14 +437,14 @@ final class EngineCore {
                 .matcher(text.trim()).find();
             EngineRules.Conf conf = isPayment ? null : EngineRules.classifyConfirmation(text);
             if (conf != null) {
-                                boolean used = confirm(c, conf, text);
+                boolean used = confirm(c, conf, text);
                 Log.d(TAG, "native confirmation " + conf.status + (used ? " used" : " no transaction waiting"));
                 return;
             }
             // Same rule as the app: only a sender that looks like M-PESA can start a purchase
             String letters = (sender == null ? "" : sender).toLowerCase().replaceAll("[^a-z]", "");
             if (!letters.contains("mpesa")) return;
-                       if (time < ownerSince(c)) return; // older payments stay with the app's engine
+            if (time < ownerSince(c)) return; // older payments stay with the app's engine
             ingest(c, text);
         } catch (Exception e) {
             Log.e(TAG, "native onSms", e);
@@ -322,7 +491,7 @@ final class EngineCore {
         else offerName = p.phone.isEmpty() ? "No customer number in message" : "No matching offer";
 
         boolean verified = offer != null && (offer.optBoolean("smart", false)
-|| (offer.has("signature") && !offer.isNull("signature") && !Boolean.FALSE.equals(offer.opt("signature")))
+            || (offer.has("signature") && !offer.isNull("signature") && !Boolean.FALSE.equals(offer.opt("signature")))
             || offer.optBoolean("sigEnabled", false));
 
         JSONObject tx = obj(
@@ -365,7 +534,7 @@ final class EngineCore {
         }
     }
 
-       private static boolean confirm(Context ctx, EngineRules.Conf cf, String text) {
+    private static boolean confirm(Context ctx, EngineRules.Conf cf, String text) {
         Waiter w;
         synchronized (WAIT) { w = waiter; }
         if (w != null) {
@@ -399,7 +568,6 @@ final class EngineCore {
         return cancelPendingFallback(ctx, cf, text);
     }
 
-
     // A late success SMS cancels a backup that is still waiting out its delay
     private static boolean cancelPendingFallback(Context ctx, EngineRules.Conf cf, String text) {
         if (!"success".equals(cf.status) || cf.phone == null) return false;
@@ -416,8 +584,7 @@ final class EngineCore {
                     fbId = o.optString("id");
                     fromId = o.optString("fallbackFromId", "");
                     trigger = o.optString("fallbackTrigger", "");
-                    JSONArray r = o.optJSONArray("responses");
-                    if (r != null) prev = r;
+                    prev = copyOf(o.optJSONArray("responses")); // a copy: the live list changes under the lock
                     break;
                 }
             }
@@ -428,7 +595,7 @@ final class EngineCore {
         if (text != null && !text.isEmpty()) rs.put(resp("SMS", text));
         rs.put(resp("-", "Fallback cancelled: the original purchase was confirmed."));
         update(ctx, fbId, obj("status", "Skipped", "fallbackPending", false, "scheduledFor", JSONObject.NULL, "responses", rs));
-            if ("failed".equals(trigger) && !fromId.isEmpty()) update(ctx, fromId, obj("status", "Completed"));
+        if ("failed".equals(trigger) && !fromId.isEmpty()) update(ctx, fromId, obj("status", "Completed"));
         pump(ctx);
         return true;
     }
@@ -457,21 +624,28 @@ final class EngineCore {
         WORKER.execute(new Runnable() {
             @Override
             public void run() {
+                boolean crashed = false;
                 try {
-                    if (!recovered) { recover(c); recovered = true; }
+                    if (!recovered) { logExitReasons(c); recovered = true; }
+                    recoverOrphans(c); // nothing is being processed at this point, so a "Processing" row is left over
                     for (;;) {
                         if (!owns(c) || !running(c) || !hasToken(c)) break;
                         JSONObject next = oldestPending(c);
                         if (next == null) break;
                         try {
                             process(c, next);
-                        } catch (Exception e) {
+                        } catch (Throwable e) {
                             Log.e(TAG, "native process", e);
+                            diag(c, "process error for " + next.optString("phone") + ": " + e);
                             update(c, next.optString("id"), obj("status", "Failed", "completedAt", System.currentTimeMillis(),
                                 "responses", new JSONArray().put(resp("-",
                                     "The native engine hit an error. Check your balance, then retry. " + e))));
                             Notifier.alert(c, "idle", "", "");
                         }
+                        if (stallStreak >= STALL_LIMIT) {
+    diag(c, stallStreak + " stalled payments in a row, pausing " + (STALL_PAUSE_MS / 1000) + "s so the phone can recover");
+    Thread.sleep(STALL_PAUSE_MS);
+}
                         JSONObject usGap = EngineStore.snapshot(c).optJSONObject("ussd");
                         long gap = usGap != null ? usGap.optLong("betweenMs", 250)
                             : (EngineStore.snapshot(c).optJSONObject("config") == null ? 400
@@ -480,37 +654,48 @@ final class EngineCore {
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                } catch (Throwable t) {
+                    crashed = true;
+                    Log.e(TAG, "native pump", t);
+                    diag(c, "queue stopped: " + t);
                 } finally {
                     pumping.set(false);
                 }
                 // something may have arrived just as the loop ended
-                if (owns(c) && running(c) && hasToken(c) && oldestPending(c) != null) pump(c);
+                if (!crashed && owns(c) && running(c) && hasToken(c) && oldestPending(c) != null) pump(c);
             }
         });
     }
 
-    // If the phone was restarted mid-dial, a Processing transaction is marked Failed so it is checked before a retry
-    private static void recover(Context c) {
+    // A "Processing" row with no worker behind it (phone restarted, app killed, worker died) is marked Failed so it is checked before a retry
+    private static void recoverOrphans(Context c) {
+        int n = 0;
         synchronized (LOCK) {
             JSONArray a = load(c);
-            boolean changed = false;
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.optJSONObject(i);
                 if (o != null && "Processing".equals(o.optString("status"))) {
                     try {
                         o.put("status", "Failed");
+                        o.put("rev", o.optLong("rev", 1) + 1);
+                        o.put("completedAt", System.currentTimeMillis());
                         o.put("responses", new JSONArray().put(resp("-",
                             "The app closed while this was processing. Check your balance, then retry.")));
-                        changed = true;
+                        n++;
                     } catch (Exception ignored) { }
                 }
             }
-            if (changed) save(c, a);
+            if (n > 0) save(c, a);
+        }
+        if (n > 0) {
+            diag(c, "cleared " + n + " payment(s) left in Processing");
+            Notifier.alert(c, "idle", "", "");
         }
     }
 
     // A backup (fallback) goes before any other waiting payment; otherwise the oldest goes first.
     // While a fallback is still waiting out its delay, no other payment may start.
+    // Returns a copy, so the worker never reads a row that another thread is changing.
     private static JSONObject oldestPending(Context c) {
         synchronized (LOCK) {
             JSONArray a = load(c);
@@ -531,7 +716,12 @@ final class EngineCore {
                 if (oFb && !bestFb) best = o;
                 else if (oFb == bestFb && o.optLong("createdAt", 0) < best.optLong("createdAt", 0)) best = o;
             }
-            return best;
+            if (best == null) return null;
+            try {
+                return new JSONObject(best.toString());
+            } catch (Exception e) {
+                return best;
+            }
         }
     }
 
@@ -611,12 +801,75 @@ final class EngineCore {
         return UssdFlow.run(c, slot, first, steps, stepMs, keyMs, totalMs, false, null);
     }
 
+    // Presses Back on whatever USSD dialog is still open, so the next payment starts from a clean screen
+    private static void closeUssdDialog() {
+        try {
+            UssdAccessibilityService s = UssdAccessibilityService.instance;
+            if (s == null) return;
+            s.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+            Thread.sleep(500);
+            s.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Throwable ignored) { }
+    }
+
+    // runUssd with a hard time limit. If the USSD session hangs (a dialog that never answers, a lost accessibility
+    // event) the attempt is cut off, the dialog is closed and the queue moves on. A cut-off attempt is reported as
+    // "no_reply": the purchase may have gone through, so no backup offer is started and the customer must be checked.
+    private static JSONObject runUssdGuarded(final Context c, final String ussd, final String mode, final JSONObject offer,
+                                             final int slot, final long stepMs, final long keyMs, final long totalMs)
+            throws Exception {
+final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
+
+        // A previous attempt that would not stop: give it a moment, then carry on regardless
+        Thread old = lastUssdThread;
+        if (old != null && old.isAlive()) {
+            old.join(10_000);
+            if (old.isAlive()) diag(c, "a previous USSD attempt is still stuck; starting the next one anyway");
+        }
+
+        final JSONObject[] out = new JSONObject[1];
+        final Throwable[] err = new Throwable[1];
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    out[0] = runUssd(c, ussd, mode, offer, slot, stepMs, keyMs, totalMs);
+                } catch (Throwable e) {
+                    err[0] = e;
+                }
+            }
+        }, "ab-ussd");
+        t.setDaemon(true);
+        lastUssdThread = t;
+        t.start();
+        t.join(limit);
+
+        if (t.isAlive()) {
+            diag(c, "USSD attempt hung for " + (limit / 1000) + "s, cutting it off (" + ussd + ")");
+            t.interrupt();
+            closeUssdDialog();
+            UssdAccessibilityService.end(); // stop the polling and give the keyboard back, even if the stuck thread never exits
+            t.join(3_000);
+            return obj("status", "no_reply",
+                "message", "The USSD session stopped responding after " + (limit / 1000) + " seconds and was closed.",
+                "responses", new JSONArray());
+        }
+        if (err[0] != null) {
+            if (err[0] instanceof Exception) throw (Exception) err[0];
+            throw new Exception(err[0]);
+        }
+        return out[0] != null ? out[0] : obj("status", "error", "message", "The USSD attempt returned nothing.",
+            "responses", new JSONArray());
+    }
+
     // Runs ONE transaction to its final state (port of process() in engine.js, without fallbacks yet)
     private static void process(Context c, JSONObject startTx) throws Exception {
         final String id = startTx.optString("id");
         final String phone = startTx.optString("phone");
         final double amount = startTx.optDouble("amount", 0);
         final String label = "KES " + money(amount) + " \u00b7 " + phone;
+        final long t0 = System.currentTimeMillis();
 
         JSONObject snap = EngineStore.snapshot(c);
         JSONArray offers = snap.optJSONArray("offers");
@@ -665,17 +918,17 @@ final class EngineCore {
             }
         }
 
-// The offer's own mode wins. Nothing saved uses the mode from the app settings.
-String offerType = offer.optString("type", "");
-String mode = ("Express".equals(offerType) || "Advanced".equals(offerType))
-    ? offerType
-    : cfg.optString("mode", "Advanced");
-// The offer's own SIM wins. "Default" (or nothing saved) uses the SIM from the app settings.
-String simPref = offer.optString("execSim", "Default");
-String simName = ("SIM 1".equals(simPref) || "SIM 2".equals(simPref))
-    ? simPref
-    : cfg.optString("bingwaSim", "SIM 2");
-int slot = "SIM 1".equals(simName) ? 0 : 1;
+        // The offer's own mode wins. Nothing saved uses the mode from the app settings.
+        String offerType = offer.optString("type", "");
+        String mode = ("Express".equals(offerType) || "Advanced".equals(offerType))
+            ? offerType
+            : cfg.optString("mode", "Advanced");
+        // The offer's own SIM wins. "Default" (or nothing saved) uses the SIM from the app settings.
+        String simPref = offer.optString("execSim", "Default");
+        String simName = ("SIM 1".equals(simPref) || "SIM 2".equals(simPref))
+            ? simPref
+            : cfg.optString("bingwaSim", "SIM 2");
+        int slot = "SIM 1".equals(simName) ? 0 : 1;
         long stepMs = positive(cfg.optLong("stepTimeoutSec", 20), 20) * 1000;
         long keyMs = positive(cfg.optLong("keyDelayMs", 80), 80);
         long totalMs = positive(cfg.optLong("totalTimeoutSec", 90), 90) * 1000;
@@ -699,8 +952,9 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
         for (;;) {
             attempt++;
             Waiter w = arm(phone);
-            JSONObject result = runUssd(c, ussd, mode, offer, slot, stepMs, keyMs, totalMs);
+            JSONObject result = runUssdGuarded(c, ussd, mode, offer, slot, stepMs, keyMs, totalMs);
             String status = result.optString("status", "error");
+            if ("no_reply".equals(status)) stallStreak++; else stallStreak = 0;
             String message = result.optString("message", "");
             boolean resultOk = "complete".equals(status);
 
@@ -715,9 +969,9 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
                 JSONObject last = rs.optJSONObject(rs.length() - 1);
                 if (last != null) lastText = last.optString("text", "");
             }
-               // A "connection problem" after the last step may still have bought the plan: wait for the SMS.
+            // A "connection problem" after the last step may still have bought the plan: wait for the SMS.
             // A success SMS that already arrived wins over any screen.
-                     boolean connAfterSend = resultOk && CONN_SCREEN.matcher(lastText).find();
+            boolean connAfterSend = resultOk && CONN_SCREEN.matcher(lastText).find();
             if (connAfterSend || "no_reply".equals(status)) {
                 synchronized (w) {
                     w.strict = true;
@@ -749,13 +1003,11 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
                 ok = "success".equals(conf.status);
                 if (!smsText.isEmpty()) rs.put(resp("SMS", smsText));
                 kind = ok ? "ok" : conf.reason != null ? "stop" : "failed";
-} else if ("sig_mismatch".equals(status) || "wrong_path".equals(status) || message.toLowerCase().contains("accessibility")) {
+            } else if ("sig_mismatch".equals(status) || "wrong_path".equals(status) || message.toLowerCase().contains("accessibility")) {
                 kind = "stop";
             } else if ("no_reply".equals(status) || resultOk) {
                 kind = "pending";
-                rs.put(resp("-", "no_reply".equals(status)
-                    ? "The last step was sent but no reply came back. Check the customer before retrying."
-                    : "No success message or SMS came back. Check the customer before retrying."));
+                rs.put(resp("-", "No final reply or success message came back. Check the customer before retrying."));
             } else {
                 kind = "failed";
             }
@@ -763,6 +1015,14 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
             update(c, id, obj("attempts", attempt, "responses", rs));
             boolean again = ("failed".equals(kind) && retryFailed) || ("pending".equals(kind) && retryPending);
             if ("ok".equals(kind) || !again || attempt > maxRetries) break;
+            // One payment may not hold the queue for ever: no retry starts if it could not finish inside the time budget
+            long spent = System.currentTimeMillis() - t0;
+            if (spent > TX_BUDGET_MS) {
+                rs.put(resp("-", "Stopped retrying: this payment used its time limit so the next customers are not kept waiting."));
+                update(c, id, obj("responses", rs));
+                diag(c, "retry budget used up for " + phone + " after " + attempt + " attempt(s)");
+                break;
+            }
             if ("pending".equals(kind)) {
                 JSONArray more = new JSONArray();
                 for (int i = 0; i < rs.length(); i++) more.put(rs.opt(i));
@@ -821,6 +1081,7 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
             Notifier.alert(c, "failed", "Failed: " + label, text);
         }
     }
+
     // Creates the backup transaction for a failed one. Returns null when there is no usable mapping.
     private static JSONObject startFallback(Context c, JSONObject tx, JSONObject offer, String trigger) {
         JSONObject snap = EngineStore.snapshot(c);
@@ -896,13 +1157,15 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
         }
         pump(c);
     }
-    // The native transactions, for the service's own portal sync
+
+    // The native transactions, for the service's own portal sync (a copy)
     static JSONArray recent(Context c) {
-        synchronized (LOCK) { return load(c); }
+        synchronized (LOCK) { return copyOf(load(c)); }
     }
 
     // Tokens left after native charges the app has not applied yet
     static long unitsLeft(Context c) { return effectiveUnits(c); }
+
     // The app is taking this transaction over (a retry or a release): the background engine lets go of it
     static void release(Context c, String id) {
         synchronized (LOCK) {
@@ -919,7 +1182,8 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
             }
         }
     }
-        // The app has saved these transactions (id and the revision it saved). Only the revision is marked,
+
+    // The app has saved these transactions (id and the revision it saved). Only the revision is marked,
     // so a later change on this side makes the row count as unsaved again.
     static void ack(Context c, JSONArray items) {
         synchronized (LOCK) {
@@ -942,6 +1206,7 @@ int slot = "SIM 1".equals(simName) ? 0 : 1;
             if (changed) save(c, a);
         }
     }
+
     private static void failNow(Context c, String id, String label, String text) {
         update(c, id, obj("status", "Failed", "completedAt", System.currentTimeMillis(),
             "responses", new JSONArray().put(resp("-", text))));

@@ -15,7 +15,7 @@ import AutoRepliesPage from './features/autoreplies/AutoRepliesPage.jsx'
 import ConnectPage from './features/connect/ConnectPage.jsx'
 import PortalSync from './features/connect/PortalSync.jsx'
 import FallbackPage from './features/fallback/FallbackPage.jsx'
-import ReferralDashboard, { ReferralIcon } from './features/referral/ReferralDashboard.jsx'
+import ReferralDashboard, { ReferralIcon, attachReferral } from './features/referral/ReferralDashboard.jsx'
 import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from './features/settings/SettingsPage.jsx'
 import HomePage from './features/home/HomePage.jsx'
 import ModeDialog from './features/home/ModeDialog.jsx'
@@ -1713,6 +1713,14 @@ useEffect(() => {
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 60000)
     return () => clearInterval(timer)
+  }, [])
+  
+  // Ties this agent to the referral code they signed up with. Runs when the app opens
+  // and again when the internet comes back. Silent: a failure here is never shown.
+  useEffect(() => {
+    attachReferral()
+    window.addEventListener('online', attachReferral)
+    return () => window.removeEventListener('online', attachReferral)
   }, [])
   // Phone back button: the base layer. Open pop-ups and sub-screens answer first (see useBack.js).
   useBackHandler(() => {

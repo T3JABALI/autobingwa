@@ -52,7 +52,7 @@ public class UssdAccessibilityService extends AccessibilityService {
 
     private static void pause(long ms) {
         if (ms <= 0) return;
-        try { Thread.sleep(ms); } catch (InterruptedException e) { /* continue */ }
+        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
     // The last USSD window that was found, reused if Android stops listing it for a moment
     private volatile AccessibilityNodeInfo lastRoot = null;
@@ -64,7 +64,7 @@ public class UssdAccessibilityService extends AccessibilityService {
     private volatile AccessibilityNodeInfo cachedSend = null;
     private volatile String cachedFor = "";
     // A screen that did not look fully drawn yet; it must look the same on the next scan to count
-    private String pendingText = "";
+    private volatile String pendingText = "";
 
     // Only a pure progress window counts as progress. A real message that merely contains "please wait" does not.
     private static final Pattern PROGRESS = Pattern.compile(
@@ -73,7 +73,11 @@ public class UssdAccessibilityService extends AccessibilityService {
     // While a transaction runs, also look at the USSD window this often
     private static final long POLL_MS = 30;
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    // The USSD window is read on its OWN thread, never the main thread. Reading it walks the window tree
+    // many times a second; on the main thread that starved the app's screen ("isn't responding").
+    private volatile android.os.HandlerThread scanThread;
+    private volatile Handler handler;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable scan = new Runnable() {
         @Override public void run() { scanNow(); }
     };
@@ -107,7 +111,7 @@ public class UssdAccessibilityService extends AccessibilityService {
             s.cachedFor = "";
             s.pendingText = "";
             s.handler.removeCallbacks(s.poll); // never run two polling loops at once
-            s.handler.post(new Runnable() {
+            s.mainHandler.post(new Runnable() {
                 @Override public void run() { s.keyboardHidden(true); }
             });
             s.handler.post(s.poll);
@@ -122,12 +126,11 @@ public class UssdAccessibilityService extends AccessibilityService {
             s.handler.removeCallbacks(s.scan);
             s.cachedBox = null;
             s.cachedSend = null;
-            s.handler.post(new Runnable() {
+            s.mainHandler.post(new Runnable() {
                 @Override public void run() { s.keyboardHidden(false); }
             });
         }
     }
-
     // True if a "USSD code running" window was seen since the last value was sent
     public static boolean sawProgress() {
         return progressSeen;
@@ -147,11 +150,19 @@ public class UssdAccessibilityService extends AccessibilityService {
         }
     }
 
-    @Override protected void onServiceConnected() { instance = this; }
+    @Override protected void onServiceConnected() {
+        android.os.HandlerThread t = new android.os.HandlerThread("ab-ussd-scan");
+        t.start();
+        scanThread = t;
+        handler = new Handler(t.getLooper());
+        instance = this;
+    }
     @Override public void onInterrupt() {}
     @Override public boolean onUnbind(android.content.Intent i) {
         keyboardHidden(false);
         instance = null;
+        android.os.HandlerThread t = scanThread;
+        if (t != null) t.quitSafely();
         return super.onUnbind(i);
     }
 

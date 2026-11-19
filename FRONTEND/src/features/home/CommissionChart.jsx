@@ -6,11 +6,13 @@ function scale(max) {
   if (!(max > 0)) return { top: 40, step: 10 }
   const rough = max / 4
   const mag = Math.pow(10, Math.floor(Math.log10(rough)))
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rough)
+  let step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rough)
+  step = Math.max(1, step) // never finer than KES 1, so small values do not get crowded labels
   return { top: step * Math.ceil(max / step), step }
 }
 
-const short = (v) => (v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(Math.round(v)))
+const short = (v) =>
+  v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : Number.isInteger(v) ? String(v) : String(+v.toFixed(1))
 const val = (v) => Math.max(0, Number(v) || 0)
 
 const curve = (pts) =>
@@ -49,10 +51,10 @@ export function GlowChart({ series = [], labels = [], upto = -1, highlight = -1,
   const ticks = []
   for (let v = 0; v <= top + 1e-9; v += step) ticks.push(v)
 
-const padL = 36
-const padR = 16
-const padT = 24
-const padB = 18
+const padL = 32
+const padR = 14
+const padT = 22
+const padB = 22
   const inset = 12
   const cw = Math.max(10, w - padL - padR)
   const ch = Math.max(10, h - padT - padB)

@@ -198,6 +198,25 @@ const HOME_EXTRA = `
   }
   .hm-bal.tok.expired .hm-exp-title { font-size: 20px; font-weight: 800; color: #fff !important; line-height: 1.1; }
 
+  /* Daily commissions: give the chart enough height so it is not squeezed */
+  .hm-page .hm-card.hm-chart { height: 190px !important; display: flex !important; flex-direction: column !important; }
+
+  /* Top bar: the Advanced Mode button no longer takes space from the name. It sits slightly lower, above the eye icon. */
+  .topbar .topbar-actions {
+    position: relative !important; flex: 0 0 0 !important;
+    width: 0 !important; min-width: 0 !important; overflow: visible !important;
+  }
+  .topbar .mode-stack {
+    position: absolute !important; right: 0 !important; top: 50% !important;
+    transform: translateY(calc(-50% + 14px)) !important; white-space: nowrap;
+  }
+  .topbar .greeting { flex: 1 1 auto !important; min-width: 0 !important; }
+  .topbar .greet-line { flex-wrap: wrap !important; }
+  .topbar .greet-name {
+    white-space: normal !important; overflow: visible !important;
+    text-overflow: clip !important; max-width: none !important; overflow-wrap: anywhere;
+  }
+
 `
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -253,9 +272,9 @@ function unlimitedLeft(until, now) {
   const d = Math.floor(ms / DAY)
   const h = Math.floor((ms % DAY) / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
-  if (d >= 1) return `${d}D ${h}hrs`        // 19D 14hrs
-  if (h >= 1) return `${h}Hrs ${m}Mins`     // 12Hrs 40Mins
-  return `${m}Mins`                         // under an hour: 40Mins
+  if (d >= 1) return `${d}D ${h}Hrs`        // 19D 14Hrs
+  if (h >= 1) return `${h}Hrs ${m}Min`      // 12Hrs 40Min
+  return `${m}Min`                          // under an hour: 40Min
 }
 // Line icons for the new actions (same style as the copy icon)
 const ICONS = {

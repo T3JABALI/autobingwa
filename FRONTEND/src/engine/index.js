@@ -410,7 +410,10 @@ export async function importNative() {
   importing = true
   let changed = 0
   try {
-    const st = await AutoBingwa.nativeState()
+    const st = await Promise.race([
+      AutoBingwa.nativeState(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('native state timed out')), 20000)),
+    ])
     applyNativeCharges(st.chargesTotal)
     const list = (st.transactions || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
     // Nothing new or changed since the last check: do no work at all
@@ -457,7 +460,10 @@ export async function importNative() {
     if (items.length) {
       try {
         await whenSaved() // only after the database has really stored them
-        await AutoBingwa.nativeAck({ items })
+        await Promise.race([
+          AutoBingwa.nativeAck({ items }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('native ack timed out')), 20000)),
+        ])
       } catch (e) {
         acked = false
         console.error('AB native ack', e)

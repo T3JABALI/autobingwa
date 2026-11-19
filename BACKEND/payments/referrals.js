@@ -72,6 +72,13 @@ export function mountReferralRoutes({ app, pool, sbAdmin }) {
       } catch (e) { res.status(500).json({ error: 'Could not check the code.' }) }
     })
 
+  // Called by the app after login, so a new agent is tied to their referrer straight away
+  app.post('/referral/attach', requireAppUser, async (req, res) => {
+    try {
+      await attach(pool, req.user)
+      res.json({ ok: true })
+    } catch (e) { res.status(500).json({ error: 'Could not attach.' }) }
+  })
   // The app reports a bought Unlimited Weekly / Monthly token here (airtime or M-Pesa).
   // One reward per purchase: the key below is unique, so reporting twice changes nothing.
   app.post('/referral/report',

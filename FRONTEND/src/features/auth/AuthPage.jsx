@@ -5,6 +5,16 @@ import './auth.css';
 
 const isPin = (p) => /^\d{5}$/.test(p);
 const API = (import.meta.env.VITE_TOKEN_API || '').replace(/\/+$/, '')
+
+// Ties a new agent to the referral code they signed up with. Silent: it never blocks or shows an error.
+async function attachReferral() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session && data.session.access_token;
+    if (!token || !API) return;
+    await fetch(API + '/referral/attach', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+  } catch (e) { /* tried again at the next login */ }
+}
 const TITLES = {
   login: 'Welcome back',
   signup: 'Create account',
@@ -73,9 +83,11 @@ export default function AuthPage() {
           }
           throw new Error('Wrong email or PIN.');
         }
+        attachReferral();
       } else if (mode === 'verify') {
         const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' });
         if (error) throw new Error('Wrong or expired code. Try again.');
+        attachReferral();
       } else if (mode === 'forgot') {
         const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
         if (error) throw new Error('Could not send a code. Check the email and try again.');

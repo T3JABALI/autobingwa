@@ -109,6 +109,7 @@ const UNVERIFIED_AFTER_MS = 10 * 60000 // wait this long before a purchase can b
 const MATCH_WINDOW_MS = 6 * 3600000 // a success SMS only matches purchases from the last 6 hours
 const IS_180 = /^\*180[*#]/ // only offers whose USSD starts with *180
 const PENDING_MAX_TRIES = 2 // retries after "sent, no answer". Each one risks a double purchase, so keep it small
+const RUN_LIMIT_MS = 5 * 60000 // one USSD run may never hold the queue longer than this
 // Per-offer settings win; Default / blank falls back to the app-wide setting
 const modeOf = (offer, fallback) => (offer && (offer.type === 'Express' || offer.type === 'Advanced') ? offer.type : fallback)
 const slotOf = (offer) => (offer && offer.execSim === 'SIM 1' ? 0 : offer && offer.execSim === 'SIM 2' ? 1 : null)
@@ -519,7 +520,13 @@ export function createEngine({
       attempt += 1
       const w = arm(tx)
       try {
-        result = await bridge.runUssd({ ussd: tx.ussd, phone: tx.phone, mode, offer, slot })
+        result = await Promise.race([
+          bridge.runUssd({ ussd: tx.ussd, phone: tx.phone, mode, offer, slot }),
+          new Promise((resolve) => setTimeout(() => resolve({
+            ok: false, status: 'no_reply', responses: [],
+            message: 'The phone did not answer in time and the request was cut off. Check the customer before retrying.',
+          }), RUN_LIMIT_MS)),
+        ])
       } catch (err) {
         result = { ok: false, status: 'error', responses: [{ input: '-', text: String(err && err.message ? err.message : err) }] }
       }

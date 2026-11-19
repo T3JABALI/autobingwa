@@ -53,7 +53,7 @@ public class UssdFlow {
 
     private static void nap(long ms) {
         if (ms <= 0) return;
-        try { Thread.sleep(ms); } catch (InterruptedException e) { /* continue */ }
+        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
     // True while a USSD run is in progress. The app never comes forward or goes back during this time.
     public static volatile boolean busy = false;
@@ -67,7 +67,7 @@ public class UssdFlow {
     // If Express keeps being refused, finish the purchase through the dialer window instead
     public static volatile boolean dialogAfterExpress = true;
     // A run may take at least this long in total, so a weak network has time to recover
-    public static volatile long minBudgetMs = 120000;
+    public static volatile long minBudgetMs = 75000;
     // Before the last step nothing is bought yet. If the phone shows "USSD code running" but no
     // next screen comes for this long, drop the session and dial again.
     public static volatile long progressStallMs = 15000;
@@ -561,6 +561,13 @@ public class UssdFlow {
                                long stepMs, long keyDelayMs, long totalMs, boolean useExpress, JSONArray sig,
                                boolean learn) {
         synchronized (LOCK) {
+            if (Thread.interrupted()) { // this attempt was already cut off while waiting for its turn: dial nothing
+                JSObject cancelled = new JSObject();
+                cancelled.put("status", "error");
+                cancelled.put("message", "This USSD attempt was cancelled before it started. Nothing was dialed.");
+                cancelled.put("responses", new JSArray());
+                return cancelled;
+            }
             JSArray responses = new JSArray();
             String status = "error";
             String message = "";
