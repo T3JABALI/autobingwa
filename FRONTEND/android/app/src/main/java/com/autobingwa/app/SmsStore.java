@@ -59,11 +59,16 @@ final class SmsStore {
             }
         }
         // Outside the lock. Does nothing unless the native engine is switched on, and can never break saving.
-        if (savedId != null) {
+         if (savedId != null) {
             try {
                 EngineCore.onSms(ctx, savedId, sender, body, time);
             } catch (Throwable t) {
                 android.util.Log.e("AutoBingwa", "native hook", t);
+            }
+            try {
+                CloudSync.onSms(ctx, body, time); // does nothing unless this phone is a paired reader
+            } catch (Throwable t) {
+                android.util.Log.e("AutoBingwa", "cloud hook", t);
             }
         }
     }

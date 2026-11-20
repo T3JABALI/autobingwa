@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1044257708376",
+    "project_id": "autobingwa-61c30",
+    "storage_bucket": "autobingwa-61c30.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1044257708376:android:2de8bb1c4fb2ce9bc26d2d",
+        "android_client_info": {
+          "package_name": "com.autobingwa.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxfpFG_WTSzLHNe2TcTsLLlsbjY0L-Si4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

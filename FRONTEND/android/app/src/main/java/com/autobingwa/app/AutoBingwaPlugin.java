@@ -148,7 +148,8 @@ static volatile long lastPortalBeat = 0;
             return;
         }
         try {
-            EngineStore.save(getContext(), json);
+                     EngineStore.save(getContext(), json);
+            CloudSync.syncAmounts(getContext());
             call.resolve();
         } catch (Exception e) {
             call.reject("Could not save the copy: " + e.getMessage());
@@ -810,5 +811,81 @@ public void stopKeepAlive(PluginCall call) {
     public void setUssdSettings(PluginCall call) {
         UssdFlow.apply(call.getData());
         call.resolve();
+    }
+
+    // ---------- Push (FCM) ----------
+    static void pokeJob() {
+        AutoBingwaPlugin p = instance;
+        if (p != null) p.notifyListeners("jobPush", new JSObject());
+    }
+
+    static void pokeToken() {
+        AutoBingwaPlugin p = instance;
+        if (p != null) p.notifyListeners("pushToken", new JSObject());
+    }
+
+    // This phone's push address, to be sent to the backend with the heartbeat
+    @PluginMethod
+    public void getPushToken(final PluginCall call) {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken()
+                .addOnCompleteListener(new com.google.android.gms.tasks.OnCompleteListener<String>() {
+                    @Override
+                    public void onComplete(com.google.android.gms.tasks.Task<String> task) {
+                        JSObject out = new JSObject();
+                        String t = (task.isSuccessful() && task.getResult() != null) ? task.getResult() : "";
+                        if (!t.isEmpty()) {
+                            getContext().getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE)
+                                .edit().putString("fcm_token", t).apply();
+                        }
+                        out.put("token", t);
+                        call.resolve(out);
+                    }
+                });
+        } catch (Exception e) {
+            call.reject("Push is not set up: " + e.getMessage());
+        }
+    }
+
+    // Jobs that arrived by push and are waiting to be handled
+    @PluginMethod
+    public void peekPushJobs(PluginCall call) {
+        JSObject out = new JSObject();
+        try {
+            out.put("jobs", new JSArray(PushJobs.peek(getContext()).toString()));
+        } catch (JSONException e) {
+            out.put("jobs", new JSArray());
+        }
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void ackPushJobs(PluginCall call) {
+        JSArray ids = call.getArray("ids");
+        if (ids != null) PushJobs.ack(getContext(), ids);
+        call.resolve();
+    }
+
+    // ---------- Connect backend ----------
+    @PluginMethod
+    public void saveCloudDevice(PluginCall call) {
+        String id = call.getString("deviceId", "");
+        String secret = call.getString("secret", "");
+        if (id == null || id.isEmpty() || secret == null || secret.isEmpty()) {
+            call.reject("Device id and secret are required");
+            return;
+        }
+        CloudSync.saveDevice(getContext(), id, secret, call.getString("role", "dialer"));
+        CloudSync.beat(getContext());
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void cloudStatus(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("paired", CloudSync.paired(getContext()));
+        out.put("outbox", CloudSync.outboxSize(getContext()));
+                out.put("role", CloudSync.role(getContext()));
+        call.resolve(out);
     }
 }

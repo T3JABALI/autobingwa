@@ -331,8 +331,9 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
                     }
                     o.put("rev", o.optLong("rev", 1) + 1);
                 } catch (Exception e) {
-                    Log.e(TAG, "update", e);
+                           Log.e(TAG, "update", e);
                 }
+                CloudSync.onTx(c, o);
                 save(c, a);
                 return o;
             }
@@ -638,6 +639,7 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
                             Log.e(TAG, "native process", e);
                             diag(c, "process error for " + next.optString("phone") + ": " + e);
                             update(c, next.optString("id"), obj("status", "Failed", "completedAt", System.currentTimeMillis(),
+                                "outcome", "pending",
                                 "responses", new JSONArray().put(resp("-",
                                     "The native engine hit an error. Check your balance, then retry. " + e))));
                             Notifier.alert(c, "idle", "", "");
@@ -680,7 +682,9 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
                         o.put("rev", o.optLong("rev", 1) + 1);
                         o.put("completedAt", System.currentTimeMillis());
                         o.put("responses", new JSONArray().put(resp("-",
-                            "The app closed while this was processing. Check your balance, then retry.")));
+                                           "The app closed while this was processing. Check your balance, then retry.")));
+                        o.put("outcome", "pending");
+                        CloudSync.onTx(c, o);
                         n++;
                     } catch (Exception ignored) { }
                 }
@@ -1064,7 +1068,8 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
         }
 
         // Step 4 will start the backup offer here. For now the reason is recorded so nothing is lost.
-        JSONObject patch = obj("status", ok ? "Completed" : "Failed", "completedAt", end);
+        JSONObject patch = obj("status", ok ? "Completed" : "Failed", "completedAt", end,
+            "outcome", ok ? "ok" : kind);
         if (!ok) {
             String trigger = alreadyRec ? "recommended" : "failed".equals(kind) ? "failed" : "";
             if (!trigger.isEmpty()) patch.put("fallbackTrigger", trigger);
@@ -1131,7 +1136,9 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
             "isFallback", true, "fallbackDepth", depth, "fallbackChain", newChain,
             "fallbackNote", note, "fallbackTrigger", trigger, "fallbackFromId", tx.optString("id"),
             "fallbackFromName", offer.optString("name", ""), "fallbackNotify", m.optBoolean("notify", false),
-            "fallbackPending", wait, "delayMin", delayMin, "engine", "native");
+            "fallbackPending", wait, "delayMin", delayMin, "engine", "native",
+            "cloudJobId", tx.optString("cloudJobId", ""),
+            "autoRescheduled", !tx.optString("cloudJobId", "").isEmpty());
         add(c, fb);
         return fb;
     }
@@ -1205,6 +1212,65 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
             }
             if (changed) save(c, a);
         }
+    }
+
+    // ---------- Jobs from the cloud (Connect reader -> backend -> this phone) ----------
+    static boolean hasCloudJob(Context c, String jobId) {
+        synchronized (LOCK) {
+            JSONArray a = load(c);
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o != null && jobId.equals(o.optString("cloudJobId", ""))) return true;
+            }
+            return false;
+        }
+    }
+
+    // null when this phone may take a cloud job now, otherwise the reason it may not
+    static String cloudBlocker(Context c) {
+        if (!owns(c)) return "the background engine is switched off";
+        if (!running(c)) return "automation is paused";
+        if (!hasToken(c)) return "no tokens left";
+        return null;
+    }
+
+    static void note(Context c, String line) { diag(c, line); }
+
+    // Returns null when the transaction was created. Otherwise { result, message } to report back:
+    // rejected = no offer here (the backend reassigns), unclear = the owner checks, failed = nothing was bought.
+    static String[] ingestCloud(Context c, String jobId, String code, double amount, String rawPhone) {
+        String clean = code == null ? "" : code.trim().toUpperCase(Locale.US);
+        if (clean.isEmpty() || amount <= 0) return new String[] { "failed", "The job had no code or amount." };
+        if (hasCode(c, clean)) {
+            return new String[] { "unclear", "This payment code was already handled on this phone. Check the customer before retrying." };
+        }
+        EngineRules.Phone n = EngineRules.normalizePhone(rawPhone);
+        String phone = n != null ? n.phone : (rawPhone == null ? "" : rawPhone.trim());
+        if (phone.isEmpty()) return new String[] { "failed", "The job had no customer number." };
+
+        JSONObject snap = EngineStore.snapshot(c);
+        long now = System.currentTimeMillis();
+        EngineRules.Pick hit = EngineRules.pickOffer(snap.optJSONArray("offers"), amount, now);
+        if (hit == null) return new String[] { "rejected", "No offer for KES " + money(amount) + " on this phone." };
+        JSONObject offer = hit.offer;
+        boolean verified = offer.optBoolean("smart", false)
+            || (offer.has("signature") && !offer.isNull("signature") && !Boolean.FALSE.equals(offer.opt("signature")))
+            || offer.optBoolean("sigEnabled", false);
+
+        JSONObject tx = obj(
+            "id", clean + "-" + now, "mpesaId", clean, "name", "", "phone", phone,
+            "account", "", "messageType", "direct", "blacklisted", false, "amount", amount,
+            "rawMessage", "Cloud job " + jobId, "status", running(c) ? "Pending" : "Paused",
+            "offerId", offer.opt("id"),
+            "fallbackOf", hit.primary != null ? hit.primary.opt("id") : JSONObject.NULL,
+            "offerName", offer.optString("name", ""),
+            "ussd", EngineRules.fillPhone(offer.optString("ussd", ""), phone),
+            "verified", verified, "cost", offer.optDouble("safPrice", 0),
+            "attempts", 0, "responses", new JSONArray(), "createdAt", now,
+            "engine", "native", "cloudJobId", jobId, "autoRescheduled", true);
+        add(c, tx);
+        pump(c);
+        return null;
     }
 
     private static void failNow(Context c, String id, String label, String text) {

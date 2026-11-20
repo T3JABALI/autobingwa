@@ -175,6 +175,8 @@ export function startSmsBridge(engine) {
     const { items } = await AutoBingwa.peekSms()
     // If this fails the pass stops and tries again in 5 seconds. Never guess who owns a payment.
     const own = await AutoBingwa.nativeOwner()
+        const cloud = await safe(() => AutoBingwa.cloudStatus())
+    const isReader = Boolean(cloud && cloud.role === 'reader')
     const done = []
     for (const m of items) {
       try {
@@ -192,7 +194,8 @@ export function startSmsBridge(engine) {
         } else if (!isPayment && total === null && engine.lateSms(m.body)) {
           console.log('AB second response used')
         } else if (total === null && fromMpesa(m.sender)) {
-          if (own.owner && m.time >= own.since) console.log('AB the background engine owns this payment')
+          if (isReader) console.log('AB reader phone: payment goes to the cloud, not dialed here')
+          else if (own.owner && m.time >= own.since) console.log('AB the background engine owns this payment')
           else engine.ingest(m.body)
         }
         done.push(m.id)

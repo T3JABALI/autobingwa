@@ -30,6 +30,7 @@ public class KeepAliveService extends Service {
     private static final long FRESH_MS = 10L * 60 * 1000;    // only messages newer than this can wake the app
     private ScheduledExecutorService scanner;
     private ScheduledExecutorService pinger; // separate thread, so a slow network never delays the payment scan
+        private ScheduledExecutorService cloud;  // heartbeat to the Connect backend
     private PowerManager.WakeLock wake;
     private int ticks = 0; // counts scans, one every 10 seconds
     private String lastKey = "";
@@ -357,6 +358,13 @@ String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitin
                 public void run() { syncPortal(); }
             }, 3, 15, TimeUnit.SECONDS);
         }
+         if (cloud == null) {
+            cloud = Executors.newSingleThreadScheduledExecutor();
+            cloud.scheduleWithFixedDelay(new Runnable() {
+                @Override
+                public void run() { CloudSync.beat(getApplicationContext()); }
+            }, 4, 15, TimeUnit.SECONDS);
+        }
         return START_STICKY;
     }
 
@@ -374,9 +382,13 @@ String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitin
             scanner.shutdownNow();
             scanner = null;
         }
-        if (pinger != null) {
+          if (pinger != null) {
             pinger.shutdownNow();
             pinger = null;
+        }
+        if (cloud != null) {
+            cloud.shutdownNow();
+            cloud = null;
         }
         try {
             if (wake != null && wake.isHeld()) wake.release();
