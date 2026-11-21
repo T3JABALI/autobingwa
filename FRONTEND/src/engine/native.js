@@ -224,7 +224,7 @@ export function startSmsBridge(engine) {
         } else if (total === null && fromMpesa(m.sender)) {
           if (isReader) console.log('AB reader phone: payment goes to the cloud, not dialed here')
           else if (own.owner && m.time >= own.since) console.log('AB the background engine owns this payment')
-          else engine.ingest(m.body)
+          else engine.ingest({ body: m.body, time: m.time })
         }
         done.push(m.id)
       } catch (err) {

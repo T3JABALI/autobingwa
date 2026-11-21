@@ -21,16 +21,25 @@ function read(key, fallback) {
   }
 }
 
+// Many changes in a burst (a batch of payments, a backlog being worked through) tell the screens only once per 150 ms.
+// Without this, every single change redraws every screen, which freezes the app when many transactions are queued.
+let tellTimer = null
+const tell = () => {
+  if (tellTimer) return
+  tellTimer = setTimeout(() => {
+    tellTimer = null
+    window.dispatchEvent(new Event(EVENT))
+  }, 150)
+}
+
 function write(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
   } catch (e) {
     console.error('Could not save ' + key, e)
   }
-  window.dispatchEvent(new Event(EVENT))
+  tell()
 }
-
-const tell = () => window.dispatchEvent(new Event(EVENT))
 
 // Pages call this to be told whenever the data changes.
 export function subscribe(listener) {
@@ -255,15 +264,18 @@ export function addTransaction(data) {
 }
 
 export function updateTransaction(id, patch) {
-  const old = cache.find((t) => t.id === id)
-  if (!old) return
+  const at = cache.findIndex((t) => t.id === id)
+  if (at < 0) return
+  const old = cache[at]
   const next = { ...old, ...patch }
   if (patch.status === 'Completed' && old.status !== 'Completed') {
     next.completedAt = Date.now()
     applyCompletion(next)
   }
   if (patch.status && patch.status !== old.status) announce(next)
-  cache = cache.map((t) => (t.id === id ? next : t))
+  const copy = cache.slice() // a new array, so screens redraw
+  copy[at] = next
+  cache = copy
   persist([next])
   tell()
 }

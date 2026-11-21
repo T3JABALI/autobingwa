@@ -172,6 +172,7 @@ export function createEngine({
     const status = skipReason ? 'Skipped' : !offer ? 'Unmatched' : running ? 'Pending' : 'Paused'
     const tx = store.add({
       id: `${p.code || 'MSG'}-${now()}`,
+            smsAt: (sms && typeof sms === 'object' && Number(sms.time) > 0) ? Number(sms.time) : now(), // when the SMS arrived: this decides the queue order
       mpesaId: p.code,
       name: p.name,
       phone: p.phone,
@@ -413,6 +414,7 @@ export function createEngine({
     const note = `Fallback for ${offer.name}: ${FB_LABEL[trigger]}`
     const fb = store.add({
       id: `${tx.mpesaId || 'FB'}-FB${depth}-${now()}`,
+            smsAt: tx.smsAt || tx.createdAt,
       mpesaId: tx.mpesaId,
       name: tx.name,
       phone: tx.phone,
@@ -677,8 +679,8 @@ export function createEngine({
           .filter((t) => t.status === 'Pending'
             && (running || force || manual.has(t.id))
             && (!fbWaiting || t.isFallback))
-          // a backup (fallback) goes before any other waiting payment, so the customer is finished first
-          .sort((a, b) => (b.isFallback ? 1 : 0) - (a.isFallback ? 1 : 0) || a.createdAt - b.createdAt)[0]
+          // first come, first served: by the time the payment SMS arrived. A backup (fallback) keeps its original customer's place.
+          .sort((a, b) => (a.smsAt || a.createdAt) - (b.smsAt || b.createdAt) || a.createdAt - b.createdAt)[0]
         if (!next) break
         await process(next)
         manual.delete(next.id)

@@ -443,12 +443,10 @@ export async function importNative() {
     }
     // Tell the background engine which finished transactions are now safely saved,
     // so it never throws away one the app has not saved yet
-    const FINISHED = ['Completed', 'Failed', 'Skipped', 'Unmatched']
-    const savedById = new Map(loadTransactions().map((t) => [t.id, t]))
-    const items = []
-    for (const nt of list) {
-      if (!FINISHED.includes(nt.status)) continue
-      const rev = Number(nt.rev) || 1
+const savedById = new Map(loadTransactions().map((t) => [t.id, t]))
+const items = []
+for (const nt of list) {
+  const rev = Number(nt.rev) || 1
       if (Number(nt.appRev) >= rev) continue // already acknowledged
       const mine = savedById.get(nt.id)
       const safe = mine

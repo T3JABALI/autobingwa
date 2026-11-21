@@ -11,14 +11,16 @@ final class EngineStore {
     private static final String KEY = "snapshot";
     private static final String KEY_AT = "syncedAt";
     private static final Object LOCK = new Object();
-
+    private static final Object DISK = new Object();
+    private static JSONObject cached = null; // the parsed copy, kept in memory so it is not read from disk and parsed on every call
     private EngineStore() {}
 
     // Saves the app's copy. Throws if it is not valid, so a broken copy never replaces a good one.
     static void save(Context ctx, String json) throws Exception {
         JSONObject check = new JSONObject(json);
         if (!(check.opt("offers") instanceof JSONArray)) throw new Exception("the copy has no offers list");
-        synchronized (LOCK) {
+        synchronized (LOCK) { cached = check; } // readers see the new copy at once
+        synchronized (DISK) { // the slow disk write no longer makes the payment queue wait
             ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
                 .putString(KEY, json)
                 .putLong(KEY_AT, System.currentTimeMillis())
@@ -28,9 +30,12 @@ final class EngineStore {
 
     static JSONObject snapshot(Context ctx) {
         synchronized (LOCK) {
+            if (cached != null) return cached;
             try {
                 SharedPreferences sp = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE);
-                return new JSONObject(sp.getString(KEY, "{}"));
+                JSONObject parsed = new JSONObject(sp.getString(KEY, "{}"));
+                if (parsed.length() > 0) cached = parsed;
+                return parsed;
             } catch (Exception e) {
                 return new JSONObject();
             }

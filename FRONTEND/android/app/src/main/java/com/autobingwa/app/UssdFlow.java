@@ -206,8 +206,8 @@ public class UssdFlow {
     }
     // ---------- Remembering which SIM refuses Express ----------
     private static final String PREFS = "autobingwa_ussd";
-    private static final int BLOCK_AFTER = 2;               // refused runs in a row before Express is skipped
-    private static final long REPROBE_MS = 3L * 3600000;    // try Express again after this long
+    private static final int BLOCK_AFTER = 4;               // refused runs in a row before Express is skipped
+    private static final long REPROBE_MS = 10L * 60000;     // try Express again after this long
 
     private static boolean skipExpress(Context ctx, int slot) {
         SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);

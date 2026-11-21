@@ -55,7 +55,7 @@ final class EngineCore {
     // One USSD attempt may run its own timeout plus this much longer before it is cut off.
     private static final long ATTEMPT_GRACE_MS = 30_000;
     // One payment (all its retries) may use this long. No retry starts if it could not finish inside it.
-    private static final long TX_BUDGET_MS = 2 * 60_000;
+    private static final long TX_BUDGET_MS = 4 * 60_000;
         // The longest one USSD attempt may take. Settings can override it with "ussdTimeoutSec".
     private static final long DEFAULT_USSD_TIMEOUT_SEC = 40;
     private static volatile Thread lastUssdThread = null;
@@ -347,23 +347,27 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
     // Finished rows the app has already saved are NOT sent again. At most 300 finished rows go in one call,
     // oldest first; the app asks again every 3 seconds, so a big backlog arrives in pieces.
     private static final int MAX_SYNC = 300;
-
+private static final int MAX_OPEN = 100;
     static JSONObject state(Context c) {
         synchronized (LOCK) {
             JSONArray log = new JSONArray();
             try { log = new JSONArray(sp(c).getString("diag", "[]")); } catch (Exception ignored) { }
             JSONArray a = load(c);
             JSONArray out = new JSONArray();
-            int finished = 0;
+         int finished = 0;
+int opened = 0;
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.optJSONObject(i);
                 if (o == null) continue;
-                boolean open = !terminal(o.optString("status"));
-                if (!open) {
-                    if (saved(o)) continue;
-                    if (finished >= MAX_SYNC) continue;
-                    finished++;
-                }
+boolean open = !terminal(o.optString("status"));
+if (saved(o)) continue; // the app already has this exact revision
+if (open) {
+    if (opened >= MAX_OPEN) continue;
+    opened++;
+} else {
+    if (finished >= MAX_SYNC) continue;
+    finished++;
+}
                 try { out.put(new JSONObject(o.toString())); } catch (Exception ignored) { }
             }
             return obj("owner", owns(c), "running", running(c),
@@ -448,13 +452,13 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
             String letters = (sender == null ? "" : sender).toLowerCase().replaceAll("[^a-z]", "");
             if (!letters.contains("mpesa")) return;
             if (time < ownerSince(c)) return; // older payments stay with the app's engine
-            ingest(c, text);
+                        ingest(c, text, time);
         } catch (Exception e) {
             Log.e(TAG, "native onSms", e);
         }
     }
 
-    private static void ingest(Context c, String body) {
+    private static void ingest(Context c, String body, long smsTime) {
         EngineRules.Mpesa p = EngineRules.parseMpesa(body);
         if (!p.ok || p.code.isEmpty()) return;
         if (hasCode(c, p.code)) return;
@@ -508,6 +512,7 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
             "verified", verified,
             "cost", offer == null ? 0 : offer.optDouble("safPrice", 0),
             "attempts", 0, "responses", new JSONArray(), "createdAt", now,
+            "smsAt", smsTime > 0 ? smsTime : now,
             "engine", "native");
              add(c, tx);
         saveCustomerContact(c, cfg, p, blacklisted);
@@ -756,7 +761,11 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
         }
     }
 
-    // A backup (fallback) goes before any other waiting payment; otherwise the oldest goes first.
+    // The payment whose SMS arrived first goes first. A backup (fallback) keeps its original customer's place.
+    private static long orderKey(JSONObject o) {
+        long k = o.optLong("smsAt", 0);
+        return k > 0 ? k : o.optLong("createdAt", 0);
+    }
     // While a fallback is still waiting out its delay, no other payment may start.
     // Returns a copy, so the worker never reads a row that another thread is changing.
     private static JSONObject oldestPending(Context c) {
@@ -774,10 +783,7 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
                 if (o == null || !"Pending".equals(o.optString("status"))) continue;
                 if (fbWaiting && !o.optBoolean("isFallback", false)) continue;
                 if (best == null) { best = o; continue; }
-                boolean oFb = o.optBoolean("isFallback", false);
-                boolean bestFb = best.optBoolean("isFallback", false);
-                if (oFb && !bestFb) best = o;
-                else if (oFb == bestFb && o.optLong("createdAt", 0) < best.optLong("createdAt", 0)) best = o;
+                if (orderKey(o) < orderKey(best)) best = o;
             }
             if (best == null) return null;
             try {
@@ -1059,7 +1065,7 @@ stepMs = Math.min(stepMs, hardMs);
             }
             // 2) otherwise Safaricom's SMS decides
             if (conf == null && resultOk) {
-                conf = awaitConfirm(w, confirmMs);
+                conf = awaitConfirm(w, connAfterSend ? Math.min(confirmMs, 10_000) : confirmMs);
                 if (conf != null) smsText = w.text;
             } else {
                 disarm(w);
@@ -1071,9 +1077,12 @@ stepMs = Math.min(stepMs, hardMs);
                 ok = "success".equals(conf.status);
                 if (!smsText.isEmpty()) rs.put(resp("SMS", smsText));
                 kind = ok ? "ok" : conf.reason != null ? "stop" : "failed";
-            } else if ("sig_mismatch".equals(status) || "wrong_path".equals(status) || message.toLowerCase().contains("accessibility")) {
-                kind = "stop";
-            } else if ("no_reply".equals(status) || resultOk) {
+} else if (connAfterSend) {
+    kind = "conn";
+    rs.put(resp("-", "Connection problem screen and no success SMS came back."));
+} else if ("sig_mismatch".equals(status) || "wrong_path".equals(status) || message.toLowerCase().contains("accessibility")) {
+    kind = "stop";
+} else if ("no_reply".equals(status) || resultOk) {
                 kind = "pending";
                 rs.put(resp("-", "No final reply or success message came back. Check the customer before retrying."));
             } else {
@@ -1081,7 +1090,7 @@ stepMs = Math.min(stepMs, hardMs);
             }
 
             update(c, id, obj("attempts", attempt, "responses", rs));
-            boolean again = ("failed".equals(kind) && retryFailed) || ("pending".equals(kind) && retryPending);
+            boolean again = ("failed".equals(kind) && retryFailed) || ("pending".equals(kind) && retryPending) || "conn".equals(kind);
             if ("ok".equals(kind) || !again || attempt > maxRetries) break;
             // One payment may not hold the queue for ever: no retry starts if it could not finish inside the time budget
             long spent = System.currentTimeMillis() - t0;
@@ -1101,7 +1110,7 @@ stepMs = Math.min(stepMs, hardMs);
             }
             Thread.sleep(retryMs);
         }
-
+if ("conn".equals(kind)) kind = "pending"; // still unknown after the last try: the owner must check, no backup offer
         charge(c); // the engine dialed: one token, whatever the outcome
         // Fallback: only after a DEFINITE failure (all retries used) or "already recommended".
         // A timeout or no reply may have sold, so it never triggers a backup.
@@ -1203,6 +1212,7 @@ stepMs = Math.min(stepMs, hardMs);
             "fallbackNote", note, "fallbackTrigger", trigger, "fallbackFromId", tx.optString("id"),
             "fallbackFromName", offer.optString("name", ""), "fallbackNotify", m.optBoolean("notify", false),
             "fallbackPending", wait, "delayMin", delayMin, "engine", "native",
+                        "smsAt", tx.optLong("smsAt", tx.optLong("createdAt", now)),
             "cloudJobId", tx.optString("cloudJobId", ""),
             "autoRescheduled", !tx.optString("cloudJobId", "").isEmpty());
         add(c, fb);
