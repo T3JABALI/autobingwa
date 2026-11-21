@@ -61,7 +61,9 @@ public class UssdFlow {
     // ---------- weak network settings ----------
     // How many times a run may be dialed AGAIN when the network dropped it before the last step was sent.
     // Dialing again is only ever done while nothing has been bought.
-    public static volatile int redials = 5;
+    public static volatile int redials = 1;
+        // False = never dial or send again on our own. The native engine sets this per payment.
+    public static volatile boolean allowRetry = true;
     // Express: how many extra tries when the network refuses the request
     public static volatile int expressRetries = 2;
     // If Express keeps being refused, finish the purchase through the dialer window instead
@@ -178,7 +180,7 @@ public class UssdFlow {
         String status;
         String message = "";
         try {
-            boolean got = latch.await(Math.max(totalMs, 20000), TimeUnit.MILLISECONDS);
+            boolean got = latch.await(totalMs, TimeUnit.MILLISECONDS);
             if (!got) {
                 status = "no_reply";
                 message = "Express request was sent but no answer came back. Check the confirmation SMS before retrying.";
@@ -253,7 +255,7 @@ public class UssdFlow {
                                                 long totalMs, long budgetMs, long started) {
         JSObject last = null;
         long pause = 1500;
-        for (int a = 0; a <= expressRetries; a++) {
+        for (int a = 0; a <= (allowRetry ? expressRetries : 0); a++) {
             if (a > 0) {
                 if (budgetMs - (System.currentTimeMillis() - started) < 10000) break;
                 Log.d(TAG, "express refused, sending again (" + (a + 1) + ")");
@@ -573,7 +575,7 @@ public class UssdFlow {
             String message = "";
             long started = System.currentTimeMillis();
             // A weak network gets more time than the normal limit
-            final long budget = Math.max(totalMs, minBudgetMs);
+                        final long budget = Math.max(totalMs, 10_000);
             PowerManager pm = ctx.getSystemService(PowerManager.class);
             PowerManager.WakeLock cpu = null;
             PowerManager.WakeLock screen = null;
@@ -593,7 +595,7 @@ public class UssdFlow {
                         if (fast != null) {
                             boolean refused = isExpressRefusal(fast);
                             noteExpress(ctx, slot, refused);
-                            if (!refused || !canDialog) return fast;
+                            if (!refused || !canDialog || !allowRetry) return fast;
                             add(responses, "-", "The network kept refusing the Express request. Nothing was bought. Using the dialer window.");
                         }
                     }
@@ -639,7 +641,7 @@ public class UssdFlow {
                 long pause = 1000;
                 int tries = 0;
                 boolean gaveUp = false;
-final int maxRedials = learn ? 0 : redials; // learning is one pass, never dialed again
+final int maxRedials = (learn || !allowRetry) ? 0 : redials; // learning is one pass, never dialed again
 for (int attempt = 0; attempt <= maxRedials; attempt++) {
                     if (attempt > 0) {
                         clearStaleWindow();
@@ -668,13 +670,15 @@ Step r = interactiveOnce(ctx, slot, dialFirst, dialSteps, stepMs, keyDelayMs, bu
                     long left = budget - (System.currentTimeMillis() - started);
                     if (!r.safeRedial) break;      // finished, or the last step was already sent: never dial again
                     gaveUp = true;                 // safe to dial again, unless the tries or the time run out
+                                        // The saved option is not in the menu, so dialing again will not change that: one more try, then stop
+                    if ("sig_mismatch".equals(r.status) && attempt >= 1) break;
                     if (left < 15000) break;
                     // weak network: wait 2s, then 4s, then 8s. Other failures: 1s.
                     pause = r.slowNet ? Math.min(8000L, 2000L << Math.min(attempt, 2)) : 1000;
                 }
 if (gaveUp && !learn && !"complete".equals(status)) {
-                    message = (message.isEmpty() ? "The network dropped the request" : message)
-                        + ". Tried " + tries + " times. Nothing was bought.";
+                    String base = message.isEmpty() ? "The network dropped the request" : message.replaceAll("[.\\s]+$", "");
+                    message = base + ". Tried " + tries + (tries == 1 ? " time" : " times") + ". Nothing was bought.";
                 }
                 Log.d(TAG, "TIMING whole run " + (System.currentTimeMillis() - started) + "ms, status " + status + ", tries " + tries);
             } catch (Exception e) {

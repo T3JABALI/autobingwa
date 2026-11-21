@@ -4,7 +4,7 @@ export const CONFIG_KEY = 'settings:config'
 export const CLIENTS_KEY = 'clients:list'
 
 // Bump this number to push new speed defaults to phones that already saved the old ones
-const SPEED_V = 2
+const SPEED_V = 3
 
 export const DEFAULT_CONFIG = {
   bingwaSim: 'SIM 2', // receives payments, runs USSD, airtime balance and commission messages
@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG = {
   keyDelayMs: 40, // pause before typing each option
   gapMs: 400, // pause between two transactions
   retryAfterSec: 8, // wait before retrying a failed attempt
-  confirmWaitSec: 45, // wait for Safaricom's SMS if the last screen is unclear
+  confirmWaitSec: 20, // wait for Safaricom's SMS if the last screen is unclear
 }
 
 export function readJson(key, fallback) {
@@ -54,11 +54,12 @@ export function loadConfig() {
   const saved = readJson(CONFIG_KEY, {})
   // One-time upgrade of the saved speed numbers. Nothing else in the saved settings is changed.
   if (saved.speedV !== SPEED_V) {
-    const upgraded = {
+     const upgraded = {
       ...saved,
       keyDelayMs: DEFAULT_CONFIG.keyDelayMs,
       gapMs: DEFAULT_CONFIG.gapMs,
       retryAfterSec: DEFAULT_CONFIG.retryAfterSec,
+      confirmWaitSec: DEFAULT_CONFIG.confirmWaitSec,
       speedV: SPEED_V,
     }
     writeJson(CONFIG_KEY, upgraded)

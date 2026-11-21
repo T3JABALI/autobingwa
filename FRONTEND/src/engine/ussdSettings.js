@@ -22,7 +22,7 @@ export const USSD_PROFILES = {
   },
 }
 
-export const USSD_DEFAULTS = { autoRetry: false, fasten: false, ...USSD_PROFILES.quick }
+export const USSD_DEFAULTS = { autoRetry: false, fasten: false, ussdTimeoutSec: 40, ...USSD_PROFILES.quick }
 
 export function loadUssd() {
   let saved = {}

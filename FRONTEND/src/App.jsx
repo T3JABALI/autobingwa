@@ -2088,7 +2088,7 @@ if (!onboarded) return (
          <Toaster />
          <DialogHost />
          <PortalSync />
-         {activePage === 'Home' && <UpdatePrompt />}
+         <UpdatePrompt />
       <TokenGate hidden={activePage === 'Tokens'} onBuy={() => setActivePage('Tokens')} />
       {modeOpen && (
         <ModeDialog mode={mode} onSelect={changeMode} onClose={() => setModeOpen(false)} />

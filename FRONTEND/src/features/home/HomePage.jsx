@@ -1,5 +1,7 @@
-import UpdatePopup from '../updates/UpdatePopup'
+
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { BarcodeScanner, BarcodeFormat } from '@capacitor-mlkit/barcode-scanning'
 import UssdSetup from './UssdSetup.jsx'
 import {
   subscribe, loadTransactions, loadAirtime, loadWallet,
@@ -66,6 +68,7 @@ const HOME_EXTRA = `
   .hm-s-all .hm-head h2 { margin: 0; }
   .hm-s-all .hm-list { display: flex; flex-direction: column; gap: 10px; }
   .hm-s-home .hm-bigbtn.holding { filter: brightness(1.3); }
+    .hm-sec-acts { display: flex; align-items: center; gap: 6px; }
   .hm-fb { margin-left: 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: var(--primary); white-space: nowrap; }
   .hm-fbnote { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; border: 1px solid var(--border); }
   .hm-fbnote b { color: var(--primary); }
@@ -210,6 +213,31 @@ const HOME_EXTRA = `
     position: absolute !important; right: 0 !important; top: 50% !important;
     transform: translateY(calc(-50% + 14px)) !important; white-space: nowrap;
   }
+      .hm-qrbtn {
+    background: var(--primary) !important; color: var(--bg) !important;
+    width: 42px !important; height: 42px !important; border-radius: 12px !important;
+    display: grid !important; place-items: center !important;
+  }
+  .hm-qrbtn svg { width: 24px !important; height: 24px !important; stroke-width: 2.4; }
+
+  html.ab-scanning, body.ab-scanning { background: transparent !important; }
+  body.ab-scanning { visibility: hidden; }
+  .ab-scan { visibility: visible; position: fixed; inset: 0; z-index: 99999; display: flex; flex-direction: column; background: transparent; }
+  .ab-scan-bar, .ab-scan-hint, .ab-scan-foot { position: relative; z-index: 2; color: #fff; text-align: center; }
+  .ab-scan-bar {
+    display: flex; align-items: center; justify-content: space-between; background: #1b6b2a;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px; font-size: 18px; font-weight: 700;
+  }
+  .ab-scan-bar button { border: 0; background: transparent; color: #fff; font: inherit; font-size: 17px; padding: 8px 4px; cursor: pointer; }
+  .ab-scan-hint { background: rgba(0, 0, 0, 0.8); padding: 12px; font-size: 15px; font-weight: 600; }
+  .ab-scan-foot { background: rgba(0, 0, 0, 0.85); padding: 18px 12px calc(env(safe-area-inset-bottom, 0px) + 18px); font-size: 15px; }
+  .ab-scan-mid { flex: 1; display: grid; place-items: center; }
+  .ab-scan-frame { position: relative; width: min(70vw, 320px); aspect-ratio: 1; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55); }
+  .ab-scan-frame i { position: absolute; width: 34px; height: 34px; border: 0 solid #fff; }
+  .ab-scan-frame i.tl { top: -3px; left: -3px; border-top-width: 6px; border-left-width: 6px; }
+  .ab-scan-frame i.tr { top: -3px; right: -3px; border-top-width: 6px; border-right-width: 6px; }
+  .ab-scan-frame i.bl { bottom: -3px; left: -3px; border-bottom-width: 6px; border-left-width: 6px; }
+  .ab-scan-frame i.br { bottom: -3px; right: -3px; border-bottom-width: 6px; border-right-width: 6px; }
   .topbar .greeting { flex: 1 1 auto !important; min-width: 0 !important; }
   .topbar .greet-line { flex-wrap: wrap !important; }
   .topbar .greet-name {
@@ -288,6 +316,7 @@ const ICONS = {
   close: <path d="M6 6l12 12M18 6L6 18" />,
   all: <><path d="M4 7l2 2 3-3" /><path d="M4 17l2 2 3-3" /><path d="M13 8h7M13 18h7" /></>,
     xcircle: <><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></>,
+      qr: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h1" /></>,
 }
 const Ic = ({ name, size = 20 }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -365,6 +394,8 @@ export default function HomePage({
       const [limit, setLimit] = useState(200)
   const [view, setView] = useState({ name: 'home', id: null, from: 'home' })
   const [spin, setSpin] = useState(false)
+    const [scanning, setScanning] = useState(false)
+  const scanListener = useRef(null)
   const [simPick, setSimPick] = useState(null)
   const [notice, setNoticeRaw] = useState('')
   const noticeTimer = useRef(null)
@@ -560,7 +591,63 @@ export default function HomePage({
       setSpin(false)
     }
   }
+  // Reads the QR code shown in the Connect portal and links this phone to it
+  const PAIR_QR = /^autobingwa(?:-connect)?:\/\/pair\?code=([A-Za-z0-9_-]{6,64})$/
 
+  // The one place that talks to the Connect server. Returns { ok, message }.
+  async function linkWithConnect(code) {
+    // TODO: send `code` and this phone's Connect ID to the server here
+    return { ok: false, message: 'Linking is not connected to the server yet' }
+  }
+
+  async function stopScan() {
+    try {
+      if (scanListener.current) {
+        await scanListener.current.remove()
+        scanListener.current = null
+      }
+    } catch (e) { /* ignore */ }
+    try { await BarcodeScanner.stopScan() } catch (e) { /* not running */ }
+    document.documentElement.classList.remove('ab-scanning')
+    document.body.classList.remove('ab-scanning')
+    setScanning(false)
+  }
+
+  async function scanQr() {
+    setNotice('')
+    if (!isNative()) return setNotice('Scanning can only be done inside the Android app')
+    try {
+      const { supported } = await BarcodeScanner.isSupported()
+      if (!supported) return setNotice('Could not scan: this phone does not support the scanner')
+      const perm = await BarcodeScanner.requestPermissions()
+      if (perm.camera !== 'granted' && perm.camera !== 'limited') {
+        return setNotice('Could not scan: allow the camera for AutoBingwa first')
+      }
+
+      let handled = false
+      setScanning(true)
+      document.documentElement.classList.add('ab-scanning')
+      document.body.classList.add('ab-scanning')
+      scanListener.current = await BarcodeScanner.addListener('barcodesScanned', async (ev) => {
+        if (handled) return
+        const first = ev && ev.barcodes && ev.barcodes[0]
+        const m = PAIR_QR.exec(String((first && first.rawValue) || '').trim())
+        if (!m) return // not a Connect code: keep scanning
+        handled = true
+        await stopScan()
+        if (!(await confirmDialog('Link this phone to your Connect account?', { title: 'Link with Connect', confirmLabel: 'Link' }))) return
+        const r = await linkWithConnect(m[1])
+        if (!r.ok) setNotice(`Could not link: ${r.message}`)
+      })
+      await BarcodeScanner.startScan({ formats: [BarcodeFormat.QrCode] })
+    } catch (e) {
+      await stopScan()
+      const msg = String((e && e.message) || e)
+      if (/cancel/i.test(msg)) return
+      console.error('AB qr scan', e)
+      setNotice(`Could not scan: ${msg}`)
+    }
+  }
   function openDetail(id, from = 'home') {
     setOpen({})
     setNotice('')
@@ -630,6 +717,7 @@ export default function HomePage({
     useEffect(() => { setLimit(200) }, [screen, filter, range, query])
   // Phone back button: close the top layer first (pop-ups, selection), then step back one screen
   useBackHandler(() => {
+        if (scanning) { stopScan(); return }
     if (msgTo) { if (!msgBusy) setMsgTo(null); return }
     if (recoFor) { setRecoFor(null); return }
     if (simPick) { setSimPick(null); return }
@@ -637,7 +725,7 @@ export default function HomePage({
     if (screen === 'reschedule') { setView({ ...view, name: 'detail' }); return }
     if (screen === 'detail' || screen === 'all') { goBack(); return }
     return false // on the Home screen itself, let App decide
-  }, Boolean(msgTo || recoFor || simPick || sel.length || screen !== 'home'))
+  }, Boolean(scanning || msgTo || recoFor || simPick || sel.length || screen !== 'home'))
   // A long press (half a second) selects a row. After that, a tap adds or removes rows.
   const rowDown = (id) => {
     pressed.current = false
@@ -873,9 +961,23 @@ export default function HomePage({
       <style>{CSS}</style>
       <style>{HOME_EXTRA}</style>
       <UssdSetup />
-      <UpdatePopup />
+   
 
       {notice && <p className="hm-note" role="status">{notice}</p>}
+            {scanning && createPortal(
+        <div className="ab-scan" role="dialog" aria-label="Scan QR code">
+          <div className="ab-scan-bar">
+            <span>Scan QR Code</span>
+            <button onClick={stopScan}>Cancel</button>
+          </div>
+          <div className="ab-scan-hint">Scanning... Point at the Connect QR code</div>
+          <div className="ab-scan-mid">
+            <div className="ab-scan-frame"><i className="tl" /><i className="tr" /><i className="bl" /><i className="br" /></div>
+          </div>
+          <div className="ab-scan-foot">Align the QR code inside the square</div>
+        </div>,
+        document.body
+      )}
       {selTxs.length > 0 && (screen === 'home' || screen === 'all') && (
         <div className="hm-selbar" role="toolbar" aria-label="Actions for the selected transactions">
           <div className="hm-selbar-top">
@@ -955,15 +1057,20 @@ export default function HomePage({
           <section>
             <div className="hm-sec-head">
               <h2>Balances</h2>
-              <button
-                className="hm-icon"
-                onClick={() => setHide(!hide)}
-                aria-pressed={hide}
-                aria-label={hide ? 'Show values' : 'Hide values'}
-                title={hide ? 'Show values' : 'Hide values'}
-              >
-                <Icon name={hide ? 'eyeOff' : 'eye'} />
-              </button>
+              <span className="hm-sec-acts">
+                <button className="hm-icon hm-qrbtn" onClick={scanQr} aria-label="Scan QR code to link with Connect" title="Scan QR code">
+                  <Ic name="qr" size={22} />
+                </button>
+                <button
+                  className="hm-icon"
+                  onClick={() => setHide(!hide)}
+                  aria-pressed={hide}
+                  aria-label={hide ? 'Show values' : 'Hide values'}
+                  title={hide ? 'Show values' : 'Hide values'}
+                >
+                  <Icon name={hide ? 'eyeOff' : 'eye'} />
+                </button>
+              </span>
             </div>
 
             <div className="hm-bals">

@@ -7,6 +7,7 @@ import {
 import { classifyConfirmation } from './confirm.js'
 import { splitUssd } from './ussdSteps.js'
 import { loadUssd } from './ussdSettings.js'
+import { subscribe, loadTransactions, updateTransaction } from '../features/home/dataStore.js'
 export const AutoBingwa = registerPlugin('AutoBingwa')
 export const isNative = () => Capacitor.isNativePlatform()
 
@@ -27,11 +28,41 @@ export const heartbeat = () => safe(() => AutoBingwa.heartbeat())
 export const openOverlaySettings = () => safe(() => AutoBingwa.openOverlaySettings())
 // Saves a customer to the phone's contacts as "Name Suffix"
 export async function saveContact(name, phone) {
-  if (!isNative() || !name || !phone) return
+  if (!isNative() || !name || !phone) return false
   try {
     await AutoBingwa.saveContact({ name, phone })
+    return true
   } catch (e) {
     console.error('AB saveContact', e)
+    return false
+  }
+}
+
+// Saves every recent customer with a full number to the phone's contacts, whichever engine handled the payment.
+// A saved one is marked on its transaction (contactSaved), so it is never saved twice.
+let savingContacts = false
+let askedContacts = false
+async function saveNewContacts() {
+  if (savingContacts || !isNative()) return
+  savingContacts = true
+  try {
+    const cfg = loadConfig()
+    if (!cfg.autoSave) return
+    const since = Date.now() - 48 * 3600000 // only recent customers, never the whole history
+    const todo = loadTransactions().filter(
+      (t) => t && t.phone && !t.blacklisted && !t.contactSaved && (t.createdAt || 0) >= since
+    )
+    if (!todo.length) return
+    if (!askedContacts) {
+      askedContacts = true
+      await safe(() => askPermissions())
+    }
+    for (const t of todo) {
+      const ok = await saveContact(savedContactName(t.name || t.phone, cfg), t.phone)
+      if (ok) updateTransaction(t.id, { contactSaved: true })
+    }
+  } finally {
+    savingContacts = false
   }
 }
 
@@ -159,13 +190,10 @@ export async function accessibilityConflicts() {
 export function startSmsBridge(engine) {
   if (!isNative()) return
   applyUssdSettings()
-  // Every new transaction with a full phone number is saved to the contacts
-  engine.on((event, tx) => {
-    if (event !== 'added' || !tx || !tx.phone || tx.blacklisted) return
-    const cfg = loadConfig()
-    if (!cfg.autoSave) return
-    saveContact(savedContactName(tx.name || tx.phone, cfg), tx.phone)
-  })
+    // Customers are saved to the contacts whichever engine handled the payment
+  saveNewContacts()
+  subscribe(saveNewContacts)
+  setInterval(saveNewContacts, 20000)
 
   let busy = false
   let again = false
@@ -230,7 +258,7 @@ export function startSmsBridge(engine) {
   const catchUp = () => safe(() => AutoBingwa.scanInbox())
   AutoBingwa.addListener('smsStored', drain)
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { catchUp(); drain() }
+    if (!document.hidden) { catchUp(); drain(); saveNewContacts() }
   })
   setInterval(drain, 5000) // safety net in case a signal is ever missed
   catchUp()

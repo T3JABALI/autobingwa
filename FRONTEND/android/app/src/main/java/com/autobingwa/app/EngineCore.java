@@ -56,12 +56,14 @@ final class EngineCore {
     private static final long ATTEMPT_GRACE_MS = 30_000;
     // One payment (all its retries) may use this long. No retry starts if it could not finish inside it.
     private static final long TX_BUDGET_MS = 2 * 60_000;
+        // The longest one USSD attempt may take. Settings can override it with "ussdTimeoutSec".
+    private static final long DEFAULT_USSD_TIMEOUT_SEC = 40;
     private static volatile Thread lastUssdThread = null;
 // How many payments in a row ended with no reply from the phone (cut-off or timed out)
 private static int stallStreak = 0;
 // After this many in a row, the queue waits STALL_PAUSE_MS before dialing the next payment
 private static final int STALL_LIMIT = 2;
-private static final long STALL_PAUSE_MS = 15_000;
+private static final long STALL_PAUSE_MS = 5_000;
     private static final Pattern SUCCESS_SCREEN = Pattern.compile(
         "successfully\\s+(purchased|bought|subscribed|activated|recommended)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FAIL_SCREEN = Pattern.compile(
@@ -507,11 +509,43 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
             "cost", offer == null ? 0 : offer.optDouble("safPrice", 0),
             "attempts", 0, "responses", new JSONArray(), "createdAt", now,
             "engine", "native");
-        add(c, tx);
+             add(c, tx);
+        saveCustomerContact(c, cfg, p, blacklisted);
         Log.d(TAG, "native ingest " + p.code + " " + status);
         pump(c);
     }
+    private static String titleCase(String s) {
+        StringBuilder sb = new StringBuilder();
+        boolean up = true;
+        for (char ch : s.toLowerCase(Locale.ROOT).toCharArray()) {
+            sb.append(up ? Character.toUpperCase(ch) : ch);
+            up = ch == ' ' || ch == '\'' || ch == '-';
+        }
+        return sb.toString();
+    }
 
+    // Saves the customer to the phone's contacts. It runs on its own thread, so it can never slow the payment queue.
+    private static void saveCustomerContact(Context ctx, JSONObject cfg, EngineRules.Mpesa p, boolean blacklisted) {
+        if (blacklisted || p.phone.isEmpty()) return;
+        if (!cfg.has("autoSave")) {
+            diag(ctx, "contacts: the service copy has no autoSave setting, so nothing was saved");
+            return;
+        }
+        if (!cfg.optBoolean("autoSave", false)) return;
+        String raw = (p.name == null ? "" : p.name).replaceAll("\\s+", " ").trim();
+        if (raw.isEmpty()) raw = p.phone;
+        String base = raw.matches(".*[a-z].*") ? raw : titleCase(raw);
+        String suffix = cfg.optString("saveSuffix", "").trim();
+        final String name = suffix.isEmpty() ? base : base + " " + suffix;
+        final String phone = p.phone;
+        final Context c = ctx.getApplicationContext();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                String r = ContactSaver.save(c, name, phone);
+                if (!"exists".equals(r)) diag(c, "contacts: " + name + " -> " + r);
+            }
+        }, "ab-contact").start();
+    }
     // ---------- waiting for Safaricom's SMS ----------
     private static final class Waiter {
         final String phone;
@@ -566,9 +600,33 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
                 return true;
             }
         }
-        return cancelPendingFallback(ctx, cf, text);
+        return completeLate(ctx, cf, text) || cancelPendingFallback(ctx, cf, text);
     }
-
+    // A success SMS that arrives after the timeout: the purchase did go through
+    private static boolean completeLate(Context ctx, EngineRules.Conf cf, String text) {
+        if (!"success".equals(cf.status) || cf.phone == null) return false;
+        EngineRules.Phone n = EngineRules.normalizePhone(cf.phone);
+        if (n == null) return false;
+        long cutoff = System.currentTimeMillis() - 10 * 60_000;
+        String id = null;
+        JSONArray prev = new JSONArray();
+        synchronized (LOCK) {
+            JSONArray a = load(ctx);
+            for (int i = a.length() - 1; i >= 0; i--) {
+                JSONObject o = a.optJSONObject(i);
+                if (o != null && "Failed".equals(o.optString("status")) && "pending".equals(o.optString("outcome"))
+                        && n.phone.equals(o.optString("phone")) && o.optLong("completedAt", 0) > cutoff) {
+                    id = o.optString("id");
+                    prev = copyOf(o.optJSONArray("responses"));
+                    break;
+                }
+            }
+        }
+        if (id == null) return false;
+        prev.put(resp("SMS", text == null ? "" : text));
+        update(ctx, id, obj("status", "Completed", "outcome", "ok", "responses", prev));
+        return true;
+    }
     // A late success SMS cancels a backup that is still waiting out its delay
     private static boolean cancelPendingFallback(Context ctx, EngineRules.Conf cf, String text) {
         if (!"success".equals(cf.status) || cf.phone == null) return false;
@@ -661,6 +719,7 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
                     Log.e(TAG, "native pump", t);
                     diag(c, "queue stopped: " + t);
                 } finally {
+                    UssdFlow.allowRetry = true;
                     pumping.set(false);
                 }
                 // something may have arrived just as the loop ended
@@ -790,7 +849,7 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
         if ("Express".equals(mode)) {
             JSONObject r = UssdFlow.run(c, slot, first, steps, stepMs, keyMs, totalMs, true, null);
             String msg = r.optString("message", "");
-            if ("error".equals(r.optString("status")) && EXPRESS_REFUSED.matcher(msg).find()) {
+            if (UssdFlow.allowRetry && "error".equals(r.optString("status")) && EXPRESS_REFUSED.matcher(msg).find()) {
                 // the phone refused the silent request: try once more, then use the dialer window
                 try { Thread.sleep(1500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                 r = UssdFlow.run(c, slot, first, steps, stepMs, keyMs, totalMs, true, null);
@@ -824,12 +883,12 @@ private static final int KEEP_UNSAVED = 4000; // finished rows the app has NOT s
     private static JSONObject runUssdGuarded(final Context c, final String ussd, final String mode, final JSONObject offer,
                                              final int slot, final long stepMs, final long keyMs, final long totalMs)
             throws Exception {
-final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
+        final long limit = totalMs + 5_000;   // the attempt's own timeout, plus a short grace
 
         // A previous attempt that would not stop: give it a moment, then carry on regardless
         Thread old = lastUssdThread;
         if (old != null && old.isAlive()) {
-            old.join(10_000);
+            old.join(3_000);
             if (old.isAlive()) diag(c, "a previous USSD attempt is still stuck; starting the next one anyway");
         }
 
@@ -943,6 +1002,10 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
             keyMs = us.optLong("keyInputDelayMs", 50);
             if ("Express".equals(mode)) totalMs = positive(us.optLong("expressTimeoutSec", 20), 20) * 1000;
         }
+        long hardMs = positive(us != null ? us.optLong("ussdTimeoutSec", 0) : 0,
+    positive(cfg.optLong("ussdTimeoutSec", 0), DEFAULT_USSD_TIMEOUT_SEC)) * 1000;
+totalMs = hardMs;                    // this is now the real limit for the whole attempt
+stepMs = Math.min(stepMs, hardMs);
         int maxRetries = offer.optBoolean("autoRetry", false) ? Math.max(0, offer.optInt("retryCount", 0))
             : (us != null && us.optBoolean("autoRetry", false) ? 1 : 0);
         boolean retryFailed = offer.optBoolean("retryFailed", true);
@@ -956,6 +1019,7 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
         for (;;) {
             attempt++;
             Waiter w = arm(phone);
+                        UssdFlow.allowRetry = maxRetries > 0;   // hidden re-dials only when auto-retry is on
             JSONObject result = runUssdGuarded(c, ussd, mode, offer, slot, stepMs, keyMs, totalMs);
             String status = result.optString("status", "error");
             if ("no_reply".equals(status)) stallStreak++; else stallStreak = 0;
@@ -994,7 +1058,7 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
                 conf = new EngineRules.Conf("success", null, null);
             }
             // 2) otherwise Safaricom's SMS decides
-            if (conf == null && (resultOk || "no_reply".equals(status))) {
+            if (conf == null && resultOk) {
                 conf = awaitConfirm(w, confirmMs);
                 if (conf != null) smsText = w.text;
             } else {
@@ -1021,7 +1085,9 @@ final long limit = Math.max(totalMs, UssdFlow.minBudgetMs) + 45_000;
             if ("ok".equals(kind) || !again || attempt > maxRetries) break;
             // One payment may not hold the queue for ever: no retry starts if it could not finish inside the time budget
             long spent = System.currentTimeMillis() - t0;
-            if (spent > TX_BUDGET_MS) {
+            // no retry unless a full extra attempt (pause + timeout + grace + SMS wait) still fits in the budget
+            if (spent + retryMs + hardMs + 5_000 + confirmMs > TX_BUDGET_MS) {
+
                 rs.put(resp("-", "Stopped retrying: this payment used its time limit so the next customers are not kept waiting."));
                 update(c, id, obj("responses", rs));
                 diag(c, "retry budget used up for " + phone + " after " + attempt + " attempt(s)");
