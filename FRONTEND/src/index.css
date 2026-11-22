@@ -1,5 +1,4 @@
 
-
 :root {
   font-family: 'Inter', Arial, sans-serif;
   font-synthesis: none;
@@ -9,23 +8,23 @@
   font-optical-sizing: auto;
   font-weight: 400;
 
-  --bg: #14161A;
-  --sidebar: #0E1013;
-  --panel: #1C1F25;
-  --panel-hover: #262A32;
-  --border: #333844;
-  --text: #F0F2F5;
-  --muted: #A9B0BC;
-  --primary: #5A7DB8;
-  --primary-hover: #7394CC;
+  --bg: #031F1D;
+  --sidebar: #021614;
+  --panel: #0A2F2C;
+  --panel-hover: #12403B;
+  --border: #1B4D47;
+  --text: #E6F7F1;
+  --muted: #8FB8AE;
+  --primary: #3CD6B5;
+  --primary-hover: #6BE3C8;
   --cyan: var(--primary);
-  --blue: #3E5F96;
-  --green: #35B887;
-  --red: #FF7777;
-  --warning: #E8B65B;
-  --success-bg: rgba(53, 184, 135, 0.16);
-  --danger-bg: rgba(255, 119, 119, 0.12);
-  --shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  --blue: #1FA58C;
+  --green: #4ADE9A;
+  --red: #F07A66;
+  --warning: #E3B659;
+  --success-bg: rgba(74, 222, 154, 0.16);
+  --danger-bg: rgba(240, 122, 102, 0.14);
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 
   color: var(--text);
   background: var(--bg);
@@ -78,61 +77,10 @@ button:disabled {
 .app {
   min-height: 100vh;
   color: var(--text);
-  background:
-    radial-gradient(
-      ellipse at 80% 0%,
-      rgba(90, 125, 184, 0.07),
-      transparent 38%
-    ),
-    var(--bg);
-  transition: background 0.2s, color 0.2s;
-}
-
-.app.dark {
-  color-scheme: dark;
-
-  --bg: #14161A;
-  --sidebar: #0E1013;
-  --panel: #1C1F25;
-  --panel-hover: #262A32;
-  --border: #333844;
-  --text: #F0F2F5;
-  --muted: #A9B0BC;
-  --primary: #5A7DB8;
-  --primary-hover: #7394CC;
-  --cyan: var(--primary);
-  --blue: #3E5F96;
-  --green: #35B887;
-  --red: #FF7777;
-  --warning: #E8B65B;
-  --success-bg: rgba(53, 184, 135, 0.16);
-  --danger-bg: rgba(255, 119, 119, 0.12);
-  --shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
-}
-
-.app.light {
-  color-scheme: light;
-
-  --bg: #F2F4F7;
-  --sidebar: #1F2430;
-  --panel: #FFFFFF;
-  --panel-hover: #EBEEF3;
-  --border: #D8DDE5;
-  --text: #1B2028;
-  --muted: #555F6E;
-  --primary: #3E5F96;
-  --primary-hover: #2F4B7A;
-  --cyan: var(--primary);
-  --blue: #3E5F96;
-  --green: #167A55;
-  --red: #C0393B;
-  --warning: #996515;
-  --success-bg: #D9F3E8;
-  --danger-bg: #FDE8E8;
-  --shadow: 0 8px 25px rgba(25, 45, 70, 0.06);
-
   background: var(--bg);
 }
+
+
 
 /* =========================
    MAIN LAYOUT
@@ -275,31 +223,11 @@ button:disabled {
   box-shadow: var(--shadow);
 }
 
-.balance-card.airtime {
-  background: linear-gradient(
-    135deg,
-    rgba(90, 125, 184, 0.12),
-    var(--panel) 75%
-  );
-  border-color: rgba(90, 125, 184, 0.35);
-}
-
-.balance-card.used {
-  background: linear-gradient(
-    135deg,
-    rgba(111, 129, 158, 0.14),
-    var(--panel) 75%
-  );
-  border-color: rgba(111, 129, 158, 0.3);
-}
-
+.balance-card.airtime,
+.balance-card.used,
 .balance-card.tokens {
-  background: linear-gradient(
-    135deg,
-    rgba(53, 184, 135, 0.12),
-    var(--panel) 75%
-  );
-  border-color: rgba(53, 184, 135, 0.32);
+  background: var(--panel);
+  border-color: var(--border);
 }
 
 .card-symbol {
@@ -309,7 +237,7 @@ button:disabled {
 }
 
 .used .card-symbol {
-  color: #8B9BB4;
+  color: var(--blue);
 }
 
 .tokens .card-symbol {
@@ -420,7 +348,7 @@ button:disabled {
 }
 
 .chart-area {
-  fill: rgba(90, 125, 184, 0.13);
+  fill: rgba(60, 214, 181, 0.13);
 }
 
 .chart-line {
@@ -708,8 +636,8 @@ button:disabled {
 }
 
 .nav-item.active {
-  background: rgba(90, 125, 184, 0.13);
-  border-color: rgba(90, 125, 184, 0.3);
+  background: rgba(60, 214, 181, 0.13);
+  border-color: rgba(60, 214, 181, 0.3);
   color: var(--primary);
 }
 
@@ -1423,7 +1351,9 @@ textarea::placeholder {
   .offer-meta-grid {
     grid-template-columns: 1fr;
   }
-}/* Lets the Offers page and Quick Dial follow the theme */
+}
+
+/* Lets the Offers page and Quick Dial follow the theme */
 .app {
   --border-color: var(--border);
   --card-bg: var(--panel);

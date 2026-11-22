@@ -1,13 +1,13 @@
 import { useAuth } from "../auth/AuthContext";
 import { useEffect, useRef, useState } from 'react'
-import { isNative, AutoBingwa } from '../../engine/native.js'
+import { isNative, AutoBingwa, askPermissions } from '../../engine/native.js'
 import { engineStatus, localCounts, syncNow, setNativeEngine } from '../../engine/nativeSync.js'
 import { normalizePhone } from '../../engine/engine.js'
 import UssdSettingsPage from './UssdSettingsPage.jsx'
 import {
   PROFILE_KEY, CONFIG_KEY, CLIENTS_KEY, readJson, writeJson, loadConfig, savedContactName,
 } from '../../engine/config.js'
-
+import { refreshPhonebook } from '../../engine/unmask.js'
 // Other pages import these from here, so they stay available
 export { loadConfig, savedContactName }
 
@@ -138,7 +138,18 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
       setNotice(`${sim} will send auto-replies`)
     }
   }
-
+  async function toggleUnmask() {
+    const on = !config.unmaskPhones
+    updateConfig({ unmaskPhones: on })
+    if (on && isNative()) {
+      try {
+        await askPermissions() // the Contacts permission is needed to search the phonebook
+        await refreshPhonebook(true)
+      } catch (e) {
+        console.error('AB unmask setup', e)
+      }
+    }
+  }
   function chooseMode(id) {
     updateConfig({ mode: id })
     if (onModeChange) onModeChange(id)
@@ -436,6 +447,16 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
                   onChange={(e) => updateConfig({ saveSuffix: e.target.value })} />
                 <p className="st-preview">Saved as: <strong>John Doe{suffix ? ` ${suffix}` : ''}</strong></p>
               </div>
+            )}
+            <div className="sx-item">
+              <span>
+                <strong>Unmask phone numbers</strong>
+                <small>Find hidden M-Pesa numbers in your saved contacts and past customers</small>
+              </span>
+              <Switch on={Boolean(config.unmaskPhones)} onChange={toggleUnmask} label="Unmask phone numbers" />
+            </div>
+            {config.unmaskPhones && !config.processMpesa && (
+              <p className="sx-pad st-desc">Also switch on "M-Pesa messages" under Message processing, or hidden-number payments will not be processed.</p>
             )}
             <button className="sx-item" onClick={openBlacklist}>
               <span><strong>Blacklist ({blockedCount})</strong><small>Not processed and not saved to contacts</small></span>

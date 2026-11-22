@@ -1510,13 +1510,14 @@ const [light, setLight] = useState(() => {
     const saved = localStorage.getItem('ab-theme')
     if (saved) return saved === 'light'
   } catch { /* storage unavailable */ }
-  // First launch: follow the phone's theme
-  return window.matchMedia?.('(prefers-color-scheme: light)').matches ?? false
+  // First launch: always start in the dark teal theme
+  return false
 })
 
 useEffect(() => {
   try { localStorage.setItem('ab-theme', light ? 'light' : 'dark') } catch { /* ignore */ }
   // Theme the page edges (overscroll area) with whatever --bg the app is really using
+    document.documentElement.style.colorScheme = light ? 'light' : 'dark'
   const app = document.querySelector('.app')
   const bg = app ? getComputedStyle(app).getPropertyValue('--bg').trim() : ''
   if (bg) {

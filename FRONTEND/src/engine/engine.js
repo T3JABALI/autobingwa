@@ -7,6 +7,7 @@ import { pickOffer, nextDayAt, fillTemplate, inWindow } from './offerRules.js'
 import { findFallback, fallbackDelayMinutes } from './fallbackStore.js'
 import { wasDeleted } from '../features/home/dataStore.js'
 import { loadUssd } from './ussdSettings.js'
+import { resolveMasked } from './unmask.js'
 // ---------- Phone numbers ----------
 // Reads a Kenyan number written any common way:
 // 0797411114, +254797411114, 254797411114, 0117818996, 07 97411114, 0797-411-114, 0797***114
@@ -71,6 +72,7 @@ export function parseMpesa(text) {
     account,
     type: detectType(raw, account),
     masked,
+    maskedPhone: masked ? found.phone : '',
     ok: true,
     raw,
   }
@@ -159,8 +161,32 @@ export function createEngine({
     if (p.code && store.list().some((t) => t.mpesaId === p.code)) return null // same SMS delivered twice
     if (p.code && wasDeleted(p.code)) return null // the user deleted this payment
     console.log('AB parsed', JSON.stringify(p))
-    if (!p.code || !p.ok) return null // not a payment received, so it is not a transaction
-
+    if (!p.code || !p.ok) {
+      // A payment that was received but could not be read: show it, so it is never lost silently
+      if (p.code && /received/i.test(p.raw)) {
+        const bad = store.add({
+          id: `${p.code}-${now()}`,
+          smsAt: (sms && typeof sms === 'object' && Number(sms.time) > 0) ? Number(sms.time) : now(),
+          mpesaId: p.code, name: '', phone: '', account: '', messageType: 'till', blacklisted: false,
+          amount: 0, rawMessage: p.raw, status: 'Unmatched', offerId: null, fallbackOf: null,
+          offerName: 'Could not read this message', ussd: '', verified: false, cost: 0,
+          attempts: 0, responses: [], createdAt: now(),
+        })
+        emit('added', bad)
+        return bad
+      }
+      return null // not a payment received, so it is not a transaction
+    }
+    let unmaskNote = ''
+    if (p.masked && !p.phone && getConfig().unmaskPhones) {
+      const u = resolveMasked(p.maskedPhone, p.name, getConfig().saveSuffix)
+      if (u.phone) {
+        p.phone = u.phone
+        unmaskNote = `Number unmasked from saved contact ${u.name}: ${p.maskedPhone} -> ${u.phone}`
+      } else {
+        unmaskNote = `Hidden number ${p.maskedPhone} was not unmasked: ${u.reason}`
+      }
+    }
     const blacklisted = Boolean(p.phone && isBlacklisted(p.phone))
     let skipReason = ''
     if (!typeEnabled(p.type)) skipReason = 'This message type is switched off in Settings'
@@ -184,12 +210,12 @@ export function createEngine({
       status,
       offerId: offer ? offer.id : null,
       fallbackOf: hit && hit.primary ? hit.primary.id : null,
-      offerName: skipReason || (offer ? offer.name : p.phone ? 'No matching offer' : 'No customer number in message'),
+            offerName: skipReason || (offer ? offer.name : p.phone ? 'No matching offer' : p.masked ? 'Hidden number, not found in contacts' : 'No customer number in message'),
       ussd: offer ? fillPhone(offer.ussd, p.phone) : '',
       verified: Boolean(offer && (offer.smart || offer.signature || offer.sigEnabled)),
       cost: offer ? Number(offer.safPrice) || 0 : 0,
       attempts: 0,
-      responses: [],
+      responses: unmaskNote ? [{ input: '-', text: unmaskNote }] : [],
       createdAt: now(),
     })
     emit('added', tx)

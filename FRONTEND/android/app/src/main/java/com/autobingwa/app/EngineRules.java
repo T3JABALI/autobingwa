@@ -59,6 +59,7 @@ final class EngineRules {
         String account = "";
         String type = "till"; // mpesa | paybill | till
         boolean masked = false;
+                String maskedPhone = "";
         boolean ok = false;
         String raw = "";
     }
@@ -88,6 +89,7 @@ final class EngineRules {
         Phone found = findPhone(seg);
         if (found == null) found = findPhone(p.account);
         p.masked = found != null && found.masked;
+                p.maskedPhone = p.masked ? found.phone : "";
         p.name = ACCOUNT_WORDS.matcher(CANDIDATE.matcher(seg).replaceAll(""))
             .replaceFirst("").replaceAll("\\s+", " ").trim();
 

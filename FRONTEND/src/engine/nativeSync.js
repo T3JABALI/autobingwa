@@ -33,7 +33,35 @@ export function localCounts() {
     ussd: s.ussd ? 1 : 0,
   }
 }
+// The people the app knows by name and number (saved contacts and past buyers).
+// The background engine uses this list to unmask hidden numbers.
+function buildCustomers() {
+  const seen = new Set()
+  const out = []
+  const add = (name, phone) => {
+    const num = String(phone || '')
+    const k = last9(num)
+    if (k.length !== 9 || seen.has(k)) return
+    seen.add(k)
+    out.push([String(name || ''), num])
+  }
+  readJson('contacts:list', []).forEach((c) => c && add(c.name, c.phone))
+  readJson(CLIENTS_KEY, []).forEach((c) => c && c.purchases > 0 && add(c.name, c.phone))
+  return out
+}
 
+let lastCustomers = ''
+export async function syncCustomers() {
+  if (!isNative()) return
+  try {
+    const json = JSON.stringify(buildCustomers())
+    if (json === lastCustomers) return
+    await AutoBingwa.saveCustomers({ json })
+    lastCustomers = json
+  } catch (e) {
+    console.error('AB customers sync', e)
+  }
+}
 let last = ''
 
 // Sends the copy when it has changed (or always, with force)
@@ -62,7 +90,8 @@ export async function engineStatus() {
 export function startNativeSync() {
   if (!isNative()) return
   syncNow(true)
-  const again = () => { if (!document.hidden) syncNow() }
+  syncCustomers()
+  const again = () => { if (!document.hidden) { syncNow(); syncCustomers() } }
   window.addEventListener('autobingwa-data', again)
   window.addEventListener('storage', again)
   window.addEventListener('ab-tokens', again)

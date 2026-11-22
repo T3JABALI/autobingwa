@@ -233,7 +233,7 @@ export function startSmsBridge(engine) {
         const n = (failures.get(m.id) || 0) + 1
         failures.set(m.id, n)
         console.error('AB ingest failed', n, err)
-        if (n >= 3) done.push(m.id)
+        if (n >= 60) done.push(m.id)
       }
     }
     if (done.length) await AutoBingwa.ackSms({ ids: done })

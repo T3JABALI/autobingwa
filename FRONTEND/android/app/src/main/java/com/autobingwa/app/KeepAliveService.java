@@ -143,6 +143,7 @@ public class KeepAliveService extends Service {
     private void syncPortal() {
         long silent = System.currentTimeMillis() - AutoBingwaPlugin.lastPortalBeat;
         if (silent < 20000) { pingPortal(); return; } // web view is alive and syncing itself
+
         // Commands are still waiting and the web view is still asleep: try the wake again (at most every 30 s)
         if (PortalQueue.peek(getApplicationContext()).length() > 0
                 && System.currentTimeMillis() - lastWakeAt > 30000) {
@@ -345,7 +346,7 @@ String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitin
                                 wakeApp();
                             }
                         }
-                    } catch (Exception e) {
+                    } catch (Throwable e) {
                         Log.e("AutoBingwa", "scan loop", e);
                     }
                 }
@@ -355,14 +356,20 @@ String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitin
             pinger = Executors.newSingleThreadScheduledExecutor();
             pinger.scheduleWithFixedDelay(new Runnable() {
                 @Override
-                public void run() { syncPortal(); }
+                public void run() {
+                    try { syncPortal(); }
+                    catch (Throwable e) { Log.e("AutoBingwa", "portal sync loop", e); }
+                }
             }, 3, 15, TimeUnit.SECONDS);
         }
          if (cloud == null) {
             cloud = Executors.newSingleThreadScheduledExecutor();
             cloud.scheduleWithFixedDelay(new Runnable() {
                 @Override
-                public void run() { CloudSync.beat(getApplicationContext()); }
+                public void run() {
+                    try { CloudSync.beat(getApplicationContext()); }
+                    catch (Throwable e) { Log.e("AutoBingwa", "cloud beat loop", e); }
+                }
             }, 4, 15, TimeUnit.SECONDS);
         }
         return START_STICKY;

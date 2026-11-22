@@ -18,6 +18,7 @@ export const DEFAULT_CONFIG = {
   processPaybill: true,
   processSitelink: true,
   autoSave: true,
+  unmaskPhones: false,
   saveSuffix: 'AutoBingwa',
   portal: false,
   mode: 'Advanced',

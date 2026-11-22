@@ -1,5 +1,6 @@
 /* LIGHT: vintage cream paper, teal and brass */
 .app.light {
+  color-scheme: light;
   --bg: #F3EEE0;
   --card: #FBF8EF;
   --panel: #FBF8EF;
@@ -32,6 +33,7 @@
 
 /* DARK: deep logo teal, mint and brass */
 .app.dark {
+  color-scheme: dark;
   --bg: #031F1D;
   --card: #0A2F2C;
   --panel: #0A2F2C;

@@ -50,9 +50,23 @@ public class AutoBingwaPlugin extends Plugin {
     private static AutoBingwaPlugin instance;
     static volatile long lastBeat = 0;
 static volatile long lastPortalBeat = 0;
-    @Override
+    private final Handler portalTickHandler = new Handler(Looper.getMainLooper());
+    private final Runnable portalTickLoop = new Runnable() {
+        @Override public void run() {
+            notifyListeners("portalTick", new JSObject());
+            portalTickHandler.postDelayed(this, 8000);
+        }
+    };
+
+    private void portalNative(boolean on) {
+        portalTickHandler.removeCallbacks(portalTickLoop);
+        if (on) portalTickHandler.postDelayed(portalTickLoop, 8000);
+    }
+     @Override
     public void load() {
         instance = this;
+        portalNative(getContext().getSharedPreferences("autobingwa_prefs",
+            android.content.Context.MODE_PRIVATE).getBoolean("portal_on", false));
     }
 
     // Called by the SMS receiver when a new message has been saved
@@ -155,7 +169,21 @@ static volatile long lastPortalBeat = 0;
             call.reject("Could not save the copy: " + e.getMessage());
         }
     }
-
+    // The customers the app knows (saved contacts and people who bought), used to unmask hidden numbers
+    @PluginMethod
+    public void saveCustomers(PluginCall call) {
+        String json = call.getString("json", "");
+        if (json == null || json.isEmpty()) {
+            call.reject("Nothing to save");
+            return;
+        }
+        try {
+            PhoneUnmasker.saveKnown(getContext(), json);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not save the customer list: " + e.getMessage());
+        }
+    }
     @PluginMethod
     public void engineStatus(PluginCall call) {
         try {
@@ -172,28 +200,29 @@ static volatile long lastPortalBeat = 0;
     }
 
     // The portal login details, so the service can keep the phone showing Connected while the web view sleeps
-   @PluginMethod
-public void savePortal(PluginCall call) {
-    android.content.Context ctx = getContext();
-    boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
-    android.content.SharedPreferences sp = ctx.getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE);
-    sp.edit()
-        .putString("portal_id", call.getString("id", ""))
-        .putString("portal_secret", call.getString("secret", ""))
-        .putBoolean("portal_on", on)
-        .apply();
-    try {
-        if (on) {
-            // the portal needs the service so the phone keeps syncing with the screen off
-            ContextCompat.startForegroundService(ctx, new Intent(ctx, KeepAliveService.class));
-        } else if (!sp.getBoolean("keepalive", false)) {
-            ctx.stopService(new Intent(ctx, KeepAliveService.class));
+    @PluginMethod
+    public void savePortal(PluginCall call) {
+        android.content.Context ctx = getContext();
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        android.content.SharedPreferences sp = ctx.getSharedPreferences("autobingwa_prefs", android.content.Context.MODE_PRIVATE);
+        sp.edit()
+            .putString("portal_id", call.getString("id", ""))
+            .putString("portal_secret", call.getString("secret", ""))
+            .putBoolean("portal_on", on)
+            .apply();
+        portalNative(on);
+        try {
+            if (on) {
+                ContextCompat.startForegroundService(ctx, new Intent(ctx, KeepAliveService.class));
+            } else if (!sp.getBoolean("keepalive", false)) {
+                ctx.stopService(new Intent(ctx, KeepAliveService.class));
+            }
+        } catch (Exception e) {
+            call.reject("Could not start the service: " + e.getMessage());
+            return;
         }
-    } catch (Exception e) {
-        // Android can refuse a service start from the background; the next sync tries again
+        call.resolve();
     }
-    call.resolve();
-}
 // JS calls this on every portal sync, so native knows the web view is alive
 @PluginMethod
 public void portalBeat(PluginCall call) {

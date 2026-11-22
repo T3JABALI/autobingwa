@@ -17,7 +17,7 @@ public class MainActivity extends BridgeActivity {
     private final Runnable keep = new Runnable() {
         @Override public void run() {
             keepWebViewRunning();
-            if (KeepAliveService.active) loop.postDelayed(this, 5000);
+            if (KeepAliveService.active || portalOn()) loop.postDelayed(this, 5000);
         }
     };
 
@@ -25,7 +25,9 @@ public class MainActivity extends BridgeActivity {
     private static long lastRestart = 0;
     private static int restartsInARow = 0;
     private boolean wasStopped = false;
-
+    private boolean portalOn() {
+        return getSharedPreferences("autobingwa_prefs", MODE_PRIVATE).getBoolean("portal_on", false);
+    }
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AutoBingwaPlugin.class);
@@ -119,7 +121,7 @@ public class MainActivity extends BridgeActivity {
     // While automation is running, do not let the web view's timers stay paused in the background
     private void keepWebViewRunning() {
         try {
-            if (KeepAliveService.active && getBridge() != null && getBridge().getWebView() != null) {
+            if ((KeepAliveService.active || portalOn()) && getBridge() != null && getBridge().getWebView() != null) {
                 getBridge().getWebView().resumeTimers();
             }
         } catch (Exception e) {
@@ -140,6 +142,8 @@ public class MainActivity extends BridgeActivity {
         super.onStop();
         wasStopped = true;
         keepWebViewRunning();
+                loop.removeCallbacks(keep);
+        loop.postDelayed(keep, 5000);
     }
 
     @Override

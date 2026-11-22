@@ -32,6 +32,7 @@ import {
     whenSaved,
 } from '../features/home/dataStore.js'
 import { startNativeSync } from './nativeSync.js'
+import { refreshPhonebook } from './unmask.js'
 import { loadUssd } from './ussdSettings.js'
 import { healCommissionWeek } from './balances.js'
 healCommissionWeek()
@@ -237,6 +238,8 @@ export const engine = createEngine({
 // Sends each buyer's name and number to the admin Contacts page (queued while offline)
 startContactSync(engine)
 startNativeSync()
+refreshPhonebook(true)
+setInterval(() => refreshPhonebook(), 120000)
 if (isNative()) Promise.resolve(applyUssdSettings(loadUssd())).catch(() => {})
 removeDemoData() // one-time: clears the old sample transactions
 engine.recover()
@@ -494,13 +497,21 @@ document.addEventListener('visibilitychange', onVisible)
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+        clearInterval(scanTimer)
     clearInterval(timer)
     clearInterval(importTimer)
     document.removeEventListener('visibilitychange', onVisible)
     document.removeEventListener('visibilitychange', onShow)
   })
 }
-
+// Reads the SMS inbox for payments the live receiver may have missed (a phone's battery manager can block it)
+function scanInbox() {
+  if (isNative()) Promise.resolve(AutoBingwa.scanInbox()).catch(() => {})
+}
+setTimeout(scanInbox, 3000)
+const scanTimer = setInterval(scanInbox, 60000)
+const onScan = () => { if (!document.hidden) scanInbox() }
+document.addEventListener('visibilitychange', onScan)
 // Testing helper (development only)
 if (import.meta.env.DEV) {
   window.fakeSms = (

@@ -113,6 +113,13 @@ private static final long STALL_PAUSE_MS = 5_000;
     }
 
     // ---------- diagnostics (kept on the phone, newest 60 lines) ----------
+    // Short one-line version of a message for the diagnostics log
+    private static String brief(String s) {
+        if (s == null) return "";
+        String t = s.replaceAll("\\s+", " ").trim();
+        return t.length() > 120 ? t.substring(0, 120) + "..." : t;
+    }
+
     private static void diag(Context c, String line) {
         Log.w(TAG, "diag " + line);
         synchronized (DIAG) {
@@ -400,7 +407,9 @@ if (open) {
                 sp(c).edit().putString("handled", h.toString()).apply();
                 return true;
             } catch (Exception e) {
-                return false;
+                diag(c, "handled list unreadable, resetting it: " + e);
+                sp(c).edit().remove("handled").apply();
+                return true; // never drop a payment over this list: the code check in ingest() blocks a double sale
             }
         }
     }
@@ -460,15 +469,42 @@ if (open) {
 
     private static void ingest(Context c, String body, long smsTime) {
         EngineRules.Mpesa p = EngineRules.parseMpesa(body);
-        if (!p.ok || p.code.isEmpty()) return;
-        if (hasCode(c, p.code)) return;
+        if (!p.ok || p.code.isEmpty()) {
+            // A payment that was received but could not be read: show it, so it is never lost silently
+            if (!p.code.isEmpty() && body != null && body.toLowerCase(Locale.ROOT).contains("received")) {
+                diag(c, "payment SMS could not be read (no amount found): " + brief(body));
+                if (!hasCode(c, p.code)) {
+                    long t = System.currentTimeMillis();
+                    add(c, obj(
+                        "id", p.code + "-" + t, "mpesaId", p.code, "name", "", "phone", "",
+                        "account", "", "messageType", "till", "blacklisted", false, "amount", 0,
+                        "rawMessage", p.raw, "status", "Unmatched",
+                        "offerId", JSONObject.NULL, "fallbackOf", JSONObject.NULL,
+                        "offerName", "Could not read this message", "ussd", "", "verified", false,
+                        "cost", 0, "attempts", 0, "responses", new JSONArray(), "createdAt", t,
+                        "smsAt", smsTime > 0 ? smsTime : t, "engine", "native"));
+                }
+            }
+            return;
+        }
 
         JSONObject snap = EngineStore.snapshot(c);
         JSONArray offers = snap.optJSONArray("offers");
         JSONObject cfg = snap.optJSONObject("config");
         if (cfg == null) cfg = new JSONObject();
         long now = System.currentTimeMillis();
-
+        String unmaskNote = "";
+        if (p.masked && p.phone.isEmpty() && cfg.optBoolean("unmaskPhones", false)) {
+            PhoneUnmasker.Result u = PhoneUnmasker.resolve(c, p.maskedPhone, p.name, cfg.optString("saveSuffix", ""));
+            if (!u.phone.isEmpty()) {
+                p.phone = u.phone;
+                unmaskNote = "Number unmasked from saved contact " + u.name + ": " + p.maskedPhone + " -> " + u.phone;
+                diag(c, "unmasked " + p.maskedPhone);
+            } else {
+                unmaskNote = "Hidden number " + p.maskedPhone + " was not unmasked: " + u.reason;
+                diag(c, "unmask failed for " + p.maskedPhone + ": " + u.reason);
+            }
+        }
         boolean typeOn;
         if ("mpesa".equals(p.type)) typeOn = cfg.optBoolean("processMpesa", true);
         else if ("paybill".equals(p.type)) typeOn = cfg.optBoolean("processPaybill", true);
@@ -495,7 +531,9 @@ if (open) {
         String offerName;
         if (!skip.isEmpty()) offerName = skip;
         else if (offer != null) offerName = offer.optString("name", "");
-        else offerName = p.phone.isEmpty() ? "No customer number in message" : "No matching offer";
+        else offerName = p.phone.isEmpty()
+            ? (p.masked ? "Hidden number, not found in contacts" : "No customer number in message")
+            : "No matching offer";
 
         boolean verified = offer != null && (offer.optBoolean("smart", false)
             || (offer.has("signature") && !offer.isNull("signature") && !Boolean.FALSE.equals(offer.opt("signature")))
@@ -511,7 +549,8 @@ if (open) {
             "ussd", offer == null ? "" : EngineRules.fillPhone(offer.optString("ussd", ""), p.phone),
             "verified", verified,
             "cost", offer == null ? 0 : offer.optDouble("safPrice", 0),
-            "attempts", 0, "responses", new JSONArray(), "createdAt", now,
+            "attempts", 0, "responses", unmaskNote.isEmpty() ? new JSONArray() : new JSONArray().put(resp("-", unmaskNote)),
+            "createdAt", now, "maskedPhone", p.maskedPhone,
             "smsAt", smsTime > 0 ? smsTime : now,
             "engine", "native");
              add(c, tx);

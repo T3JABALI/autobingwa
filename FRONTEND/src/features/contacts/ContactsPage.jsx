@@ -206,7 +206,68 @@ export default function ContactsPage({ onBack }) {
       setNotice('Could not read that file')
     }
   }
+  // Brings the phone's own contacts into the app. Numbers already in the app are skipped.
+  async function importPhonebook() {
+    closeMenus()
+    if (!isNative()) return setNotice('Importing from the phonebook only works in the Android app')
+    try {
+      await askPermissions()
+      const res = await AutoBingwa.listContacts()
+      const found = (res && res.contacts) || []
+      const list = loadContacts()
+      const known = new Set(list.map((c) => last9(c.phone)))
+      let added = 0
+      found.forEach((pc) => {
+        const phone = parsePhone(String(pc.phone || '').replace(/[\s\-().]/g, ''))
+        if (!phone) return
+        const k = last9(phone)
+        if (known.has(k)) return
+        known.add(k)
+        list.push({
+          id: newContactId(), name: pc.name || phone, phone, email: '',
+          source: 'local', createdAt: Date.now(),
+        })
+        added += 1
+      })
+      if (added) update(list)
+      setTab('local')
+      setNotice(
+        added
+          ? `${added} contact(s) imported from your phonebook (${found.length - added} skipped)`
+          : found.length ? 'Everything in your phonebook is already in the app' : 'No contacts found in your phonebook'
+      )
+    } catch (e) {
+      console.error('phonebook import', e)
+      setNotice(`Could not read the phonebook: ${e && e.message ? e.message : e}`)
+    }
+  }
 
+  // Saves the app's contacts into the phone's own contacts. Numbers already there are skipped.
+  async function saveAllToPhone() {
+    closeMenus()
+    if (!isNative()) return setNotice('Saving to the phonebook only works in the Android app')
+    const list = selectMode && chosen.length ? chosen : contacts
+    if (!list.length) return setNotice('There are no contacts to save')
+    try {
+      await askPermissions()
+      let saved = 0
+      let existed = 0
+      let failed = 0
+      for (const c of list) {
+        try {
+          const r = await AutoBingwa.saveContact({ name: c.name || c.phone, phone: c.phone })
+          if (r && r.saved) saved += 1
+          else existed += 1
+        } catch (e) {
+          failed += 1
+        }
+      }
+      setNotice(`${saved} saved to your phonebook, ${existed} were already there${failed ? `, ${failed} failed (check the Contacts permission)` : ''}`)
+    } catch (e) {
+      console.error('phonebook save', e)
+      setNotice(`Could not save to the phonebook: ${e && e.message ? e.message : e}`)
+    }
+  }
   const viewing = modal && modal.type === 'view' ? contacts.find((c) => c.id === modal.id) : null
 
   return (
@@ -359,8 +420,10 @@ export default function ContactsPage({ onBack }) {
                 <>
                   <button className="ct-backdrop" aria-label="Close menu" onClick={closeMenus} />
                   <div className="ct-menu">
-                    <button onClick={openAdd}>Add contact</button>
-                    <button onClick={startSelect}>Select contacts</button>
+<button onClick={openAdd}>Add contact</button>
+<button onClick={startSelect}>Select contacts</button>
+<button onClick={importPhonebook}>Import from phonebook</button>
+<button onClick={saveAllToPhone}>Save all to phonebook</button>
                   </div>
                 </>
               )}

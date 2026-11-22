@@ -57,6 +57,7 @@ let lastBattery = { level: 0, charging: false }
 let worker = null
 let appListener = null
 let cmdListener = null
+let tickListener = null
 const inflight = new Set() // command ids being handled, so a resent command never runs twice
 
 const pad = (n) => String(n).padStart(2, '0')
@@ -604,6 +605,13 @@ export function startPortalSync() {
         .then((h) => { cmdListener = h })
         .catch(() => {})
     } catch (e) { /* native side not added yet */ }
+
+    // Native tick every 8 s: wakes this code even when the web view's own timers are slow
+    try {
+      AutoBingwa.addListener('portalTick', () => { tick() })
+        .then((h) => { tickListener = h })
+        .catch(() => {})
+    } catch (e) { /* older native build */ }
   }
 
   tick()
@@ -618,6 +626,7 @@ export function stopPortalSync() {
   offData = null
   if (appListener) { appListener.remove(); appListener = null }
   if (cmdListener) { cmdListener.remove(); cmdListener = null }
+    if (tickListener) { tickListener.remove(); tickListener = null }
   window.removeEventListener('ab-balances', soon)
   window.removeEventListener('ab-connect', soon)
   window.removeEventListener('online', onOnline)
