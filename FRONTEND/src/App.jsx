@@ -14,6 +14,7 @@ import ContactsPage from './features/contacts/ContactsPage.jsx'
 import AutoRepliesPage from './features/autoreplies/AutoRepliesPage.jsx'
 import ConnectPage from './features/connect/ConnectPage.jsx'
 import PortalSync from './features/connect/PortalSync.jsx'
+import { setConnectRunning } from './features/connect/pairing.js'
 import FallbackPage from './features/fallback/FallbackPage.jsx'
 import ReferralDashboard, { ReferralIcon, attachReferral } from './features/referral/ReferralDashboard.jsx'
 import SettingsPage, { loadProfile, loadMode, greetingFor, firstNameOf } from './features/settings/SettingsPage.jsx'
@@ -1723,6 +1724,11 @@ useEffect(() => {
     window.addEventListener('online', attachReferral)
     return () => window.removeEventListener('online', attachReferral)
   }, [])
+ 
+  // Connect follows automation: online while it runs, offline the moment it stops
+  useEffect(() => {
+    setConnectRunning(automationRunning)
+  }, [automationRunning])
   // Phone back button: the base layer. Open pop-ups and sub-screens answer first (see useBack.js).
   useBackHandler(() => {
     if (menuOpen) { setMenuOpen(false); return }
@@ -2029,7 +2035,7 @@ if (!onboarded) return (
           </section>
         ) : activePage === 'Autobingwa Connect' ? (
           <section className="panel fit fit-md">
-            <ConnectPage onBack={() => setActivePage('Home')} />
+            <ConnectPage onBack={() => setActivePage('Home')} onScan={() => setActivePage('Home')} />
           </section>
         ) : activePage === 'Fallback Plans' ? (
           <section className="panel fit fit-fallback">

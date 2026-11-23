@@ -41,7 +41,7 @@ final class CloudSync {
        static void saveDevice(Context c, String deviceId, String secret, String role) {
         sp(c).edit().putString("cloud_device_id", deviceId).putString("cloud_secret", secret)
             .putString("cloud_role", "reader".equals(role) ? "reader" : "dialer")
-            .remove("cloud_amounts_sent").apply();
+            .remove("cloud_amounts_sent").remove("cloud_offers_sent").apply();
     }
 
     static String role(Context c) {
@@ -218,11 +218,49 @@ final class CloudSync {
         IO.execute(new Runnable() { @Override public void run() { syncAmountsNow(c); } });
     }
 
+    // The offer's category in the server's lowercase form (the app writes DATA, MINUTES, SMS, TUNUKIWA)
+    private static String catOf(JSONObject o) {
+        String c = o.optString("category", "").toUpperCase(java.util.Locale.ROOT);
+        if (c.equals("DATA") || c.equals("MINUTES") || c.equals("SMS") || c.equals("TUNUKIWA")) {
+            return c.toLowerCase(java.util.Locale.ROOT);
+        }
+        String s = (o.optString("name", "") + " " + o.optString("category", "")).toLowerCase(java.util.Locale.ROOT);
+        if (s.contains("sms")) return "sms";
+        if (s.contains("minutes") || s.matches(".*\\bmins?(\\s|$).*")) return "minutes";
+        if (s.contains("tunukiwa")) return "tunukiwa";
+        return "data";
+    }
+
     private static void syncAmountsNow(Context c) {
         try {
-                      if (!paired(c) || "reader".equals(role(c))) return;
+            if (!paired(c) || "reader".equals(role(c))) return;
             JSONArray offers = EngineStore.snapshot(c).optJSONArray("offers");
             if (offers == null) return; // the app has not saved its data yet
+
+            // 1) every offer with its name and category, sent only when something changed
+            java.util.TreeMap<Double, JSONObject> byPrice = new java.util.TreeMap<>();
+            for (int i = 0; i < offers.length(); i++) {
+                JSONObject o = offers.optJSONObject(i);
+                if (o == null) continue;
+                double price = o.optDouble("price", -1);
+                String name = o.optString("name", "").trim();
+                if (price <= 0 || name.isEmpty() || byPrice.containsKey(price)) continue;
+                byPrice.put(price, new JSONObject().put("amount", price).put("name", name).put("category", catOf(o)));
+            }
+            JSONArray all = new JSONArray();
+            for (JSONObject x : byPrice.values()) all.put(x);
+            String offerKey = all.toString();
+            if (all.length() > 0 && !offerKey.equals(sp(c).getString("cloud_offers_sent", ""))) {
+                try {
+                    rpc("device_sync_offers", creds(c).put("p_offers", all));
+                    sp(c).edit().putString("cloud_offers_sent", offerKey).apply();
+                    EngineCore.note(c, "cloud offers synced: " + all.length());
+                } catch (Exception e) {
+                    Log.w(TAG, "cloud offers: " + e.getMessage());
+                }
+            }
+
+            // 2) the prices this phone can dial right now (enabled offers only)
             java.util.TreeSet<Double> prices = new java.util.TreeSet<>();
             for (int i = 0; i < offers.length(); i++) {
                 JSONObject o = offers.optJSONObject(i);

@@ -19,6 +19,7 @@ import { loadClients, saveClients, CLIENTS_EVENT } from '../../engine/clientsSto
 import { commissionByDay, commissionThisWeek, getAirtimeBalance } from '../../engine/balances.js'
 import { useBackHandler } from '../ui/useBack.js'
 import { tokenStatus } from '../../engine/tokens.js'
+import { pairWithConnect, useLink } from '../connect/pairing.js'
 // The card reads the balance the *144# check saved; the old store is only a fallback
 const readAirtime = () => {
   const b = getAirtimeBalance()
@@ -170,6 +171,7 @@ const HOME_EXTRA = `
   .hm-s-detail .hm-act { padding: 9px 4px; font-size: 12px; gap: 4px; }
   .hm-s-detail .hm-act svg { width: 17px !important; height: 17px !important; }
 .hm-s-detail .hm-vf svg { width: 17px !important; height: 17px !important; }
+  .hm-s-home .hm-bigbtn.linked { background: #16a34a !important; border-color: #16a34a !important; color: #fff !important; }
 
   /* Transactions page: swipe rows */
   .hm-chiprow { position: relative; margin: 0 0 10px; }
@@ -396,6 +398,7 @@ export default function HomePage({
   const [spin, setSpin] = useState(false)
     const [scanning, setScanning] = useState(false)
   const scanListener = useRef(null)
+    const link = useLink()
   const [simPick, setSimPick] = useState(null)
   const [notice, setNoticeRaw] = useState('')
   const noticeTimer = useRef(null)
@@ -596,8 +599,12 @@ export default function HomePage({
 
   // The one place that talks to the Connect server. Returns { ok, message }.
   async function linkWithConnect(code) {
-    // TODO: send `code` and this phone's Connect ID to the server here
-    return { ok: false, message: 'Linking is not connected to the server yet' }
+    try {
+      await pairWithConnect(code)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, message: e && e.message ? e.message : 'Pairing failed' }
+    }
   }
 
   async function stopScan() {
@@ -637,7 +644,14 @@ export default function HomePage({
         await stopScan()
         if (!(await confirmDialog('Link this phone to your Connect account?', { title: 'Link with Connect', confirmLabel: 'Link' }))) return
         const r = await linkWithConnect(m[1])
-        if (!r.ok) setNotice(`Could not link: ${r.message}`)
+        if (r.ok) {
+          // setNotice hides good news, so this one goes straight to the banner
+          clearTimeout(noticeTimer.current)
+          setNoticeRaw('Connected. This phone is now linked with Connect.')
+          noticeTimer.current = setTimeout(() => setNoticeRaw(''), 4000)
+        } else {
+          setNotice(`Could not link: ${r.message}`)
+        }
       })
       await BarcodeScanner.startScan({ formats: [BarcodeFormat.QrCode] })
     } catch (e) {
@@ -708,6 +722,17 @@ export default function HomePage({
     setNotice('Transaction deleted')
     goBack()
   }
+    // The Autobingwa Connect page's button sends the person here to scan
+  const scanRef = useRef(null)
+  scanRef.current = scanQr
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('ab-scan-pair')) {
+        sessionStorage.removeItem('ab-scan-pair')
+        setTimeout(() => { if (scanRef.current) scanRef.current() }, 300)
+      }
+    } catch (e) { /* ignore */ }
+  }, [])
   // ---- Selecting several transactions ----
   const selTxs = sel.map((id) => txs.find((t) => t.id === id)).filter(Boolean)
   const shown = screen === 'all' ? allList : recent
@@ -1161,9 +1186,9 @@ export default function HomePage({
             )}
           </section>
 
-          {onToggleAutomation && (
+            {onToggleAutomation && (
             <button
-              className={`hm-bigbtn ${automationRunning ? 'stop' : 'start'} ${holding ? 'holding' : ''}`}
+              className={`hm-bigbtn ${automationRunning ? 'stop' : 'start'} ${holding ? 'holding' : ''} ${automationRunning && link.live ? 'linked' : ''}`}
               onPointerDown={startHold}
               onPointerUp={() => endHold(true)}
               onPointerLeave={() => endHold(false)}
@@ -1171,7 +1196,11 @@ export default function HomePage({
               onContextMenu={(e) => e.preventDefault()}
               style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation' }}
             >
-              {automationRunning ? '■ Hold to stop automation' : '▶ Hold to start automation'}
+              {automationRunning
+                ? link.paired
+                  ? link.live ? '● Connected' : '● Connecting…'
+                  : '■ Hold to stop automation'
+                : '▶ Hold to start automation'}
             </button>
           )}
         </>

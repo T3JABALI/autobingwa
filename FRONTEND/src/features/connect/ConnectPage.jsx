@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { loadConfig, setPortal } from '../../engine/config.js'
+import { getPairing, PAIR_EVENT } from './pairing.js'
 
 const ID_KEY = 'connect:id'
 const ISSUED_KEY = 'connect:issued'
@@ -55,12 +56,20 @@ export function getConnectId() {
   return readText(ID_KEY)
 }
 
-export default function ConnectPage({ onBack }) {
+export default function ConnectPage({ onBack, onScan }) {
   const [connectId, setConnectId] = useState(() => readText(ID_KEY))
   const [live, setLive] = useState(
     () => Boolean(loadConfig().portal) && Boolean(readText(ID_KEY))
   )
   const [notice, setNotice] = useState('')
+  const [pair, setPair] = useState(() => getPairing())
+
+  // Follows the pairing with a Connect phone
+  useEffect(() => {
+    const sync = () => setPair(getPairing())
+    window.addEventListener(PAIR_EVENT, sync)
+    return () => window.removeEventListener(PAIR_EVENT, sync)
+  }, [])
 
   // Follows the Settings switch and the portal
   useEffect(() => {
@@ -69,6 +78,12 @@ export default function ConnectPage({ onBack }) {
     window.addEventListener('ab-connect', sync)
     return () => window.removeEventListener('ab-connect', sync)
   }, [])
+
+  // Sends the person to Home, where the QR scanner opens by itself
+  function scan() {
+    try { sessionStorage.setItem('ab-scan-pair', '1') } catch (e) { /* ignore */ }
+    if (onScan) onScan()
+  }
 
   function handleGenerate() {
     const id = generateConnectId()
@@ -85,7 +100,7 @@ export default function ConnectPage({ onBack }) {
     const next = !live
     setPortal(next)
     setLive(next)
-    setNotice(next ? 'Connect is live' : 'Connect is disabled')
+    setNotice(next ? 'Portal is on' : 'Portal is off')
   }
 
   async function copyId() {
@@ -150,7 +165,7 @@ export default function ConnectPage({ onBack }) {
         .cn-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
         .cn-icon:focus-visible, .cn-btn:focus-visible, .cn-switch:focus-visible { outline: 2px solid var(--cn-accent); outline-offset: 3px; }
         .cn-status { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 18px; font-size: 14px; font-weight: 600; }
-        .cn-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--cn-bad); }
+        .cn-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--cn-bad); flex-shrink: 0; }
         .cn-dot.on { background: var(--cn-ok); }
         .cn-switch {
           width: 58px; height: 32px; padding: 0; border-radius: 999px; cursor: pointer; position: relative;
@@ -175,6 +190,10 @@ export default function ConnectPage({ onBack }) {
           background: var(--cn-accent); color: var(--cn-on); font: inherit; font-size: 17px; font-weight: 700; cursor: pointer;
         }
         .cn-btn:hover { filter: brightness(1.08); }
+        .cn-pair { margin-top: 18px; padding: 16px; border-radius: 14px; border: 1px solid var(--cn-border); background: var(--cn-card); display: grid; gap: 12px; }
+        .cn-pair-top { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+        .cn-btn-ok { background: var(--cn-ok); cursor: default; }
+        .cn-btn-ok:hover { filter: none; }
       `}</style>
 
       <div className="cn-inner">
@@ -186,13 +205,13 @@ export default function ConnectPage({ onBack }) {
         </div>
 
         <div className="cn-status">
-          <span>{live ? 'Connected' : 'Disconnected'}</span>
+          <span>{live ? 'Portal on' : 'Portal off'}</span>
           <span className={`cn-dot ${live ? 'on' : ''}`} aria-hidden="true" />
           <button
             type="button"
             role="switch"
             aria-checked={live}
-            aria-label={live ? 'Disable Connect' : 'Make Connect live'}
+            aria-label={live ? 'Turn the portal off' : 'Turn the portal on'}
             className={`cn-switch ${live ? 'on' : ''}`}
             onClick={toggleLive}
           >
@@ -201,6 +220,23 @@ export default function ConnectPage({ onBack }) {
         </div>
 
         {notice && <p className="cn-note" role="status">{notice}</p>}
+
+        <div className="cn-pair">
+          <div className="cn-pair-top">
+            <span className={`cn-dot ${pair ? 'on' : ''}`} aria-hidden="true" />
+            <b>{pair ? 'Connected to Connect' : 'Not connected to Connect'}</b>
+          </div>
+          <p className="cn-hint" style={{ margin: 0 }}>
+            {pair
+              ? `Linked with your Connect account since ${new Date(pair.pairedAt).toLocaleDateString()}.`
+              : 'Open the Pair screen on your Connect phone, then scan its QR code here.'}
+          </p>
+          {pair ? (
+            <button className="cn-btn cn-btn-ok" disabled>Connected ✓</button>
+          ) : (
+            <button className="cn-btn" onClick={scan}>Connect</button>
+          )}
+        </div>
 
         <div className="cn-body">
           {connectId ? (
