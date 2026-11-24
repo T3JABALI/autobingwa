@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { loadConfig, setPortal } from '../../engine/config.js'
 import { getPairing, PAIR_EVENT } from './pairing.js'
-
+import { isNative, AutoBingwa } from '../../engine/native.js'
 const ID_KEY = 'connect:id'
 const ISSUED_KEY = 'connect:issued'
 // No 0/O or 1/I so IDs are easy to read out and type.
@@ -63,7 +63,30 @@ export default function ConnectPage({ onBack, onScan }) {
   )
   const [notice, setNotice] = useState('')
   const [pair, setPair] = useState(() => getPairing())
+  const [lanAddr, setLanAddr] = useState('')
+  const [lanKey, setLanKey] = useState('')
 
+  // Loads the saved Wi-Fi backup address and key
+  useEffect(() => {
+    if (!isNative()) return
+    AutoBingwa.lanInfo()
+      .then((r) => { setLanAddr((r && r.addr) || ''); setLanKey((r && r.key) || '') })
+      .catch(() => { /* older native build */ })
+  }, [])
+
+  async function saveLan() {
+    if (!isNative()) { setNotice('Wi-Fi backup only works inside the Android app'); return }
+    if ((lanAddr.trim() && !lanKey.trim()) || (!lanAddr.trim() && lanKey.trim())) {
+      setNotice('Enter both the address and the Wi-Fi key, or clear both')
+      return
+    }
+    try {
+      await AutoBingwa.saveLan({ addr: lanAddr, key: lanKey })
+      setNotice(lanAddr.trim() ? 'Wi-Fi backup saved' : 'Wi-Fi backup cleared')
+    } catch (e) {
+      setNotice('Could not save. Update the app and try again.')
+    }
+  }
   // Follows the pairing with a Connect phone
   useEffect(() => {
     const sync = () => setPair(getPairing())
@@ -237,7 +260,29 @@ export default function ConnectPage({ onBack, onScan }) {
             <button className="cn-btn" onClick={scan}>Connect</button>
           )}
         </div>
-
+        <div className="cn-pair">
+          <div className="cn-pair-top"><b>Wi-Fi backup</b></div>
+          <p className="cn-hint" style={{ margin: 0 }}>
+            Used when the Connect phone has no internet. On the Connect phone, open Wi-Fi backup delivery and copy the Address and Wi-Fi key shown there. Both phones must be on the same Wi-Fi or hotspot.
+          </p>
+          <input
+            value={lanAddr}
+            onChange={(e) => setLanAddr(e.target.value)}
+            placeholder="Address, e.g. 192.168.43.1:8765"
+            inputMode="url"
+            autoCapitalize="none"
+            style={{ padding: '14px', borderRadius: 10, border: '1px solid var(--cn-border)', font: 'inherit', background: 'transparent', color: 'inherit' }}
+          />
+          <input
+            value={lanKey}
+            onChange={(e) => setLanKey(e.target.value.toUpperCase())}
+            placeholder="Wi-Fi key, e.g. K7M2QX9P"
+            autoCapitalize="characters"
+            maxLength={12}
+            style={{ padding: '14px', borderRadius: 10, border: '1px solid var(--cn-border)', font: 'inherit', background: 'transparent', color: 'inherit' }}
+          />
+          <button className="cn-btn" onClick={saveLan}>Save Wi-Fi backup</button>
+        </div>
         <div className="cn-body">
           {connectId ? (
             <>

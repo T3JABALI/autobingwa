@@ -19,6 +19,7 @@ export function buildSnapshot() {
     wallet: loadWallet(),
     fallback: loadFallback(),
         ussd: loadUssd(),
+            senders: readJson('ab:authorizedSenders', []),
   }
 }
 

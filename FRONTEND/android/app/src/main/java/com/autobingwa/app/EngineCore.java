@@ -459,7 +459,7 @@ if (open) {
             }
             // Same rule as the app: only a sender that looks like M-PESA can start a purchase
             String letters = (sender == null ? "" : sender).toLowerCase().replaceAll("[^a-z]", "");
-            if (!letters.contains("mpesa")) return;
+            if (!letters.contains("mpesa") && !AuthorizedSenders.has(c, sender)) return; // numbers on the Authorized senders list also count
             if (time < ownerSince(c)) return; // older payments stay with the app's engine
                         ingest(c, text, time);
         } catch (Exception e) {

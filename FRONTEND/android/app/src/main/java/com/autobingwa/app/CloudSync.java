@@ -128,6 +128,11 @@ final class CloudSync {
 
     private static void queue(Context ctx, String job, String kind, String msg) {
         final Context c = ctx.getApplicationContext();
+        // A job that came over Wi-Fi is reported to the reader, not to the cloud
+        if (job != null && job.startsWith("lan:")) {
+            if (!"start".equals(kind)) LanClient.report(c, job.substring(4), "done".equals(kind), msg);
+            return;
+        }
         synchronized (OUT) {
             try {
                 JSONArray q = readOut(c);
@@ -333,6 +338,7 @@ final class CloudSync {
     static void beat(final Context ctx) {
         final Context c = ctx.getApplicationContext();
         if (!paired(c)) return;
+        LanClient.poll(c);
         IO.execute(new Runnable() {
             @Override public void run() {
                 try {

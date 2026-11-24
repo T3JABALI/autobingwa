@@ -10,7 +10,7 @@ import {
 import { refreshPhonebook } from '../../engine/unmask.js'
 // Other pages import these from here, so they stay available
 export { loadConfig, savedContactName }
-
+const SENDERS_KEY = 'ab:authorizedSenders'
 const MODES = [
   { id: 'Express', label: 'Express Mode', desc: 'Processes USSDs that can be completed in one request' },
   { id: 'Advanced', label: 'Advanced Mode', desc: 'Processes USSDs that require multiple steps to complete' },
@@ -90,7 +90,10 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
   const [engBusy, setEngBusy] = useState(false)
   const [own, setOwn] = useState(false)
   const [ownMsg, setOwnMsg] = useState('')
-
+  const [senders, setSenders] = useState(() => readJson(SENDERS_KEY, []))
+  const [addingSender, setAddingSender] = useState(false)
+  const [senderForm, setSenderForm] = useState({ number: '', label: '' })
+  const [senderErr, setSenderErr] = useState('')
   async function loadEngine(force) {
     if (!isNative()) return
     setEngBusy(true)
@@ -206,7 +209,32 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
     setBlocked(all.filter((c) => c.blacklisted))
     setNotice(`${client.name} unblocked`)
   }
-
+  function saveSenders(next) {
+    setSenders(next)
+    writeJson(SENDERS_KEY, next)
+    syncNow() // send the new list to the background service straight away
+  }
+  function addSender() {
+    const n = normalizePhone(senderForm.number)
+    if (!n || n.masked) return setSenderErr('Enter a valid number, for example 0712345678.')
+    if (senders.some((s) => s.number === n.phone)) return setSenderErr('That number is already in the list.')
+    saveSenders([
+      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, number: n.phone, label: senderForm.label.trim() },
+      ...senders,
+    ])
+    setSenderForm({ number: '', label: '' })
+    setSenderErr('')
+    setAddingSender(false)
+  }
+  function removeSender(id) {
+    saveSenders(senders.filter((s) => s.id !== id))
+  }
+  function openSenders() {
+    setNotice('')
+    setSenderErr('')
+    setAddingSender(false)
+    setScreen('senders')
+  }
   const blockedCount = readJson(CLIENTS_KEY, []).filter((c) => c.blacklisted).length
   const suffix = config.saveSuffix.trim()
   const displayName = profile.fullName || 'Add your name'
@@ -400,6 +428,19 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
 .app .pf p.pf-err { margin: 0; font-size: 12px; }
 .pf-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: 12px; }
 .pf-actions .st-btn, .pf-actions .st-btn.ghost { margin: 0; padding: 13px 0; font-size: 14px; }
+.as-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 4px 12px; }
+.as-label { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #2e9e45; }
+.as-desc { margin: 4px 0 0; font-size: 13px; line-height: 1.4; color: var(--st-soft); }
+.as-add { width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: #2e9e45; cursor: pointer; display: grid; place-items: center; flex-shrink: 0; }
+.as-add svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+.as-card { border: 1px solid var(--st-border); border-radius: 24px; background: var(--st-card); overflow: hidden; margin-bottom: 14px; }
+.as-form { padding: 6px 18px 18px; }
+.as-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 44px 20px; }
+.as-empty svg { width: 64px; height: 64px; fill: var(--st-border); stroke: none; margin-bottom: 6px; }
+.as-empty strong { font-size: 17px; font-weight: 600; }
+.as-empty span { font-size: 14px; color: var(--st-soft); }
+.as-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--st-border); }
+.as-row:last-child { border-bottom: 0; }
       `}</style>
 
       <div className="st-inner">
@@ -458,6 +499,10 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
             {config.unmaskPhones && !config.processMpesa && (
               <p className="sx-pad st-desc">Also switch on "M-Pesa messages" under Message processing, or hidden-number payments will not be processed.</p>
             )}
+                        <button className="sx-item" onClick={openSenders}>
+              <span><strong>Authorized senders</strong><small>Also process these numbers</small></span>
+              <Chevron />
+            </button>
             <button className="sx-item" onClick={openBlacklist}>
               <span><strong>Blacklist ({blockedCount})</strong><small>Not processed and not saved to contacts</small></span>
               <Chevron />
@@ -504,6 +549,63 @@ export default function SettingsPage({ onBack, onProfileChange, onModeChange, li
           </div>
         )}
         {screen === 'ussd' && <UssdSettingsPage onBack={() => setScreen('main')} />}
+                  {screen === 'senders' && (
+          <div className="as">
+            <div className="st-head">
+              <button className="st-icon" onClick={() => setScreen('main')} aria-label="Back to settings">
+                <svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+              </button>
+              <h1>Authorized senders</h1>
+            </div>
+
+            <div className="as-top">
+              <div>
+                <p className="as-label">Allowed senders</p>
+                <p className="as-desc">Numbers this app accepts relay SMS from (e.g. AutoBingwa Connect). {senders.length} {senders.length === 1 ? 'number' : 'numbers'}.</p>
+              </div>
+              <button className="as-add" aria-label="Add a number"
+                onClick={() => { setAddingSender(!addingSender); setSenderErr('') }}>
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+              </button>
+            </div>
+
+            {addingSender && (
+              <div className="as-card as-form">
+                <label className="st-label" htmlFor="as-number">Phone number</label>
+                <input id="as-number" className="st-field" type="tel" inputMode="tel" placeholder="e.g. 0712345678"
+                  value={senderForm.number} onChange={(e) => setSenderForm({ ...senderForm, number: e.target.value })} />
+                <label className="st-label" htmlFor="as-label">Name (optional)</label>
+                <input id="as-label" className="st-field" placeholder="e.g. AutoBingwa Connect phone" maxLength={30}
+                  value={senderForm.label} onChange={(e) => setSenderForm({ ...senderForm, label: e.target.value })} />
+                {senderErr && <p className="st-err" role="alert">{senderErr}</p>}
+                <div className="pf-actions">
+                  <button className="st-btn ghost" onClick={() => { setAddingSender(false); setSenderErr('') }}>Cancel</button>
+                  <button className="st-btn" onClick={addSender}>Add number</button>
+                </div>
+              </div>
+            )}
+
+            <div className="as-card">
+              {senders.length === 0 ? (
+                <div className="as-empty">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" /></svg>
+                  <strong>No allowed senders added</strong>
+                  <span>Only standard M-Pesa messages are processed.</span>
+                </div>
+              ) : (
+                senders.map((s) => (
+                  <div className="as-row" key={s.id}>
+                    <div className="st-block-info">
+                      <strong>{s.number}</strong>
+                      {s.label && <span>{s.label}</span>}
+                    </div>
+                    <button className="st-chip" onClick={() => removeSender(s.id)}>Remove</button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
         {screen === 'edit' && (
           <div className="pf">
             <div className="pf-head">

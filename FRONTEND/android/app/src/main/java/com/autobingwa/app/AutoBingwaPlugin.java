@@ -908,7 +908,20 @@ public void stopKeepAlive(PluginCall call) {
         CloudSync.beat(getContext());
         call.resolve();
     }
+    // Wi-Fi backup: the reader phone's address and key, typed on the Connect page
+    @PluginMethod
+    public void saveLan(PluginCall call) {
+        LanClient.save(getContext(), call.getString("addr", ""), call.getString("key", ""));
+        call.resolve();
+    }
 
+    @PluginMethod
+    public void lanInfo(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("addr", LanClient.addr(getContext()));
+        out.put("key", LanClient.key(getContext()));
+        call.resolve(out);
+    }
     @PluginMethod
     public void cloudStatus(PluginCall call) {
         JSObject out = new JSObject();
