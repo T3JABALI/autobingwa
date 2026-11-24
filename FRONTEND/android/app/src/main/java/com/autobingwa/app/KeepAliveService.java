@@ -370,7 +370,7 @@ String key = (!auto || EngineCore.owns(getApplicationContext())) ? null : waitin
                     try { CloudSync.beat(getApplicationContext()); }
                     catch (Throwable e) { Log.e("AutoBingwa", "cloud beat loop", e); }
                 }
-            }, 4, 15, TimeUnit.SECONDS);
+            }, 2, 2, TimeUnit.SECONDS);
         }
         return START_STICKY;
     }

@@ -6,7 +6,14 @@ import { Device } from '@capacitor/device'
 import { supabase } from '../../lib/supabase'
 import { isNative, ussdServiceEnabled } from '../../engine/native.js'
 import { getAirtimeBalance } from '../../engine/balances.js'
+import { registerPlugin } from '@capacitor/core'
+const AutoBingwa = registerPlugin('AutoBingwa')
 
+async function pushToNative(p) {
+  try {
+    if (isNative() && p) await AutoBingwa.saveCloudDevice({ deviceId: p.deviceId, secret: p.secret, role: 'dialer' })
+  } catch (e) { console.error('native pairing', e) }
+}
 const KEY = 'connect:pair'
 const BEAT_MS = 15000
 const LIVE_MS = 45000 // a check-in this recent counts as connected
@@ -91,6 +98,7 @@ export async function pairWithConnect(code) {
   } catch (e) {
     throw new Error('Could not save the pairing on this phone.')
   }
+  await pushToNative({ deviceId: data.device_id, secret: data.secret })
   lastOk = 0
   if (running) {
     startTimer()
@@ -119,7 +127,7 @@ async function doBeat() {
       p_secret: p.secret,
       p_accessibility: accessibility,
       p_airtime: airtime,
-      p_version: '1.0',
+ 
     })
     if (error) {
       if (/not authorised/i.test(error.message)) { clearPairing(); return } // removed from the Connect side
@@ -182,6 +190,7 @@ export function setConnectRunning(on) {
     return
   }
   if (getPairing()) {
+    pushToNative(getPairing())
     startTimer()
     beat()
   }

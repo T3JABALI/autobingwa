@@ -732,7 +732,7 @@ if (open) {
                     if (!recovered) { logExitReasons(c); recovered = true; }
                     recoverOrphans(c); // nothing is being processed at this point, so a "Processing" row is left over
                     for (;;) {
-                        if (!owns(c) || !running(c) || !hasToken(c)) break;
+                        if (!running(c) || !hasToken(c)) break;
                         JSONObject next = oldestPending(c);
                         if (next == null) break;
                         try {
@@ -767,7 +767,7 @@ if (open) {
                     pumping.set(false);
                 }
                 // something may have arrived just as the loop ended
-                if (!crashed && owns(c) && running(c) && hasToken(c) && oldestPending(c) != null) pump(c);
+                if (!crashed && running(c) && hasToken(c) && oldestPending(c) != null) pump(c);
             }
         });
     }
@@ -1341,11 +1341,8 @@ if ("conn".equals(kind)) kind = "pending"; // still unknown after the last try: 
         }
     }
 
-    // null when this phone may take a cloud job now, otherwise the reason it may not
+     // The phone always takes a cloud job; the queue itself decides whether it can dial it
     static String cloudBlocker(Context c) {
-        if (!owns(c)) return "the background engine is switched off";
-        if (!running(c)) return "automation is paused";
-        if (!hasToken(c)) return "no tokens left";
         return null;
     }
 

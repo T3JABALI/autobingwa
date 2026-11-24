@@ -62,13 +62,13 @@ static volatile long lastPortalBeat = 0;
         portalTickHandler.removeCallbacks(portalTickLoop);
         if (on) portalTickHandler.postDelayed(portalTickLoop, 8000);
     }
-     @Override
+    @Override
     public void load() {
         instance = this;
+        CloudSync.startLoop(getContext());
         portalNative(getContext().getSharedPreferences("autobingwa_prefs",
             android.content.Context.MODE_PRIVATE).getBoolean("portal_on", false));
     }
-
     // Called by the SMS receiver when a new message has been saved
     static void poke() {
         AutoBingwaPlugin p = instance;
@@ -904,7 +904,8 @@ public void stopKeepAlive(PluginCall call) {
             call.reject("Device id and secret are required");
             return;
         }
-        CloudSync.saveDevice(getContext(), id, secret, call.getString("role", "dialer"));
+               CloudSync.saveDevice(getContext(), id, secret, call.getString("role", "dialer"));
+        CloudSync.startLoop(getContext());
         CloudSync.beat(getContext());
         call.resolve();
     }

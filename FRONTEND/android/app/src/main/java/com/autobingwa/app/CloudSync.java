@@ -22,6 +22,8 @@ final class CloudSync {
     // One thread for everything, so two signals for the same job can never claim it twice
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private static String lastNote = "";
+    private static volatile String lastErr = "";
+
 
     private CloudSync() { }
 
@@ -240,7 +242,11 @@ final class CloudSync {
         try {
             if (!paired(c) || "reader".equals(role(c))) return;
             JSONArray offers = EngineStore.snapshot(c).optJSONArray("offers");
-            if (offers == null) return; // the app has not saved its data yet
+            if (offers == null) {
+                String m = "cloud sync skipped: the app has not saved its offers to the service yet";
+                if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
+                return;
+            }
 
             // 1) every offer with its name and category, sent only when something changed
             java.util.TreeMap<Double, JSONObject> byPrice = new java.util.TreeMap<>();
@@ -262,6 +268,8 @@ final class CloudSync {
                     EngineCore.note(c, "cloud offers synced: " + all.length());
                 } catch (Exception e) {
                     Log.w(TAG, "cloud offers: " + e.getMessage());
+                    String m = "cloud offers failed: " + e.getMessage();
+                    if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
                 }
             }
 
@@ -283,9 +291,11 @@ final class CloudSync {
                     && now - sp(c).getLong("cloud_amounts_at", 0) < 30 * 60 * 1000L) return;
             rpc("set_device_amounts", creds(c).put("p_amounts", list));
             sp(c).edit().putString("cloud_amounts_sent", key).putLong("cloud_amounts_at", now).apply();
-            EngineCore.note(c, "cloud amounts sent: " + key);
+            EngineCore.note(c, "cloud amounts sent: " + key + " (offers=" + offers.length() + ", enabled=" + prices.size() + ")");
         } catch (Exception e) {
             Log.w(TAG, "cloud amounts: " + e.getMessage());
+            String m = "cloud amounts failed: " + e.getMessage();
+            if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
         }
     }
         // ---------- reader: a payment SMS was saved on this phone ----------
@@ -326,71 +336,123 @@ final class CloudSync {
         } catch (Throwable ignored) { }
     }
 
-    private static String version(Context c) {
+        private static String version(Context c) {
+        String v = "";
         try {
-            return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
-        } catch (Exception e) {
-            return "";
-        }
+            v = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+        } catch (Exception e) { }
+        String le = lastErr;
+        return v + " b7" + (le.isEmpty() ? "" : " | " + le);
     }
+   
 
-    // Every 15 seconds from the service: keeps this phone online and picks up waiting jobs
+      private static final java.util.concurrent.atomic.AtomicBoolean beating = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     static void beat(final Context ctx) {
         final Context c = ctx.getApplicationContext();
         if (!paired(c)) return;
         LanClient.poll(c);
+        if (!beating.compareAndSet(false, true)) return;
         IO.execute(new Runnable() {
             @Override public void run() {
                 try {
-                    ensureToken(c);
-                    JSONObject a = creds(c);
-                    a.put("p_accessibility", UssdAccessibilityService.instance != null);
-                    String t = sp(c).getString("fcm_token", "");
-                    if (!t.isEmpty()) a.put("p_fcm", t);
-                    String v = version(c);
-                    if (!v.isEmpty()) a.put("p_version", v);
-                    JSONArray jobs = new JSONObject(rpc("heartbeat", a)).optJSONArray("jobs");
-                    for (int i = 0; jobs != null && i < jobs.length(); i++) {
-                        takeJob(c, jobs.getJSONObject(i).optString("job_id"));
+                    try {
+                        ensureToken(c);
+                        JSONObject a = creds(c);
+                        a.put("p_accessibility", UssdAccessibilityService.instance != null);
+                        String t = sp(c).getString("fcm_token", "");
+                        if (!t.isEmpty()) a.put("p_fcm", t);
+                        String v = version(c);
+                        if (!v.isEmpty()) a.put("p_version", v);
+                        JSONArray jobs = new JSONObject(rpc("heartbeat", a)).optJSONArray("jobs");
+                        if (jobs != null && jobs.length() > 0) {
+                            String m = "heartbeat: " + jobs.length() + " job(s) waiting";
+                            if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
+                        }
+                        for (int i = 0; jobs != null && i < jobs.length(); i++) {
+                            takeJob(c, jobs.getJSONObject(i).optString("job_id"));
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "cloud heartbeat: " + e.getMessage());
+                        trace(c, "heartbeat failed: " + e.getMessage());
                     }
-                } catch (Exception e) {
-                    Log.w(TAG, "cloud heartbeat: " + e.getMessage());
+                    syncAmountsNow(c);
+                    flush(c);
+                } finally {
+                    beating.set(false);
                 }
-                syncAmountsNow(c);
-                flush(c);
             }
         });
     }
+    private static java.util.concurrent.ScheduledExecutorService loop = null;
 
-    // A push arrived with a job id
+    // Beats every 2 seconds from inside the app, whatever else is or is not running
+    static synchronized void startLoop(final Context ctx) {
+        if (loop != null) return;
+        final Context c = ctx.getApplicationContext();
+        loop = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        loop.scheduleWithFixedDelay(new Runnable() {
+            @Override public void run() {
+                try { beat(c); } catch (Throwable t) { Log.w(TAG, "beat loop: " + t.getMessage()); }
+            }
+        }, 1, 2, java.util.concurrent.TimeUnit.SECONDS);
+    }
+      // A push arrived with a job id
     static void handleJob(Context ctx, final String jobId) {
         final Context c = ctx.getApplicationContext();
         if (!paired(c)) return;
         IO.execute(new Runnable() { @Override public void run() { takeJob(c, jobId); } });
     }
 
+    private static final java.util.HashMap<String, Long> traced = new java.util.HashMap<>();
+
+    // Writes a note to the in-app log AND to the cloud. Same note: at most once a minute.
+    private static void trace(Context c, String m) {
+        long now = System.currentTimeMillis();
+        synchronized (traced) {
+            Long t = traced.get(m);
+            if (t != null && now - t < 60_000) return;
+            if (traced.size() > 50) traced.clear();
+            traced.put(m, now);
+        }
+        EngineCore.note(c, m);
+        try { rpc("device_note", creds(c).put("p_note", m)); } catch (Exception ignored) { }
+    }
+
     private static void takeJob(Context c, String jobId) {
         try {
-            if (jobId == null || jobId.isEmpty() || EngineCore.hasCloudJob(c, jobId)) return;
-            String why = EngineCore.cloudBlocker(c);
-            if (why != null) {
-                String note = jobId + why;
-                if (!note.equals(lastNote)) {
-                    lastNote = note;
-                    EngineCore.note(c, "cloud job " + jobId + " not taken: " + why);
-                }
-                return; // left alone, so the backend gives it to another phone
+            if (jobId == null || jobId.isEmpty()) return;
+            lastErr = "takeJob saw " + jobId.substring(0, 8);
+            if (EngineCore.hasCloudJob(c, jobId)) {
+                lastErr = "hasCloudJob=true for " + jobId.substring(0, 8);
+                return;
             }
             String body = rpc("claim_job", creds(c).put("p_job", jobId)).trim();
-            if (body.isEmpty() || "null".equals(body)) return; // someone else has it
+            if (body.isEmpty() || "null".equals(body)) {
+                lastErr = "claim returned nothing";
+                return;
+            }
             JSONObject p = new JSONObject(body);
             String id = p.optString("job_id", "");
             if (id.isEmpty()) return;
+
+            String why = EngineCore.cloudBlocker(c);
+            if (why != null) {
+                lastErr = "not taken: " + why;
+                queue(c, id, "rejected", why);
+                return;
+            }
             String[] problem = EngineCore.ingestCloud(c, id, p.optString("transaction_code"),
                 p.optDouble("amount", 0), p.optString("customer_phone"));
-            if (problem != null) queue(c, id, problem[0], problem[1]);
+            if (problem != null) {
+                lastErr = "ingestCloud: " + problem[0] + " - " + problem[1];
+                queue(c, id, problem[0], problem[1]);
+            } else {
+                lastErr = "accepted " + id.substring(0, 8);
+            }
         } catch (Exception e) {
-            Log.w(TAG, "cloud job: " + e.getMessage());
+            String s = "takeJob error: " + e.getMessage();
+            lastErr = s.length() > 150 ? s.substring(0, 150) : s;
         }
     }
 }
