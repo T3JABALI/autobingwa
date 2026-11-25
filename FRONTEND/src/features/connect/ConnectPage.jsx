@@ -260,6 +260,7 @@ export default function ConnectPage({ onBack, onScan }) {
             <button className="cn-btn" onClick={scan}>Connect</button>
           )}
         </div>
+        {pair && (
         <div className="cn-pair">
           <div className="cn-pair-top"><b>Wi-Fi backup</b></div>
           <p className="cn-hint" style={{ margin: 0 }}>
@@ -283,6 +284,7 @@ export default function ConnectPage({ onBack, onScan }) {
           />
           <button className="cn-btn" onClick={saveLan}>Save Wi-Fi backup</button>
         </div>
+        )}
         <div className="cn-body">
           {connectId ? (
             <>

@@ -23,6 +23,31 @@ const catOf = (o) => {
   if (/tunukiwa/.test(s)) return 'TUNUKIWA'
   return 'DATA'
 }
+const CAT_PATHS = {
+  DATA: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" /></>,
+  MINUTES: <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />,
+  SMS: <><path d="M4 5h16v11H10l-6 4z" /><path d="M8 9.5h8M8 12.5h5" /></>,
+  TUNUKIWA: <><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M5 12v8h14v-8" /><path d="M12 8v12" /><path d="M12 8c-2-4-6-3-5 0 .6 1.6 3.6 1 5 0zM12 8c2-4 6-3 5 0-.6 1.6-3.6 1-5 0z" /></>,
+}
+
+function CatIcon({ category }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 40, height: 40, borderRadius: 12, flexShrink: 0, marginRight: 10,
+        display: 'grid', placeItems: 'center',
+        background: 'var(--muted-bg, #E6EDFF)', color: 'var(--accent-color, #1F5EFF)',
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+        strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        {CAT_PATHS[category] || CAT_PATHS.DATA}
+      </svg>
+    </span>
+  )
+}
+
 const isVerified = (o) => Boolean(o.smart || o.signature || (o.sigLearned && o.sigEnabled))
 const isLocked = (o) => Boolean(o.smart || o.signature)
 
@@ -124,7 +149,8 @@ const OfferCard = memo(function OfferCard({ o, menuOpen, menuDir, onToggle, onMe
   return (
     <div className={`of-card ${o.enabled ? '' : 'off'}`}>
       <div className="of-top">
-        <div className="of-title">
+             <div className="of-title">
+          <CatIcon category={catOf(o)} />
           <b>{o.name}</b>
           {isVerified(o) && <VerifiedBadge />}
         </div>

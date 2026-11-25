@@ -1044,6 +1044,143 @@ app.post('/portal/devices/:id/unlink', async (req, res) => {
   }
 })
 
+/* ================= CONNECT SUBSCRIPTION (M-Pesa) =================
+   AutoBingwa Connect pays for its plan here. Days are only added by award_payment in Supabase,
+   and only after Safaricom has confirmed the money. The phone can never award itself. */
+const cdb = () => sbAdmin.schema('connect')
+
+async function requireConnectUser(req, res, next) {
+  try {
+    if (!sbAdmin) return res.status(503).json({ error: 'Not configured yet.' })
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+    if (!token) return res.status(401).json({ error: 'Sign in first.' })
+    const { data, error } = await sbAdmin.auth.getUser(token)
+    if (error || !data || !data.user) return res.status(401).json({ error: 'Sign in again.' })
+    req.cuser = data.user
+    next()
+  } catch (e) {
+    console.error('requireConnectUser', e)
+    res.status(401).json({ error: 'Sign in again.' })
+  }
+}
+const connectLimit = (n) => rateLimit({ windowMs: 60 * 60 * 1000, max: n, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => sha(req.headers.authorization || 'none') })
+
+// Saves the receipt, then asks the database to award. Safe to repeat: award_payment never adds days twice.
+async function confirmConnectPayment(p, receipt) {
+  await cdb().from('subscription_payments').update({ raw: { ...(p.raw || {}), receipt } }).eq('id', p.id)
+  const { error } = await cdb().rpc('award_payment', { p_payment: p.id })
+  if (error) throw new Error(error.message)
+}
+async function failConnectPayment(p, message) {
+  await cdb().from('subscription_payments')
+    .update({ status: 'failed', raw: { ...(p.raw || {}), result: message || 'The payment was not completed.' } })
+    .eq('id', p.id).eq('status', 'pending')
+}
+
+// If the callback never arrived, ask Safaricom directly (after 40 seconds)
+async function checkConnectPayment(p) {
+  if (p.status !== 'pending' || !p.reference) return p
+  if (Date.now() - new Date(p.created_at).getTime() < 40000) return p
+  const ts = stamp()
+  const q = await daraja('/mpesa/stkpushquery/v1/query', {
+    BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts, CheckoutRequestID: p.reference })
+  if (q.ResultCode === undefined) return p
+  const code = Number(q.ResultCode)
+  if (code === 0) await confirmConnectPayment(p, p.reference)
+  else if (code !== 4999) await failConnectPayment(p, code === 1032 ? 'You cancelled the payment.' : q.ResultDesc)
+  return (await cdb().from('subscription_payments').select('*').eq('id', p.id).single()).data
+}
+
+app.post('/connect/subscribe/start', connectLimit(20), requireConnectUser, async (req, res) => {
+  try {
+    const { data: plan } = await cdb().from('plans').select('*').eq('id', str(req.body && req.body.planId, 20)).maybeSingle()
+    if (!plan) return res.status(400).json({ error: 'Unknown plan.' })
+    const phone = normalizePhone(req.body && req.body.phone)
+    if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number, for example 0712345678.' })
+
+    // The payment is recorded first, so money is never taken without a record
+    const ins = await cdb().from('subscription_payments').insert({
+      user_id: req.cuser.id, plan_id: plan.id, plan_name: plan.name, amount: plan.price, days: plan.days,
+      method: 'mpesa', status: 'pending', phone }).select('*').single()
+    if (ins.error) throw new Error(ins.error.message)
+    const row = ins.data
+
+    const ts = stamp()
+    const d = await daraja('/mpesa/stkpush/v1/processrequest', {
+      BusinessShortCode: SHORTCODE, Password: password(ts), Timestamp: ts,
+      TransactionType: LIVE ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+      Amount: Number(plan.price), PartyA: phone, PartyB: LIVE ? TILL_NUMBER : SHORTCODE, PhoneNumber: phone,
+      CallBackURL: `${CALLBACK_BASE}/pay/connect/callback/${CALLBACK_SECRET}`,
+      AccountReference: 'AutoBingwaConnect', TransactionDesc: `Connect ${plan.name}` })
+    if (d.ResponseCode !== '0') {
+      console.error('connect stk refused', d)
+      await failConnectPayment(row, d.errorMessage || d.ResponseDescription)
+      return res.status(502).json({ error: d.errorMessage || d.ResponseDescription || 'M-Pesa refused the request.' })
+    }
+    await cdb().from('subscription_payments').update({ reference: d.CheckoutRequestID }).eq('id', row.id)
+    res.json({ paymentId: row.id })
+  } catch (e) {
+    console.error('connect start', e)
+    res.status(500).json({ error: 'Could not start the payment.' })
+  }
+})
+
+app.get('/connect/subscribe/status/:id', connectLimit(600), requireConnectUser, async (req, res) => {
+  try {
+    const { data: p } = await cdb().from('subscription_payments').select('*')
+      .eq('id', req.params.id).eq('user_id', req.cuser.id).eq('method', 'mpesa').maybeSingle()
+    if (!p) return res.status(404).json({ error: 'Not found.' })
+    const q = await checkConnectPayment(p)
+    res.json({ status: q.status, message: (q.raw && q.raw.result) || '' })
+  } catch (e) {
+    console.error('connect status', e)
+    res.status(500).json({ error: 'Could not check the payment.' })
+  }
+})
+
+// Called when the app opens: finds payments that were paid but never counted (server was down, phone was offline)
+app.post('/connect/subscribe/recover', connectLimit(120), requireConnectUser, async (req, res) => {
+  try {
+    const { data } = await cdb().from('subscription_payments').select('*')
+      .eq('user_id', req.cuser.id).eq('method', 'mpesa').eq('status', 'pending')
+      .gte('created_at', new Date(Date.now() - 86400000).toISOString()).not('reference', 'is', null).limit(5)
+    for (const p of data || []) {
+      try { await checkConnectPayment(p) } catch (e) { console.error('connect recover', e.message) }
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('connect recover', e)
+    res.status(500).json({ error: 'Could not check your payments.' })
+  }
+})
+
+// Safaricom calls this (no login)
+app.post('/pay/connect/callback/:secret', async (req, res) => {
+  res.json({ ResultCode: 0, ResultDesc: 'Accepted' }) // always answer Safaricom quickly
+  if (req.params.secret !== CALLBACK_SECRET) return
+  try {
+    const cb = req.body && req.body.Body && req.body.Body.stkCallback
+    if (!cb) return
+    const { data: p } = await cdb().from('subscription_payments').select('*').eq('reference', cb.CheckoutRequestID).maybeSingle()
+    if (!p || p.status !== 'pending') return
+    if (Number(cb.ResultCode) === 0) {
+      const items = (cb.CallbackMetadata && cb.CallbackMetadata.Item) || []
+      const get = (n) => (items.find((i) => i.Name === n) || {}).Value
+      const receipt = String(get('MpesaReceiptNumber') || '')
+      if (!receipt || Number(get('Amount')) < Number(p.amount)) {
+        await failConnectPayment(p, 'Amount did not match.')
+        return
+      }
+      await confirmConnectPayment(p, receipt)
+    } else {
+      await failConnectPayment(p, Number(cb.ResultCode) === 1032 ? 'You cancelled the payment.' : cb.ResultDesc)
+    }
+  } catch (e) {
+    console.error('connect callback', e) // the payment stays pending, so the app's recover call finishes it later
+  }
+})
+
 /* ================= TOKENS (M-Pesa) ================= */
 
 // 1. The app asks for an STK push
