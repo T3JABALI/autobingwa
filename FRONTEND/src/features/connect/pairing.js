@@ -73,7 +73,7 @@ async function phoneName() {
 const friendly = (msg) => {
   const m = String(msg || '')
   if (/invalid or expired/i.test(m)) {
-    return 'That code is invalid or expired. On the Connect phone tap New code, and check that it is signed in to the same account as this phone.'
+    return 'That code is invalid or expired. On the Connect phone tap New code, then enter the new code here.'
   }
   if (/not signed in/i.test(m)) return 'Sign in on this phone first.'
   if (/fetch|network/i.test(m)) return 'No internet connection.'
@@ -85,10 +85,14 @@ export async function pairWithConnect(code) {
   const userId = s && s.session ? s.session.user.id : null
   if (!userId) throw new Error('Sign in on this phone first.')
 
+  let installId = null
+  try { const di = await Device.getId(); installId = di.identifier || di.uuid || null } catch (e) { /* no check */ }
+
   const { data, error } = await supabase.schema('connect').rpc('pair_device', {
     p_code: code,
     p_name: await phoneName(),
     p_app_version: '1.0',
+    p_install_id: installId,
   })
   if (error) throw new Error(friendly(error.message))
   if (!data || !data.device_id || !data.secret) throw new Error('The server sent an unexpected reply.')
@@ -113,10 +117,6 @@ async function doBeat() {
   const p = getPairing()
   if (!p || !running) return
   try {
-    const { data: s } = await supabase.auth.getSession()
-    const uid = s && s.session ? s.session.user.id : null
-    if (uid && p.userId && uid !== p.userId) { clearPairing(); return } // a different account signed in
-
     let accessibility = null
     try { if (isNative()) accessibility = await ussdServiceEnabled() } catch (e) { /* unknown */ }
     const bal = getAirtimeBalance()
@@ -127,7 +127,6 @@ async function doBeat() {
       p_secret: p.secret,
       p_accessibility: accessibility,
       p_airtime: airtime,
- 
     })
     if (error) {
       if (/not authorised/i.test(error.message)) { clearPairing(); return } // removed from the Connect side

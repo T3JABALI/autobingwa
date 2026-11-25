@@ -23,6 +23,7 @@ final class CloudSync {
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private static String lastNote = "";
     private static volatile String lastErr = "";
+        private static volatile String syncErr = "";
 
 
     private CloudSync() { }
@@ -245,6 +246,7 @@ final class CloudSync {
             if (offers == null) {
                 String m = "cloud sync skipped: the app has not saved its offers to the service yet";
                 if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
+                               syncErr = "sync: no offers in the service copy";
                 return;
             }
 
@@ -261,13 +263,17 @@ final class CloudSync {
             JSONArray all = new JSONArray();
             for (JSONObject x : byPrice.values()) all.put(x);
             String offerKey = all.toString();
-            if (all.length() > 0 && !offerKey.equals(sp(c).getString("cloud_offers_sent", ""))) {
+            long nowO = System.currentTimeMillis();
+            boolean offersStale = nowO - sp(c).getLong("cloud_offers_at", 0) > 30 * 60 * 1000L;
+            if (all.length() > 0 && (offersStale || !offerKey.equals(sp(c).getString("cloud_offers_sent", "")))) {
                 try {
                     rpc("device_sync_offers", creds(c).put("p_offers", all));
-                    sp(c).edit().putString("cloud_offers_sent", offerKey).apply();
+                    sp(c).edit().putString("cloud_offers_sent", offerKey).putLong("cloud_offers_at", nowO).apply();
                     EngineCore.note(c, "cloud offers synced: " + all.length());
                 } catch (Exception e) {
                     Log.w(TAG, "cloud offers: " + e.getMessage());
+                    String em = String.valueOf(e.getMessage());
+                    syncErr = "offers sync failed: " + (em.length() > 100 ? em.substring(0, 100) : em);
                     String m = "cloud offers failed: " + e.getMessage();
                     if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
                 }
@@ -288,12 +294,18 @@ final class CloudSync {
             String key = list.toString();
             long now = System.currentTimeMillis();
             if (key.equals(sp(c).getString("cloud_amounts_sent", ""))
-                    && now - sp(c).getLong("cloud_amounts_at", 0) < 30 * 60 * 1000L) return;
+                    && now - sp(c).getLong("cloud_amounts_at", 0) < 30 * 60 * 1000L) {
+                if (syncErr.isEmpty()) syncErr = "sync ok " + prices.size();
+                return;
+            }
             rpc("set_device_amounts", creds(c).put("p_amounts", list));
+                        syncErr = "sync ok " + prices.size();
             sp(c).edit().putString("cloud_amounts_sent", key).putLong("cloud_amounts_at", now).apply();
             EngineCore.note(c, "cloud amounts sent: " + key + " (offers=" + offers.length() + ", enabled=" + prices.size() + ")");
         } catch (Exception e) {
             Log.w(TAG, "cloud amounts: " + e.getMessage());
+            String em2 = String.valueOf(e.getMessage());
+            syncErr = "amounts sync failed: " + (em2.length() > 100 ? em2.substring(0, 100) : em2);
             String m = "cloud amounts failed: " + e.getMessage();
             if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
         }
@@ -342,7 +354,8 @@ final class CloudSync {
             v = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
         } catch (Exception e) { }
         String le = lastErr;
-        return v + " b7" + (le.isEmpty() ? "" : " | " + le);
+        String se = syncErr;
+        return v + " b7" + (se.isEmpty() ? "" : " | " + se) + (le.isEmpty() ? "" : " | " + le);
     }
    
 
