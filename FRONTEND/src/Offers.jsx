@@ -15,7 +15,7 @@ const DEFAULT_NOTIFY = 'Hi {name}, your {offer} has been sent. Thank you for buy
 const RED = '#e5484d'
 
 // The offer's category: the one picked, otherwise worked out from its name
-const catOf = (o) => {
+export const catOf = (o) => {
   if (PICK.includes(o.category)) return o.category
   const s = `${o.name || ''} ${o.category || ''}`.toLowerCase()
   if (/sms/.test(s)) return 'SMS'
@@ -30,17 +30,17 @@ const CAT_PATHS = {
   TUNUKIWA: <><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M5 12v8h14v-8" /><path d="M12 8v12" /><path d="M12 8c-2-4-6-3-5 0 .6 1.6 3.6 1 5 0zM12 8c2-4 6-3 5 0-.6 1.6-3.6 1-5 0z" /></>,
 }
 
-function CatIcon({ category }) {
+export function CatIcon({ category, size = 40 }) {
   return (
     <span
       aria-hidden="true"
       style={{
-        width: 40, height: 40, borderRadius: 12, flexShrink: 0, marginRight: 10,
+        width: size, height: size, borderRadius: size < 40 ? 8 : 12, flexShrink: 0, marginRight: size < 40 ? 0 : 10,
         display: 'grid', placeItems: 'center',
         background: 'var(--muted-bg, #E6EDFF)', color: 'var(--accent-color, #1F5EFF)',
       }}
     >
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+      <svg viewBox="0 0 24 24" width={Math.round(size * 0.55)} height={Math.round(size * 0.55)} fill="none" stroke="currentColor"
         strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
         {CAT_PATHS[category] || CAT_PATHS.DATA}
       </svg>

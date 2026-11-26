@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { smartOffers as BUNDLED, GROUPS as BUNDLED_GROUPS } from './smartCatalog.js'
 import { loadCatalog, cachedCatalog } from './catalog.js'
 import VerifiedBadge from '../home/VerifiedBadge.jsx'
-
+import { CatIcon, catOf } from '../../Offers.jsx'
 const t12 = (v) => {
   if (!v) return ''
   const [h, m] = v.split(':').map(Number)
@@ -112,6 +112,7 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
       {list.map((o) => (
         <div key={o.sid} className="sp-row">
           <div className="sp-name">
+            <CatIcon size={24} category={catOf({ name: o.name, category: String(o.group || '').toUpperCase() })} />
             <b>{o.name}</b>
             <VerifiedBadge />
             {o.tw && o.tw.on && <small> 🕒 {t12(o.tw.from)} to {t12(o.tw.until)}</small>}
@@ -130,7 +131,10 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
         <div className="sheet-back" onClick={() => setPick(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-body">
-              <h3>{pick.name} <VerifiedBadge /></h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CatIcon size={32} category={catOf({ name: pick.name, category: String(pick.group || '').toUpperCase() })} />
+                {pick.name} <VerifiedBadge />
+              </h3>
               <small className="muted-line">
                 {pick.ussd} · Safaricom price KES {pick.safPrice} (locked)
               </small>

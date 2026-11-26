@@ -377,7 +377,9 @@ final class CloudSync {
                         if (!t.isEmpty()) a.put("p_fcm", t);
                         String v = version(c);
                         if (!v.isEmpty()) a.put("p_version", v);
-                        JSONArray jobs = new JSONObject(rpc("heartbeat", a)).optJSONArray("jobs");
+                        JSONObject hb = new JSONObject(rpc("heartbeat", a));
+                        subAlert(c, hb.optBoolean("subscription_active", true));
+                        JSONArray jobs = hb.optJSONArray("jobs");
                         if (jobs != null && jobs.length() > 0) {
                             String m = "heartbeat: " + jobs.length() + " job(s) waiting";
                             if (!m.equals(lastNote)) { lastNote = m; EngineCore.note(c, m); }
@@ -431,7 +433,54 @@ final class CloudSync {
         EngineCore.note(c, m);
         try { rpc("device_note", creds(c).put("p_note", m)); } catch (Exception ignored) { }
     }
+    // ---------- subscription alert on the dialer ----------
+    private static final int SUB_NOTE_ID = 7301;
 
+    private static void subAlert(Context c, boolean active) {
+        try {
+            boolean was = sp(c).getBoolean("sub_expired", false);
+            long now = System.currentTimeMillis();
+            if (active) {
+                if (was) {
+                    sp(c).edit().putBoolean("sub_expired", false).apply();
+                    android.app.NotificationManager nm =
+                        (android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.cancel(SUB_NOTE_ID);
+                    EngineCore.note(c, "subscription active again: forwarding resumed");
+                }
+                return;
+            }
+            // Expired: tell the person once, then remind every 6 hours
+            if (!was) EngineCore.note(c, "subscription expired: forwarding is paused. Please renew your subscription.");
+            if (!was || now - sp(c).getLong("sub_alert_at", 0) > 6 * 3600 * 1000L) {
+                sp(c).edit().putBoolean("sub_expired", true).putLong("sub_alert_at", now).apply();
+                showRenew(c);
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private static void showRenew(Context c) {
+        try {
+            android.app.NotificationManager nm =
+                (android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            android.app.Notification.Builder b;
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(new android.app.NotificationChannel(
+                    "sub_alert", "Subscription", android.app.NotificationManager.IMPORTANCE_HIGH));
+                b = new android.app.Notification.Builder(c, "sub_alert");
+            } else {
+                b = new android.app.Notification.Builder(c);
+            }
+            String text = "Your subscription has ended, so payments are not being sent to this phone. Please renew your subscription to continue.";
+            b.setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("Forwarding paused")
+                .setContentText(text)
+                .setStyle(new android.app.Notification.BigTextStyle().bigText(text))
+                .setAutoCancel(true);
+            nm.notify(SUB_NOTE_ID, b.build());
+        } catch (Throwable ignored) { }
+    }
     private static void takeJob(Context c, String jobId) {
         try {
             if (jobId == null || jobId.isEmpty()) return;

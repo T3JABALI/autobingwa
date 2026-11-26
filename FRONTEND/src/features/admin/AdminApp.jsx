@@ -11,7 +11,7 @@ import UsersAdmin from './UsersAdmin';
 import AnalyticsAdmin from './AnalyticsAdmin';
 import UpdatesAdmin from './UpdatesAdmin';
 import MessagesAdmin from './MessagesAdmin';
-
+import ConnectAdmin from './ConnectAdmin';
 const NAV = [
   ['home', 'Home', '⌂'],
   ['messages', 'Messages', '✉'],
@@ -22,6 +22,7 @@ const NAV = [
   ['tokens', 'Tokens', '▤'],
   ['portal', 'Portal subscriptions', '◎'],
   ['contacts', 'Contacts', '♧'],
+    ['connect', 'Connect plans', '₭'],
   ['settings', 'Settings', '⚙'],
   ['updates', 'Updates', '◷'],
 ];
@@ -30,6 +31,7 @@ const TITLES = {
   home: 'Home Dashboard', smart: 'Smart plans', tokens: 'Tokens', portal: 'Portal subscriptions',
   contacts: 'Contacts', settings: 'Settings', updates: 'Updates',
   users: 'Users', analytics: 'Analytics', income: 'Income', messages: 'Messages',
+    connect: 'Connect plans & coupons',
 };
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
@@ -105,6 +107,7 @@ export default function AdminApp({ email, logout }) {
   else if (page === 'portal') body = <PortalAdmin />;
   else if (page === 'contacts') body = <ContactsAdmin />;
   else if (page === 'smart') body = <SmartPlansAdmin />;
+    else if (page === 'connect') body = <ConnectAdmin />;
   else if (page === 'updates') body = <UpdatesAdmin />;
   else body = <Placeholder title={TITLES[page]} />;
 

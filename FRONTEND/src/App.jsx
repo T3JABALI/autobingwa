@@ -68,7 +68,7 @@ const Ico = ({ children }) => (
 )
 const navigation = [
   'Home', 'Offers', 'Smart Data Plans', 'QuickDial', 'Autorenewal', 'Sitelink',
-  'Tokens', 'Client Management', 'Contacts', 'Bulk SMS',
+  'Tokens', 'Client Management', 'Contacts',
   'Auto Replies', 'Autobingwa Connect', 'Fallback Plans', 'Referrals',
   'Phone Setup',
 ]
@@ -92,8 +92,7 @@ const navIcons = [
   <Ico><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" /><circle cx="17.5" cy="9" r="2.5" /><path d="M17 14.2c2.6.2 4.5 2 4.5 4.8" /></Ico>,
   // Contacts (address book)
   <Ico><rect x="5" y="3" width="14" height="18" rx="2" /><circle cx="12" cy="10" r="2.5" /><path d="M8 17c.6-2 2.2-3 4-3s3.4 1 4 3" /><path d="M3 8h2M3 12h2M3 16h2" /></Ico>,
-  // Bulk SMS (chat bubble)
-  <Ico><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /><path d="M8.5 10h7M8.5 13.5h4" /></Ico>,
+
   // Auto Replies (reply arrow)
   <Ico><path d="M9 14L4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v3" /></Ico>,
   // Autobingwa Connect (signal)
