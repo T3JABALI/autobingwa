@@ -1095,7 +1095,7 @@ async function checkConnectPayment(p) {
 app.post('/connect/subscribe/start', connectLimit(20), requireConnectUser, async (req, res) => {
   try {
     const { data: plan } = await cdb().from('plans').select('*').eq('id', str(req.body && req.body.planId, 20)).maybeSingle()
-    if (!plan) return res.status(400).json({ error: 'Unknown plan.' })
+    if (!plan || plan.active === false) return res.status(400).json({ error: 'Unknown plan.' })
     const phone = normalizePhone(req.body && req.body.phone)
     if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number, for example 0712345678.' })
 
@@ -1180,7 +1180,136 @@ app.post('/pay/connect/callback/:secret', async (req, res) => {
     console.error('connect callback', e) // the payment stays pending, so the app's recover call finishes it later
   }
 })
+/* ================= CONNECT: plan prices and coupons (phone side) ================= */
 
+// The phone reads the current prices here, so a price change needs no app update
+app.get('/connect/plans', async (req, res) => {
+  try {
+    const { data, error } = await cdb().from('plans').select('*').eq('active', true).order('days')
+    if (error) throw new Error(error.message)
+    res.set('Cache-Control', 'no-store')
+    res.json({ plans: (data || []).map((p) => ({ id: p.id, name: p.name, price: Number(p.price), days: Number(p.days) })) })
+  } catch (e) {
+    console.error('connect plans', e)
+    res.status(500).json({ error: 'Could not load the plans.' })
+  }
+})
+
+// A coupon gives free days. The code is used once, by one account, in one atomic step.
+app.post('/connect/coupon/redeem', connectLimit(30), requireConnectUser, async (req, res) => {
+  const code = String((req.body && req.body.code) || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (!/^[A-Z0-9]{8}$/.test(code)) return res.status(400).json({ error: 'A coupon code has 8 letters and numbers.' })
+  let used = null
+  try {
+    const now = new Date().toISOString()
+    const { data: c, error } = await cdb().from('coupons')
+      .update({ status: 'used', redeemed_by: req.cuser.id, redeemed_at: now })
+      .eq('code', code).eq('status', 'unused')
+      .or(`expires_at.is.null,expires_at.gt.${now}`)
+      .select('code,days').maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!c) return res.status(404).json({ error: 'This coupon is not valid. It may be wrong, already used or expired.' })
+    used = c
+
+    // Recorded like a payment, so award_payment adds the days and the phone lists it in History
+    const ins = await cdb().from('subscription_payments').insert({
+      user_id: req.cuser.id, plan_id: 'coupon', plan_name: 'Coupon', amount: 0, days: c.days,
+      method: 'coupon', status: 'pending', reference: 'COUPON-' + code }).select('*').single()
+    if (ins.error) throw new Error(ins.error.message)
+    const { error: awErr } = await cdb().rpc('award_payment', { p_payment: ins.data.id })
+    if (awErr) throw new Error(awErr.message)
+    res.json({ ok: true, days: c.days })
+  } catch (e) {
+    console.error('coupon redeem', e)
+    // Give the code back so the customer does not lose it for nothing
+    if (used) await cdb().from('coupons').update({ status: 'unused', redeemed_by: null, redeemed_at: null }).eq('code', used.code)
+    res.status(500).json({ error: 'Could not use the coupon. Try again.' })
+  }
+})
+/* ================= CONNECT: plan prices and coupons (admin side) ================= */
+
+// Admin: list the Connect plans
+app.get('/admin/connect/plans', requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await cdb().from('plans').select('*').order('days')
+    if (error) throw new Error(error.message)
+    res.json({ plans: (data || []).map((p) => ({ id: p.id, name: p.name, price: Number(p.price), days: Number(p.days), active: p.active !== false })) })
+  } catch (e) {
+    console.error('admin connect plans', e)
+    res.status(500).json({ error: 'Could not load the plans.' })
+  }
+})
+
+// Admin: change a price. Phones pick it up by themselves, and M-Pesa charges it straight away.
+app.put('/admin/connect/plans/:id', requireAdmin, async (req, res) => {
+  try {
+    const price = Math.round(Number(req.body && req.body.price))
+    if (!(price >= 1 && price <= 150000)) return res.status(400).json({ error: 'Price must be between KSh 1 and KSh 150,000.' })
+    const { data, error } = await cdb().from('plans').update({ price }).eq('id', req.params.id).select('id').maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data) return res.status(404).json({ error: 'Plan not found.' })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('admin connect price', e)
+    res.status(500).json({ error: 'Could not save the price.' })
+  }
+})
+
+// Admin: make coupon codes (free days)
+const CCHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const cCode = () => { let c = ''; for (let i = 0; i < 8; i++) c += CCHARS[crypto.randomInt(CCHARS.length)]; return c }
+
+app.post('/admin/connect/coupons', requireAdmin, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const days = Math.round(Number(b.days))
+    const count = Math.round(Number(b.count))
+    const exp = Math.round(Number(b.expiresDays) || 0)
+    if (!(days >= 1 && days <= 365)) return res.status(400).json({ error: 'Days must be between 1 and 365.' })
+    if (!(count >= 1 && count <= 100)) return res.status(400).json({ error: 'Make between 1 and 100 codes at a time.' })
+    if (exp < 0 || exp > 365) return res.status(400).json({ error: 'Expiry must be between 1 and 365 days, or 0 for never.' })
+    const expires = exp ? new Date(Date.now() + exp * 86400000).toISOString() : null
+    const codes = new Set()
+    while (codes.size < count) codes.add(cCode())
+    const { error } = await cdb().from('coupons').insert([...codes].map((code) => ({ code, days, expires_at: expires })))
+    if (error) throw new Error(error.message)
+    res.json({ codes: [...codes] })
+  } catch (e) {
+    console.error('admin connect coupons', e)
+    res.status(500).json({ error: 'Could not make the coupons.' })
+  }
+})
+
+// Admin: list coupons
+app.get('/admin/connect/coupons', requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await cdb().from('coupons').select('*').order('created_at', { ascending: false }).limit(300)
+    if (error) throw new Error(error.message)
+    const now = Date.now()
+    res.json({
+      coupons: (data || []).map((c) => ({
+        code: c.code, days: c.days, created: c.created_at, redeemedAt: c.redeemed_at,
+        status: c.status === 'unused' && c.expires_at && new Date(c.expires_at).getTime() <= now ? 'expired' : c.status,
+      })),
+    })
+  } catch (e) {
+    console.error('admin connect coupon list', e)
+    res.status(500).json({ error: 'Could not load the coupons.' })
+  }
+})
+
+// Admin: switch off an unused coupon
+app.delete('/admin/connect/coupons/:code', requireAdmin, async (req, res) => {
+  try {
+    const { data } = await cdb().from('coupons').update({ status: 'revoked' })
+      .eq('code', req.params.code).eq('status', 'unused').select('code').maybeSingle()
+    if (!data) return res.status(404).json({ error: 'Only unused codes can be revoked.' })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('revoke connect coupon', e)
+    res.status(500).json({ error: 'Could not revoke the coupon.' })
+  }
+})
 /* ================= TOKENS (M-Pesa) ================= */
 
 // 1. The app asks for an STK push
