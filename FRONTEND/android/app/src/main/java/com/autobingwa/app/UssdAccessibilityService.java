@@ -27,6 +27,7 @@ public class UssdAccessibilityService extends AccessibilityService {
     private static volatile boolean progressSeen = false;
     // The reason the last typeAndSend failed. The flow puts it in the transaction's response.
     public static volatile String lastFail = "";
+    public static volatile String lastListed = "";
     // ---------- USSD Settings page (set by configure) ----------
     private static volatile long keyDelayMs = 50;
     private static volatile long okDelayMs = 10;
@@ -222,6 +223,7 @@ public class UssdAccessibilityService extends AccessibilityService {
             }
         }
         long nowMs = System.currentTimeMillis();
+        lastListed = seen.length() == 0 ? "nothing" : seen.toString().trim();
         if (active && nowMs - lastNoWinLog > 1500) {
             lastNoWinLog = nowMs;
             Log.d(TAG, "no USSD window; Android listed: " + (seen.length() == 0 ? "nothing" : seen.toString().trim()));
@@ -235,7 +237,7 @@ public class UssdAccessibilityService extends AccessibilityService {
         if (e.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             Log.d(TAG, "window changed to " + e.getPackageName() + " / " + e.getClassName());
         }
-        if (!isPhonePkg(e.getPackageName()) && isOwnPkg(e.getPackageName())) return;
+        if (!isPhonePkg(e.getPackageName())) return;
         // Look right away. A burst of events collapses into one look.
         handler.removeCallbacks(scan);
         handler.post(scan);

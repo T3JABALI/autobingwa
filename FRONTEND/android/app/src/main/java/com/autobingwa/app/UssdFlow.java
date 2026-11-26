@@ -408,7 +408,7 @@ public class UssdFlow {
             // While the last step has not been sent, nothing can have been bought, so dialing again is safe
             boolean beforeLast = steps.length > 0 && !afterLast;
             long left = budgetMs - (System.currentTimeMillis() - started);
-            long base = afterLast ? Math.max(stepMs, 15000) : stepMs;
+            long base = afterLast ? Math.max(stepMs, 15000) : (i == 0 ? Math.min(stepMs, 12000) : stepMs);
             long wait = Math.min(base, Math.max(left, 1000));
             UssdAccessibilityService.Dialog d = carry != null ? carry : poll(wait);
             carry = null;
@@ -430,7 +430,7 @@ public class UssdFlow {
                 } else if (afterLast) {
                     r.message = "No reply from the network after sending '" + sent + "'. Check the confirmation SMS.";
                 } else {
-                    r.message = "No reply from the network after sending '" + sent + "'";
+                    r.message = "No reply from the network after sending '" + sent + "' (windows seen: " + UssdAccessibilityService.lastListed + ")";
                     r.safeRedial = beforeLast;
                     r.slowNet = true;
                     r.retryNote = "No reply from the network (weak signal). Nothing was bought. Dialing again";
@@ -641,7 +641,7 @@ public class UssdFlow {
                 long pause = 1000;
                 int tries = 0;
                 boolean gaveUp = false;
-final int maxRedials = (learn || !allowRetry) ? 0 : redials; // learning is one pass, never dialed again
+final int maxRedials = learn ? 0 : redials; // learning is one pass, never dialed again
 for (int attempt = 0; attempt <= maxRedials; attempt++) {
                     if (attempt > 0) {
                         clearStaleWindow();

@@ -57,7 +57,7 @@ final class EngineCore {
     // One payment (all its retries) may use this long. No retry starts if it could not finish inside it.
     private static final long TX_BUDGET_MS = 4 * 60_000;
         // The longest one USSD attempt may take. Settings can override it with "ussdTimeoutSec".
-    private static final long DEFAULT_USSD_TIMEOUT_SEC = 40;
+    private static final long DEFAULT_USSD_TIMEOUT_SEC = 60;
     private static volatile Thread lastUssdThread = null;
 // How many payments in a row ended with no reply from the phone (cut-off or timed out)
 private static int stallStreak = 0;
