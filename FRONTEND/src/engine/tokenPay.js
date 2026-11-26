@@ -33,12 +33,46 @@ const read = (key) => {
 }
 const write = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)) } catch (e) { console.error(e) } }
 const clear = (key) => { try { localStorage.removeItem(key) } catch (e) { /* ignore */ } }
+// ---------- Pause the background (native) engine while a token payment runs ----------
+const NATIVE_PAUSED = 'tokens:nativePaused'
 
+async function nativeBusy() {
+  if (!isNative()) return false
+  try {
+    const st = await AutoBingwa.nativeState()
+    return (st.transactions || []).some((t) => t.status === 'Processing')
+  } catch (e) {
+    return false
+  }
+}
+
+async function pauseNative() {
+  if (!isNative()) return
+  try {
+    const o = await AutoBingwa.nativeOwner()
+    if (o && o.owner && o.running) {
+      write(NATIVE_PAUSED, true) // remembered, so we only restart it if WE stopped it
+      await AutoBingwa.setNativeRunning({ on: false })
+    }
+  } catch (e) { console.error('AB pause native', e) }
+}
+
+async function resumeNative() {
+  if (!read(NATIVE_PAUSED)) return
+  clear(NATIVE_PAUSED)
+  try { await AutoBingwa.setNativeRunning({ on: true }) } catch (e) { console.error('AB resume native', e) }
+}
+
+// Lets both engines work again
+function releaseHold() {
+  engine.hold(false)
+  resumeNative()
+}
 // ---------------- Airtime ----------------
 export function pendingAirtimePayment() {
   const p = read(PENDING)
   if (!p) return null
-  if (Date.now() - p.startedAt > EXPIRE_MS) { clear(PENDING); engine.hold(false); return null }
+  if (Date.now() - p.startedAt > EXPIRE_MS) { clear(PENDING); releaseHold(); return null }
   return p
 }
 
@@ -73,13 +107,13 @@ export async function verifyAirtimePayment({ onStatus = () => {} } = {}) {
   }
   grantTokens(p.plan, 'airtime', p.id)
   clear(PENDING)
-  engine.hold(false)
+  releaseHold()
   return { status: 'paid', message: `Payment confirmed. ${p.plan.label} added.` }
 }
 
 export function cancelAirtimePayment() {
   clear(PENDING)
-  engine.hold(false)
+  releaseHold()
 }
 
 // Dials *140*amount*0143926894# silently. The phone's own answer ("You have transferred ... to 0143926894")
@@ -95,11 +129,21 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
   engine.hold(true) // no customer transaction may use the SIM or the airtime meanwhile
   let keepHold = false
   try {
+    onStatus('Pausing the background engine...')
+    await pauseNative()
     onStatus('Waiting for running transactions to finish...')
     await waitIdle()
 
+    // Remember the airtime balance, so we can prove later that the airtime left
+    let before = null
+    try {
+      onStatus('Checking your airtime balance...')
+      const b = await refreshAirtime(slot)
+      if (Number.isFinite(b)) before = b
+    } catch (e) { console.error('AB airtime before', e) }
+
     // Saved BEFORE dialing, so a crash can never dial twice
-    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before: null, startedAt: Date.now(), status: 'dialed' })
+    write(PENDING, { id: 'ap-' + Date.now(), plan, amount, slot, before, startedAt: Date.now(), status: 'dialed' })
     onStatus('Sending airtime...')
     let screen = ''
     let dialError = ''
@@ -136,7 +180,7 @@ export async function payWithAirtime(plan, { onStatus = () => {}, slot: pickedSl
         : 'Safaricom did not confirm the transfer, so no token was added. Check if your airtime dropped.',
     }
   } finally {
-    if (!keepHold) engine.hold(false)
+    if (!keepHold) releaseHold()
   }
 }
 
@@ -234,10 +278,12 @@ export function recoverTokenPayments() {
   if (p && p.status === 'paid') {
     grantTokens(p.plan, 'airtime', p.id)
     clear(PENDING)
+    releaseHold() // also restarts the background engine if we had paused it before the app closed
   } else if (pendingAirtimePayment()) {
     engine.hold(true) // keep customer transactions away from the SIM until it is confirmed or cancelled
-      recoverPaidMpesa()
+    pauseNative()
   }
+  recoverPaidMpesa() // always credit M-Pesa payments made while the app was closed
 }
 // ---------------- Live token plans and coupons (set by the admin) ----------------
 const PLANS_CACHE = 'tokens:plans'

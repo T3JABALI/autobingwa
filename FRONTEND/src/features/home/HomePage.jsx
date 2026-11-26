@@ -506,7 +506,7 @@ export default function HomePage({
   const unlimitedActive = tokens.kind === 'unlimited'
   const tokensOut = tokens.kind === 'none'
   const mask = (text) => (hide ? '••••••' : text)
-
+const maskPhone = (p) => (hide ? '••• ••• •••' : p)
   // A transaction belongs to a chip by status, or by date for Today
   const inFilter = (t, f) =>
     f === 'All'
@@ -927,11 +927,11 @@ export default function HomePage({
         <span className="hm-avatar">{on ? <Ic name="check" size={22} /> : initials(t.name || t.phone)}</span>
         <span className="hm-row-main">
           <span className="hm-row-name">
-            <span className="hm-nm">{t.name || t.phone}</span>
+            <span className="hm-nm">{t.name || maskPhone(t.phone)}</span>
             {t.verified !== false && <VerifiedBadge />}
             {tagOf(t) && <span className="hm-fb">{tagOf(t)}</span>}
           </span>
-          <span className="hm-row-sub">{t.phone} · {t.offerName} · KES {t.amount}</span>
+          <span className="hm-row-sub">{maskPhone(t.phone)} · {t.offerName} · KES {t.amount}</span>
         </span>
         <span className="hm-row-end">
           <span data-status={stateOf(t)} className={`st hm-${stateOf(t) === 'Scheduled' ? 'info-c' : TONE[stateOf(t)]}`}>{stateOf(t)}</span>
@@ -1147,10 +1147,10 @@ export default function HomePage({
           <section>
             <div className="hm-sec-head"><h2>Overview</h2></div>
             <div className="hm-stats">
-              <div className="hm-stat"><span className="hm-stat-n hm-ok">{counts.Completed}</span><span className="hm-stat-l">Successful</span></div>
-              <button className="hm-stat" onClick={() => openList('Pending')}><span className="hm-stat-n hm-warn">{counts.Pending}</span><span className="hm-stat-l">Pending</span></button>
-              <button className="hm-stat" onClick={() => openList('Scheduled')}><span className="hm-stat-n hm-info-c">{counts.Scheduled}</span><span className="hm-stat-l">Scheduled</span></button>
-              <button className="hm-stat" onClick={() => openList('Failed')}><span className="hm-stat-n hm-bad">{counts.Failed}</span><span className="hm-stat-l">Failed</span></button>
+              <div className="hm-stat"><span className="hm-stat-n hm-ok">{mask(counts.Completed)}</span><span className="hm-stat-l">Successful</span></div>
+              <button className="hm-stat" onClick={() => openList('Pending')}><span className="hm-stat-n hm-warn">{mask(counts.Pending)}</span><span className="hm-stat-l">Pending</span></button>
+              <button className="hm-stat" onClick={() => openList('Scheduled')}><span className="hm-stat-n hm-info-c">{mask(counts.Scheduled)}</span><span className="hm-stat-l">Scheduled</span></button>
+              <button className="hm-stat" onClick={() => openList('Failed')}><span className="hm-stat-n hm-bad">{mask(counts.Failed)}</span><span className="hm-stat-l">Failed</span></button>
             </div>
           </section>
 
@@ -1160,7 +1160,7 @@ export default function HomePage({
               <span className="hm-total">This week: <b>{mask(`KES ${money(weekTotal)}`)}</b></span>
             </div>
             <div className="hm-card hm-chart">
-              <CommissionChart values={values} todayIndex={todayIndex} total={weekTotal} />
+              <CommissionChart values={values} todayIndex={todayIndex} total={weekTotal} hidden={hide} />
             </div>
           </section>
 

@@ -25,7 +25,7 @@ const curve = (pts) =>
 
 // series: [{ values: number[], color: 'var(--primary)', fill?: boolean }]
 // upto: last index that has real data (later points are not drawn)
-export function GlowChart({ series = [], labels = [], upto = -1, highlight = -1, showValues = false, uid = 'g' }) {
+export function GlowChart({ series = [], labels = [], upto = -1, highlight = -1, showValues = false, uid = 'g', hidden = false }) {
   const box = useRef(null)
   const [size, setSize] = useState({ w: 320, h: 110 })
 
@@ -91,7 +91,7 @@ const padB = 22
           <g key={t}>
             <line x1={padL} x2={w - padR} y1={y(t)} y2={y(t)} style={{ stroke: 'var(--border)', strokeWidth: 1, strokeDasharray: t === 0 ? 'none' : '3 4' }} />
 <text x={padL - 5} y={y(t) + 3} textAnchor="end" style={{ ...txt, fill: 'var(--soft)' }}>
-              {short(t)}
+             {hidden ? '•••' : short(t)}
             </text>
           </g>
         ))}
@@ -118,7 +118,7 @@ const padB = 22
                 <g key={i}>
                   <circle cx={px} cy={py} r="7" style={{ fill: s.color, opacity: 0.22 }} />
                   <circle cx={px} cy={py} r="3.2" style={{ fill: 'var(--bg)', stroke: s.color, strokeWidth: 1.8 }} />
-                  {showValues && k === 0 && val(s.values[i]) > 0 && (
+                  {showValues && !hidden && k === 0 && val(s.values[i]) > 0 && (
                     <text x={px} y={Math.max(9, py - 9)} textAnchor="middle" style={{ ...txt, fill: 'var(--text)', fontWeight: 700 }}>
                       {short(val(s.values[i]))}
                     </text>
@@ -146,7 +146,7 @@ const padB = 22
 }
 
 // The Home screen chart: daily commissions, Sunday to Saturday
-export default function CommissionChart({ values = [], todayIndex = -1 }) {
+export default function CommissionChart({ values = [], todayIndex = -1, hidden = false }) {
   const last = todayIndex >= 0 ? Math.min(todayIndex, values.length - 1) : values.length - 1
   return (
     <GlowChart
@@ -155,6 +155,7 @@ export default function CommissionChart({ values = [], todayIndex = -1 }) {
       upto={last}
       highlight={todayIndex}
       showValues
+      hidden={hidden}
       series={[{ values, color: 'var(--primary)', fill: true }]}
     />
   )

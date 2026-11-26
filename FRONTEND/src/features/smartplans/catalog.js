@@ -27,7 +27,7 @@ export async function loadCatalog() {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), 15000)
   try {
-    const r = await fetch(`${API}/smart/catalog${cached ? '?v=' + encodeURIComponent(cached.version) : ''}`, { signal: ctl.signal })
+    const r = await fetch(`${API}/smart/catalog${cached ? '?v=' + encodeURIComponent(cached.version) : ''}`, { signal: ctl.signal, cache: 'no-store' })
     if (!r.ok) throw new Error('Catalog request failed (' + r.status + ')')
     const j = await r.json()
     if (j.unchanged && cached) return cached

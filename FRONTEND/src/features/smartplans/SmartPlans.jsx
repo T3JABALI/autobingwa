@@ -34,7 +34,16 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
   const groups = cat ? cat.groups : loaded ? BUNDLED_GROUPS : []
   const active = groups.includes(group) ? group : groups[0]
 
-  const have = new Set(owned.filter((o) => o.smart).map((o) => o.sid))
+  const mine = new Map(owned.filter((o) => o.smart).map((o) => [o.sid, o]))
+  // True when the admin re-learned the signature, changed the USSD, or bumped the revision
+  const stale = (o) => {
+    const m = mine.get(o.sid)
+    if (!m) return false
+    if (Number(o.rev || 0) > Number(m.catRev || 0)) return true
+    if (o.ussd !== m.ussd) return true
+    const a = o.sig && o.sig.learnedAt, b = m.sig && m.sig.learnedAt
+    return Boolean(a) && a !== b
+  }
   const list = plans.filter(
     (o) => o.group === active && o.name.toLowerCase().includes(q.toLowerCase())
   )
@@ -81,7 +90,27 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
     })
     setPick(null)
   }
-
+  // Replaces the old path with the new one. Keeps the user's price, SIMs and retry settings.
+  const update = (o) => {
+    const m = mine.get(o.sid)
+    if (!m) return
+    onDownload({
+      ...m,
+      sig: o.sig || null,
+      sigLearned: Boolean(o.sig),
+      sigEnabled: true,
+      sigAuto: false, // the admin's signature replaces any the app learned itself
+      catRev: o.rev || 0,
+      catTw: o.tw ? { on: Boolean(o.tw.on), from: o.tw.from, until: o.tw.until } : null,
+      category: o.group.toUpperCase(),
+      name: m.custom && m.custom.name ? m.name : o.name,
+      ussd: o.ussd,
+      steps: o.steps,
+      safPrice: m.custom && m.custom.safPrice ? m.safPrice : o.safPrice,
+      tw: { ...(m.tw || noWindow()), on: Boolean(o.tw && o.tw.on), ...(o.tw ? { from: o.tw.from, until: o.tw.until } : {}) },
+      updated: new Date().toLocaleString(),
+    })
+  }
   return (
     <div className="sig sp">
       <div className="offers-head">
@@ -119,7 +148,9 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
           </div>
           <div className="sp-price">KES {o.safPrice}</div>
           <code className="sp-ussd">{o.ussd}</code>
-          {have.has(o.sid) ? (
+                {stale(o) ? (
+            <button className="icon-btn sp-dl" onClick={() => update(o)} aria-label={`Update ${o.name}`}>⬆ Update</button>
+          ) : mine.has(o.sid) ? (
             <span className="pill ok sp-added">Added</span>
           ) : (
             <button className="icon-btn sp-dl" onClick={() => open(o)} aria-label={`Download ${o.name}`}>⬇</button>

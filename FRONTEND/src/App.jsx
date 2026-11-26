@@ -28,7 +28,7 @@ import SupportPage from './features/support/SupportPage.jsx'
 import DialogHost from './features/ui/DialogHost.jsx'
 
 import Sitelink from './features/sitelink/sitelink.jsx'
-import { useSmartSync } from './features/smartplans/smartSync.js'
+
 import BottomNav from './features/home/BottomNav.jsx'
 import { AnalyticsScreen } from './features/home/AnalyticsPage.jsx'
 import { askChoice, confirmDialog } from './features/ui/dialog.js'

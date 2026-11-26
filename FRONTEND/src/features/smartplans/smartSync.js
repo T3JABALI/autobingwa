@@ -32,18 +32,10 @@ steps: plan.steps,
 }
 
 export async function syncSmartOffers(offers, onSave) {
-  const owned = (offers || []).filter((o) => o.smart && o.sid)
-  if (!owned.length) return 0
-  const cat = await loadCatalog()
-  if (!cat) return 0
-  let n = 0
-  for (const o of owned) {
-    const next = applyCatalog(o, cat.plans.find((p) => p.sid === o.sid))
-    if (next) { onSave(next); n += 1 }
-  }
-  return n
+  // Updates are now manual: the user taps Update in Smart Plans.
+  // Nothing here may touch an offer's USSD, steps or signature.
+  return 0
 }
-
 // Call once in App.jsx with the same offers and save function you give the Offers page
 export function useSmartSync(offers, onSave) {
   const ref = useRef({ offers, onSave })
