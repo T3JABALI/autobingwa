@@ -3,6 +3,8 @@ import { smartOffers as BUNDLED, GROUPS as BUNDLED_GROUPS } from './smartCatalog
 import { loadCatalog, cachedCatalog } from './catalog.js'
 import VerifiedBadge from '../home/VerifiedBadge.jsx'
 import { CatIcon, catOf } from '../../Offers.jsx'
+import { engine } from '../../engine/index.js'
+
 const t12 = (v) => {
   if (!v) return ''
   const [h, m] = v.split(':').map(Number)
@@ -110,6 +112,8 @@ export default function SmartPlans({ owned = [], onDownload = () => {} }) {
       tw: { ...(m.tw || noWindow()), on: Boolean(o.tw && o.tw.on), ...(o.tw ? { from: o.tw.from, until: o.tw.until } : {}) },
       updated: new Date().toLocaleString(),
     })
+    // Failed payments of this plan now carry the new USSD. Nothing is retried.
+    engine.refreshUssd(m.id, o.ussd, m.custom && m.custom.safPrice ? m.safPrice : o.safPrice)
   }
   return (
     <div className="sig sp">

@@ -488,7 +488,12 @@ export function createEngine({
       emit('failed', done)
     }
     if (!offer) return fail('The offer was deleted.')
-
+    // Always dial the offer's CURRENT USSD, never the copy saved on the transaction
+    const freshUssd = fillPhone(offer.ussd, tx.phone)
+    if (tx.ussd !== freshUssd) {
+      tx = { ...tx, ussd: freshUssd, cost: Number(offer.safPrice) || 0 }
+      store.update(tx.id, { ussd: freshUssd, cost: tx.cost })
+    }
     const useOffer = (next) => {
       offer = next
       tx = {
@@ -880,6 +885,26 @@ if (id && (store.list().some((t) => sameId(t.id, id)) || wasDeleted(id))) {
     },
     // Works on ANY status, whatever the last result was
     retry(id) { store.update(id, { status: 'Pending', scheduledFor: null }); pump(true) },
+     // Updates the saved USSD on an offer's Failed payments. Status is not changed and nothing is dialed.
+    refreshUssd(offerId, ussd, safPrice) {
+      let n = 0
+      store.list()
+        .filter((t) => t.status === 'Failed' && sameId(t.offerId, offerId))
+        .forEach((t) => {
+          const u = fillPhone(ussd, t.phone)
+          if (t.ussd !== u) {
+            store.update(t.id, { ussd: u, cost: Number(safPrice) || 0 })
+            n++
+          }
+        })
+      return n
+    },
+    retryAllFailed(offerId) {
+      const ids = this.retryableFor(offerId)
+      ids.forEach((id) => store.update(id, { status: 'Pending', scheduledFor: null }))
+      if (ids.length) pump(true)
+      return ids.length
+    },
     reschedule(id, at) { store.update(id, { status: 'Scheduled', scheduledFor: at }) },
     // If the app was closed mid-dial, mark it Failed so it is checked before retrying (avoids a double purchase)
     recover() {
