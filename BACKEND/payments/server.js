@@ -1262,21 +1262,23 @@ const cCode = () => { let c = ''; for (let i = 0; i < 8; i++) c += CCHARS[crypto
 app.post('/admin/connect/coupons', requireAdmin, async (req, res) => {
   try {
     const b = req.body || {}
-    const days = Math.round(Number(b.days))
     const count = Math.round(Number(b.count))
     const exp = Math.round(Number(b.expiresDays) || 0)
-    if (!(days >= 1 && days <= 365)) return res.status(400).json({ error: 'Days must be between 1 and 365.' })
     if (!(count >= 1 && count <= 100)) return res.status(400).json({ error: 'Make between 1 and 100 codes at a time.' })
     if (exp < 0 || exp > 365) return res.status(400).json({ error: 'Expiry must be between 1 and 365 days, or 0 for never.' })
+    const { data: plan, error: pe } = await cdb().from('plans').select('id,name,days').eq('id', str(b.planId, 20)).maybeSingle()
+    if (pe) throw new Error(pe.message)
+    if (!plan) return res.status(400).json({ error: 'Choose Daily, Weekly or Monthly.' })
     const expires = exp ? new Date(Date.now() + exp * 86400000).toISOString() : null
     const codes = new Set()
     while (codes.size < count) codes.add(cCode())
-    const { error } = await cdb().from('coupons').insert([...codes].map((code) => ({ code, days, expires_at: expires })))
+    const { error } = await cdb().from('coupons').insert(
+      [...codes].map((code) => ({ code, days: Number(plan.days), plan_id: plan.id, plan_name: plan.name, expires_at: expires })))
     if (error) throw new Error(error.message)
     res.json({ codes: [...codes] })
   } catch (e) {
     console.error('admin connect coupons', e)
-    res.status(500).json({ error: 'Could not make the coupons.' })
+    res.status(500).json({ error: 'Could not make the coupons: ' + e.message })
   }
 })
 
@@ -1288,7 +1290,7 @@ app.get('/admin/connect/coupons', requireAdmin, async (req, res) => {
     const now = Date.now()
     res.json({
       coupons: (data || []).map((c) => ({
-        code: c.code, days: c.days, created: c.created_at, redeemedAt: c.redeemed_at,
+        code: c.code, days: c.days, planName: c.plan_name || '', created: c.created_at, redeemedAt: c.redeemed_at,
         status: c.status === 'unused' && c.expires_at && new Date(c.expires_at).getTime() <= now ? 'expired' : c.status,
       })),
     })
