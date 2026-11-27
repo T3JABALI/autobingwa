@@ -1206,14 +1206,14 @@ app.post('/connect/coupon/redeem', connectLimit(30), requireConnectUser, async (
       .update({ status: 'used', redeemed_by: req.cuser.id, redeemed_at: now })
       .eq('code', code).eq('status', 'unused')
       .or(`expires_at.is.null,expires_at.gt.${now}`)
-      .select('code,days').maybeSingle()
+      .select('code,days,plan_id,plan_name').maybeSingle()
     if (error) throw new Error(error.message)
     if (!c) return res.status(404).json({ error: 'This coupon is not valid. It may be wrong, already used or expired.' })
     used = c
 
     // Recorded like a payment, so award_payment adds the days and the phone lists it in History
     const ins = await cdb().from('subscription_payments').insert({
-      user_id: req.cuser.id, plan_id: 'coupon', plan_name: 'Coupon', amount: 0, days: c.days,
+      user_id: req.cuser.id, plan_id: c.plan_id || 'daily', plan_name: c.plan_name ? 'Coupon · ' + c.plan_name : 'Coupon', amount: 0, days: c.days,
       method: 'coupon', status: 'pending', reference: 'COUPON-' + code }).select('*').single()
     if (ins.error) throw new Error(ins.error.message)
     const { error: awErr } = await cdb().rpc('award_payment', { p_payment: ins.data.id })
@@ -1223,7 +1223,7 @@ app.post('/connect/coupon/redeem', connectLimit(30), requireConnectUser, async (
     console.error('coupon redeem', e)
     // Give the code back so the customer does not lose it for nothing
     if (used) await cdb().from('coupons').update({ status: 'unused', redeemed_by: null, redeemed_at: null }).eq('code', used.code)
-    res.status(500).json({ error: 'Could not use the coupon. Try again.' })
+    res.status(500).json({ error: 'Could not use the coupon: ' + e.message })
   }
 })
 /* ================= CONNECT: plan prices and coupons (admin side) ================= */
