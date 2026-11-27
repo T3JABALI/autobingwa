@@ -7,7 +7,7 @@ const box = { width: '100%', padding: 8, marginBottom: 10 };
 export default function ConnectAdmin() {
   const [plans, setPlans] = useState([]);
   const [edit, setEdit] = useState({});
-  const [days, setDays] = useState('30');
+  const [planId, setPlanId] = useState('');
   const [count, setCount] = useState('1');
   const [expires, setExpires] = useState('30');
   const [fresh, setFresh] = useState([]);
@@ -42,18 +42,20 @@ export default function ConnectAdmin() {
     setBusy('');
   };
 
-  const generate = async () => {
-    setBusy('gen'); setMsg('');
-    try {
-      const j = await adminFetch('/admin/connect/coupons', {
-        method: 'POST',
-        body: { days: Number(days), count: Number(count), expiresDays: Number(expires) || 0 },
-      });
-      setFresh(j.codes || []);
-      await loadCoupons();
-    } catch (e) { setMsg(e.message); }
-    setBusy('');
-  };
+ const generate = async () => {
+  const chosen = plans.find((p) => p.id === planId) || plans[0];
+  if (!chosen) { setMsg('Plans have not loaded yet.'); return; }
+  setBusy('gen'); setMsg('');
+  try {
+    const j = await adminFetch('/admin/connect/coupons', {
+      method: 'POST',
+      body: { planId: chosen.id, days: chosen.days, count: Number(count), expiresDays: Number(expires) || 0 },
+    });
+    setFresh(j.codes || []);
+    await loadCoupons();
+  } catch (e) { setMsg(e.message); }
+  setBusy('');
+};
 
   const revoke = async (code) => {
     try {
@@ -89,8 +91,16 @@ export default function ConnectAdmin() {
 
       <div className="ad-card ad-pad">
         <p className="ad-big">Generate coupons</p>
-        <label className="ad-muted">Free days per coupon</label>
-        <input style={box} type="number" min="1" max="365" value={days} onChange={(e) => setDays(e.target.value)} />
+<label className="ad-muted">Coupon plan</label>
+<select
+  style={box}
+  value={(plans.find((p) => p.id === planId) || plans[0] || {}).id || ''}
+  onChange={(e) => setPlanId(e.target.value)}
+>
+  {plans.map((p) => (
+    <option key={p.id} value={p.id}>Unlimited {p.name} ({p.days} {p.days === 1 ? 'day' : 'days'})</option>
+  ))}
+</select>
         <label className="ad-muted">How many codes (1 to 100)</label>
         <input style={box} type="number" min="1" max="100" value={count} onChange={(e) => setCount(e.target.value)} />
         <label className="ad-muted">Code expires after (days, 0 = never)</label>
@@ -119,7 +129,7 @@ export default function ConnectAdmin() {
           <div key={c.code} style={line}>
             <div style={{ flex: 1 }}>
               <b>{c.code}</b>
-              <p className="ad-muted" style={{ margin: 0 }}>{c.days} days · {c.status}</p>
+              <p className="ad-muted" style={{ margin: 0 }}>{c.planName ? 'Unlimited ' + c.planName : c.days + ' days'} · {c.status}</p>
             </div>
             {c.status === 'unused' && (
               <button className="ad-btn ad-btn-ghost" onClick={() => revoke(c.code)}>Revoke</button>
