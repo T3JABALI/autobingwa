@@ -170,6 +170,16 @@ const HOME_EXTRA = `
   .hm-s-detail .hm-bottom .hm-actions2 { margin-top: 0 !important; }
   .hm-s-detail .hm-act { padding: 9px 4px; font-size: 12px; gap: 4px; }
   .hm-s-detail .hm-act svg { width: 17px !important; height: 17px !important; }
+     /* Keep the menu bar, and start these screens below it */
+  .hm-page.hm-s-detail, .hm-page.hm-s-reschedule, .hm-page.hm-s-all {
+    padding-top: 64px !important;
+  }
+  .hm-page.hm-s-detail .hm-actions, .hm-page.hm-s-detail .hm-actions2 {
+    display: grid !important; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px;
+  }
+  .hm-page.hm-s-detail .hm-actions .hm-act {
+    flex-direction: column; gap: 4px; padding: 10px 4px; font-size: 12px; line-height: 1.15; text-align: center;
+  }
 .hm-s-detail .hm-vf svg { width: 17px !important; height: 17px !important; }
   .hm-s-home .hm-bigbtn.linked { background: #16a34a !important; border-color: #16a34a !important; color: #fff !important; }
 
@@ -715,7 +725,13 @@ const maskPhone = (p) => (hide ? '••• ••• •••' : p)
     setNotice(`Rescheduled for ${fmtDate(at.getTime())} at ${fmtTime(at.getTime())}`)
     setView({ ...view, name: 'detail' })
   }
-
+  // Marks it successful by hand and clears the Awaiting commission / Unverified chip
+  async function markCompleted(t) {
+    if (!(await confirmDialog('Do this only if the customer already got their plan.', { title: 'Mark as completed?', confirmLabel: 'Complete' }))) return
+    completeTx(t)
+    updateTransaction(t.id, { verify: null })
+    setNotice('')
+  }
   async function remove(t) {
     if (!(await confirmDialog('This transaction will be removed for good.', { title: 'Delete transaction?', confirmLabel: 'Delete', danger: true }))) return
     deleteTransaction(t.id)
@@ -1317,6 +1333,11 @@ const maskPhone = (p) => (hide ? '••• ••• •••' : p)
             <button className="hm-act" onClick={() => retry(tx)} disabled={tx.status === 'Processing'}>
               <Icon name="retry" /> Retry
             </button>
+                        {(tx.status !== 'Completed' || tx.verify === 'awaiting' || tx.verify === 'unverified') && (
+              <button className="hm-act" onClick={() => markCompleted(tx)} disabled={tx.status === 'Processing'}>
+                <Ic name="check" /> Mark Completed
+              </button>
+            )}
             <button className="hm-act" onClick={() => openReschedule(tx)} disabled={tx.status === 'Processing'}>
               <Icon name="clock" /> Reschedule
             </button>
